@@ -1,0 +1,177 @@
+* Capítulo 18 (Revisado e Aprofundado): Dominando o Modelo Clássico — Headers, Linkagem e o Pré-processador
+
+O modelo de compilação do C++ é fundamentalmente um processo de duas etapas: compilação e linkagem. Cada arquivo .cpp (chamado de unidade de tradução) é compilado de forma independente para gerar um arquivo objeto (.o ou .obj). Esses arquivos objeto contêm o código de máquina para as funções definidas naquele .cpp, mas as chamadas para funções definidas em outros arquivos objeto são deixadas como referências simbólicas. A etapa de linkagem resolve essas referências, juntando todos os arquivos objeto e as bibliotecas necessárias em um único executável.
+
+Os arquivos de cabeçalho (.hpp) são a cola que permite que uma unidade de tradução saiba sobre as funções e classes declaradas em outra, mesmo sem ver sua implementação.
+
+** 18.1 A Regra de Uma Definição (One Definition Rule - ODR)
+
+A ODR é um dos princípios mais importantes do C++. Ela afirma, em essência:
+
+  1. Em todo o programa, uma variável não-inline, função ou classe deve ter exatamente uma definição.
+  2. Você pode ter múltiplas declarações, desde que sejam idênticas.
+
+Violar a ODR (por exemplo, definindo a mesma função em dois arquivos .cpp diferentes) resulta em um erro do linker, não do compilador. O linker verá dois símbolos com o mesmo nome e não saberá qual usar.
+É aqui que a distinção entre declaração e definição se torna crítica:
+
+  - *Declaração: Introduz um nome e seu tipo. Não aloca memória nem gera código.*
+#+begin_src cpp
+extern int global_var; // Declaração de uma variável definida em outro lugar.
+void minha_funcao(int); // Declaração (protótipo) de uma função.
+class MinhaClasse;      // Declaração antecipada (forward declaration) de uma classe.
+#+end_src
+
+  - *Definição: Fornece a "realidade" da declaração. Aloca memória ou gera o corpo do código.*
+#+begin_src cpp
+int global_var = 10;   // Definição da variável.
+void minha_funcao(int x) { /* corpo */ } // Definição da função.
+class MinhaClasse { /* ... */ }; // Definição da classe.
+#+end_src
+Regra prática: Coloque declarações em arquivos de header. Coloque definições de funções e variáveis globais em arquivos .cpp.
+
+** 18.2 Declarações Antecipadas (Forward Declarations)
+
+Incluir um header é uma operação "pesada". Se o meu_header.hpp inclui dez outros headers da biblioteca padrão, cada .cpp que inclui meu_header.hpp pagará o custo de processar todos esses onze arquivos.
+
+Uma técnica para reduzir esse custo e quebrar dependências circulares é a declaração antecipada. Se um arquivo de header só precisa saber que um tipo OutraClasse existe para poder declarar um ponteiro ou uma referência a ele (OutraClasse* ou const OutraClasse&), ele não precisa da definição completa da classe.
+
+*Exemplo:*
+#+begin_src cpp
+// Em "pessoa.hpp"
+#ifndef PESSOA_HPP
+#define PESSOA_HPP
+
+#include <string>
+// #include "carro.hpp" // EVITAMOS incluir o header completo de Carro
+
+class Carro; // Declaração antecipada. O compilador sabe que 'Carro' é um tipo.
+
+class Pessoa {
+private:
+    std::string m_nome;
+    Carro* m_carro; // OK: só precisamos saber que Carro existe para ter um ponteiro.
+public:
+    Pessoa(std::string nome);
+    void comprar_carro(Carro* c);
+};
+
+#endif
+#+end_src
+
+#+begin_src cpp
+// Em "pessoa.cpp"
+#include "pessoa.hpp"
+#include "carro.hpp" // A implementação PRECISA da definição completa de Carro.
+
+Pessoa::Pessoa(std::string nome) : m_nome(std::move(nome)), m_carro(nullptr) {}
+
+void Pessoa::comprar_carro(Carro* c) {
+    m_carro = c;
+    // m_carro->ligar(); // Agora podemos usar os métodos de Carro.
+}
+#+end_src
+
+Usar declarações antecipadas em headers sempre que possível é uma marca de um bom design em C++, pois minimiza as dependências e acelera drasticamente os tempos de compilação.
+
+** 18.3 O Problema das Definições em Headers: inline
+
+E se tivermos uma função muito pequena e rápida que gostaríamos de colocar no header para que o compilador possa otimizá-la melhor (inlining)? Se simplesmente definirmos a função no header, violaremos a ODR, pois cada .cpp que incluir o header terá sua própria definição, levando a um erro do linker.
+
+A palavra-chave inline resolve isso. Ela é uma permissão que damos ao compilador para violar a ODR.
+
+#+begin_src cpp
+// Em "utils.hpp"
+#ifndef UTILS_HPP
+#define UTILS_HPP
+
+// 'inline' diz ao linker: "Eu sei que esta definição pode aparecer em múltiplos
+// arquivos objeto. Isso é intencional. Escolha uma delas e descarte as outras."
+inline int max(int a, int b) {
+    return a > b ? a : b;
+}
+
+#endif
+#+end_src
+
+Importante: Métodos de classe definidos dentro da própria declaração da classe no header são implicitamente inline.
+
+#+begin_src cpp
+// Em "minha_classe.hpp"
+class MinhaClasse {
+public:
+    // Este método é implicitamente inline.
+    int get_id() const { return m_id; }
+private:
+    int m_id;
+};
+#+end_src
+
+** 18.4 Linkagem Interna vs. Externa: static e const
+
+Por padrão, funções e variáveis globais têm linkagem externa, o que significa que são visíveis em todo o programa.
+
+Às vezes, queremos uma variável global ou uma função de ajuda que seja usada apenas dentro de um único arquivo .cpp. Para evitar poluir o espaço de nomes global e potenciais conflitos, podemos dar a eles linkagem interna usando a palavra-chave static.
+
+#+begin_src cpp
+// Em "meu_modulo.cpp"
+
+static int s_contador_interno = 0; // Só é visível dentro de meu_modulo.cpp
+
+static void funcao_de_ajuda() { // Só pode ser chamada de dentro de meu_modulo.cpp
+    // ...
+}
+
+void funcao_publica() {
+    s_contador_interno++;
+    funcao_de_ajuda();
+}
+#+end_src
+
+Outro arquivo .cpp pode definir seu próprio s_contador_interno sem nenhum conflito com este.
+
+Variáveis globais const têm linkagem interna por padrão em C++, o que é uma convenção útil.
+
+** 18.5 Juntando Tudo: Um Exemplo Estruturado
+
+logger.hpp
+#+begin_src cpp
+#ifndef LOGGER_HPP
+#define LOGGER_HPP
+#include <string>
+
+// Interface pública do nosso módulo de logging.
+void log_message(const std::string& msg);
+
+#endif
+#+end_src
+
+logger.cpp
+#+begin_src cpp
+#include "logger.hpp"
+#include <iostream>
+
+// Variável com linkagem interna, privada para este arquivo.
+static int s_message_count = 0;
+
+// Definição da função pública.
+void log_message(const std::string& msg) {
+    s_message_count++;
+    std::cout << "[LOG " << s_message_count << "]: " << msg << std::endl;
+}
+#+end_src
+
+main.cpp
+#+begin_src cpp
+#include "logger.hpp" // Inclui a declaração de log_message.
+
+int main() {
+    log_message("Programa iniciado.");
+    // s_message_count = 0; // ERRO: s_message_count não é visível aqui.
+    log_message("Programa terminado.");
+    return 0;
+}
+#+end_src
+
+Este modelo, embora funcional, é complexo e frágil. Ele depende da disciplina do programador e da "higiene" do pré-processador. Agora que dominamos suas complexidades, podemos apreciar ainda mais por que os módulos foram introduzidos.
+
+No próximo capítulo, faremos uma imersão ainda mais profunda nos módulos do C++20, explorando como eles resolvem cada um desses problemas de forma mais limpa e robusta, e como estruturar um projeto maior usando partições de módulo.

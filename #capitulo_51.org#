@@ -1,0 +1,181 @@
+* Capítulo 51: Testes Expressivos com Catch2 — A Filosofia e a Prática
+
+O Catch2 (atualmente em sua versão 3, mas o nome "Catch2" permaneceu) é mais do que um framework de testes; é uma filosofia. Sua premissa central é que os testes não são apenas para verificação, mas também para documentação. Um bom teste deve ser lido como uma especificação clara e executável do comportamento esperado do código. Isso é alcançado através de uma sintaxe que favorece a legibilidade e a expressividade, minimizando o "boilerplate" (código repetitivo e cerimonial).
+
+** 51.1 A Essência do Catch2: Integração "Header-Only"
+
+A primeira e mais marcante característica do Catch2 é sua facilidade de integração. Para a maioria dos casos de uso, ele é um framework "header-only". Isso significa que não há bibliotecas para compilar separadamente nem processos de vinculação (linking) complexos.
+
+*O Processo de Integração:*
+  1. Obtenção: Baixe o arquivo de cabeçalho único catch.hpp da página oficial do Catch2.
+
+  2. Configuração do "Main": Em um e apenas um dos seus arquivos de código-fonte de teste (por exemplo, test_main.cpp), você escreve o seguinte:
+
+#+begin_src cpp
+#define CATCH_CONFIG_MAIN
+#include "catch.hpp"
+#+end_src
+
+A macro CATCH_CONFIG_MAIN instrui o Catch2 a gerar a função main() necessária para o seu executável de teste. Ele cria o "test runner" para você.
+
+  3. Escrita dos Testes: Em todos os outros arquivos de teste (ex: test_calculadora.cpp, test_pilha.cpp), você simplesmente inclui o cabeçalho:
+
+#+begin_src cpp
+#include "catch.hpp"
+#include "../src/calculadora.h" // Inclui o código que você quer testar
+
+TEST_CASE("A Calculadora pode somar números", "[calculadora]") {
+    Calculadora calc;
+    REQUIRE(calc.soma(2, 2) == 4);
+    REQUIRE(calc.soma(-1, 1) == 0);
+}
+#+end_src
+
+** 51.2 A Sintaxe BDD: Testes como Especificações
+
+Onde o Catch2 realmente brilha é em sua sintaxe inspirada no Behavior-Driven Development (BDD). Ele permite estruturar seus testes como "cenários" com seções GIVEN, WHEN, THEN, tornando a intenção do teste explícita.
+
+  - SCENARIO: Descreve um comportamento ou funcionalidade geral a ser testada.
+  - GIVEN: Configura o estado inicial (o "Arrange" do padrão Arrange-Act-Assert).
+  - WHEN: Descreve a ação ou evento que está sendo testado (o "Act").
+  - THEN: Descreve o resultado esperado e contém as asserções (o "Assert").
+
+O mais engenhoso é que o Catch2 executa cada seção WHEN/THEN a partir do GIVEN anterior, garantindo o isolamento de cada teste de comportamento.
+
+*Exemplo: Testando uma Pilha (Stack)*
+#+begin_src cpp
+#include "catch.hpp"
+#include "../src/pilha.h"
+
+SCENARIO("Uma Pilha pode ser manipulada", "[pilha]") {
+    GIVEN("Uma Pilha com alguns elementos") {
+        Pilha<int> p;
+        p.push(1);
+        p.push(2);
+        p.push(3);
+
+        REQUIRE(p.tamanho() == 3);
+
+        WHEN("Um elemento é removido com pop()") {
+            p.pop();
+
+            THEN("O tamanho da pilha é reduzido") {
+                REQUIRE(p.tamanho() == 2);
+            }
+            THEN("O elemento do topo é o anterior") {
+                REQUIRE(p.topo() == 2);
+            }
+        }
+
+        WHEN("Um novo elemento é adicionado com push()") {
+            p.push(4);
+
+            THEN("O tamanho da pilha é incrementado") {
+                REQUIRE(p.tamanho() == 4);
+            }
+            THEN("O novo elemento está no topo") {
+                REQUIRE(p.topo() == 4);
+            }
+        }
+    }
+}
+#+end_src
+
+Este teste não é apenas código; é uma especificação legível por humanos do que se espera de uma Pilha.
+
+** 51.3 Asserções: REQUIRE vs. CHECK
+
+Catch2 oferece uma família de macros de asserção, mas as duas principais que você usará 99% do tempo são REQUIRE e CHECK. A diferença entre elas é crucial para escrever bons testes:
+
+  - REQUIRE(expressao): Se a expressao for falsa, o teste falha e é abortado imediatamente. Use REQUIRE para condições que são pré-requisitos para o resto do teste. Se um GIVEN falhar, não faz sentido continuar com o WHEN e o THEN.
+
+  - CHECK(expressao): Se a expressao for falsa, o teste falha, mas a execução continua. Use CHECK quando quiser verificar múltiplas propriedades de um objeto e quiser ver todos os resultados, mesmo que o primeiro já tenha falhado.
+
+*Exemplo Prático:*
+#+begin_src cpp
+TEST_CASE("Verificando propriedades de um objeto", "[assercoes]") {
+    Retangulo r = criar_retangulo(10, 20);
+
+    // Se a criação falhar, não há o que testar.
+    REQUIRE(r.eh_valido()); 
+
+    // Queremos ver todos os resultados, mesmo que a largura esteja errada.
+    CHECK(r.largura() == 10);
+    CHECK(r.altura() == 20);
+    CHECK(r.area() == 200);
+}
+#+end_src
+
+** 51.4 Integrando com CMake
+
+a integração com o CMake é limpa e robusta. Assumindo a estrutura de projeto que discutimos anteriormente:
+
+projeto/
+├── CMakeLists.txt
+├── src/
+│   ├── calculadora.h
+│   └── calculadora.cpp
+└── tests/
+    ├── catch.hpp
+    ├── test_main.cpp
+    └── test_calculadora.cpp
+
+Seu CMakeLists.txt principal poderia ter a seguinte lógica:
+#+begin_src cmake
+cmake_minimum_required(VERSION 3.15)
+project(MeuProjeto CXX)
+
+# Habilita o CTest, o executor de testes do CMake
+enable_testing()
+
+# Adiciona o subdiretório do código-fonte
+add_subdirectory(src)
+
+# Adiciona o subdiretório de testes
+add_subdirectory(tests)
+#+end_src
+
+E o CMakeLists.txt dentro do diretório tests/ seria:
+#+begin_src cmake
+# Cria o executável de teste a partir dos arquivos de teste
+add_executable(run_tests
+    test_main.cpp
+    test_calculadora.cpp
+)
+
+# Vincula o executável de teste à nossa biblioteca principal (ex: 'minha_lib')
+# para que os testes possam acessar o código da aplicação.
+target_link_libraries(run_tests PRIVATE minha_lib)
+
+# Adiciona o teste ao CTest
+# O primeiro argumento é o nome do teste, o segundo é o comando para rodá-lo.
+add_test(NAME MeusTestes COMMAND run_tests)
+#+end_src
+
+Com essa configuração, você pode compilar e rodar seus testes com os comandos cmake --build . e depois ctest.
+
+** 51.5 Tópicos Avançados: Fixtures e Matchers
+
+Para sermos intensos, não podemos parar no básico.
+
+  - Fixtures (TEST_CASE_METHOD): Para testes que requerem um setup e teardown complexo (ex: conectar a um banco de dados de teste, criar um arquivo temporário), o Catch2 oferece TEST_CASE_METHOD. Você cria uma classe cujo construtor faz o setup e o destrutor faz o teardown (RAII!), e seus testes herdam dela, tendo acesso direto aos seus membros.
+
+  - Matchers: E se você não quiser apenas verificar igualdade? E se quiser verificar se um vetor contém um elemento, ou se uma string começa com um prefixo? Para isso, o Catch2 tem um sistema de "Matchers" poderoso.
+
+#+begin_src cpp
+#include <catch2/matchers/string.hpp> // Requer cabeçalhos adicionais
+#include <catch2/matchers/vector.hpp>
+
+TEST_CASE("Matchers para asserções complexas", "[matchers]") {
+    std::string s = "hello world";
+    REQUIRE_THAT(s, Catch::Matchers::StartsWith("hello"));
+
+    std::vector<int> v = {1, 2, 3};
+    REQUIRE_THAT(v, Catch::Matchers::VectorContains(2));
+}
+#+end_src
+
+Com esta visão geral, cobrimos a filosofia, a prática, a integração e os recursos avançados do Catch2. Ele nos fornece um ambiente de teste de primeira classe, mantendo-se fiel aos princípios de simplicidade e expressividade.
+
+Agora que temos este "padrão ouro" em mente, estamos muito mais preparados para a nossa próxima e empolgante tarefa: projetar e construir nosso próprio micro-framework de testes do zero.
+

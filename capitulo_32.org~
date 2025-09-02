@@ -1,0 +1,110 @@
+* Capítulo 32: Padrões de Uso e Técnicas Avançadas com Lambdas
+
+Dominar a sintaxe de uma ferramenta é apenas o primeiro passo. A verdadeira maestria reside em saber quando e como aplicá-la para resolver problemas recorrentes de design. As funções lambda, devido à sua natureza concisa e à sua capacidade de encapsular estado e comportamento, são particularmente adequadas para a implementação de vários padrões de software de forma elegante.
+
+** 32.1 IIFE (Immediately Invoked Function Expression)
+
+Este padrão, cujo nome é emprestado da comunidade JavaScript, é uma técnica extremamente útil para a inicialização de variáveis complexas, especialmente aquelas que devem ser const.
+
+O Problema: Frequentemente, a inicialização de uma variável const requer uma lógica que não cabe em uma única expressão. A abordagem tradicional seria criar uma função auxiliar, chamá-la e atribuir seu retorno à variável. Isso, no entanto, polui o escopo com uma função que só é usada uma vez.
+
+A Solução (IIFE): O padrão IIFE consiste em definir uma lambda e executá-la imediatamente no mesmo local. Isso é feito adicionando um par de parênteses () logo após a definição da lambda.
+
+#+begin_src cpp
+#include <map>
+#include <string>
+#include <iostream>
+
+// Queremos inicializar um mapa 'const' com alguns valores.
+// A lógica de preenchimento é complexa demais para uma lista de inicialização.
+const std::map<std::string, int> DADOS_DE_CONFIG = [] {
+    std::map<std::string, int> config;
+    std::cout << "Executando lógica de inicialização complexa..." << std::endl;
+    config["porta"] = 8080;
+    config["threads"] = 4;
+    config["timeout_ms"] = 5000;
+    // ... poderia ler de um arquivo, etc. ...
+    std::cout << "Inicialização concluída." << std::endl;
+    return config;
+}(); // <-- Os parênteses aqui invocam a lambda imediatamente.
+
+int main() {
+    std::cout << "Porta: " << DADOS_DE_CONFIG.at("porta") << std::endl;
+}
+#+end_src
+
+Benefícios do Padrão IIFE:
+
+const Correctness: Permite que variáveis que exigem uma lógica de inicialização multi-etapas sejam declaradas como const, o que é uma prática recomendada de software.
+Encapsulamento: Toda a lógica de inicialização e quaisquer variáveis temporárias (como config no exemplo) ficam contidas dentro do escopo da lambda. Isso evita a poluição do escopo circundante.
+Localidade: O código de inicialização fica exatamente ao lado da variável que está sendo inicializada, melhorando drasticamente a legibilidade e a manutenção do código.
+32.2 Fábricas de Funções e std::function
+Uma "fábrica de funções" é um padrão onde uma função não retorna um valor, mas sim outra função, configurada de acordo com os parâmetros da fábrica. As lambdas são a ferramenta perfeita para isso, pois podem capturar os parâmetros da fábrica para criar um objeto de função customizado.
+
+O Problema: Como vimos, cada lambda tem um tipo de fechamento único e anônimo. Qual deve ser, então, o tipo de retorno de uma função que retorna uma lambda?
+
+A Solução (std::function): A biblioteca padrão fornece uma solução de "type erasure" para este problema: std::function. É um invólucro polimórfico que pode armazenar qualquer objeto "chamável" (uma lambda, um functor, um ponteiro de função) que corresponda a uma assinatura de função específica.
+
+Exemplo Prático: Uma Fábrica de Multiplicadores
+
+cpp
+Copy
+#include <functional>
+#include <iostream>
+
+// Esta é uma fábrica. Ela recebe um 'fator' e retorna uma função
+// que recebe um 'int' e retorna um 'int'.
+std::function<int(int)> criarMultiplicador(int fator) {
+    // A lambda captura 'fator' por cópia.
+    // Ela se "lembra" do fator com o qual foi criada.
+    return [fator](int valor) {
+        return valor * fator;
+    };
+}
+
+int main() {
+    auto duplicar = criarMultiplicador(2);
+    auto triplicar = criarMultiplicador(3);
+
+    std::cout << "Duplicando 10: " << duplicar(10) << std::endl;   // Imprime 20
+    std::cout << "Triplicando 10: " << triplicar(10) << std::endl; // Imprime 30
+}
+Trade-offs: std::function oferece uma flexibilidade imensa, mas não é isenta de custos. Ela pode introduzir uma pequena sobrecarga de performance devido à indireção (uma chamada de função virtual interna) e, se a lambda for grande demais para caber em um buffer interno, pode ocorrer uma alocação de memória dinâmica. Para casos críticos de performance, outras técnicas podem ser preferíveis, mas para a maioria dos cenários, a clareza e a flexibilidade de std::function são ideais.
+
+32.3 Lambdas Recursivas: O Desafio da Auto-Referência
+Uma lambda, por ser anônima, não tem um nome que possa usar para chamar a si mesma. Uma chamada recursiva direta dentro de uma lambda não é possível, pois o nome da variável que a armazena ainda não está no escopo quando o corpo da lambda é definido.
+
+A Solução (Usando std::function): A técnica mais comum e legível para criar uma lambda recursiva envolve std::function e a captura por referência.
+
+Declare um objeto std::function que representará a função recursiva.
+Defina a lambda, capturando o objeto std::function por referência.
+Atribua a lambda ao objeto std::function.
+Agora, dentro da lambda, a referência capturada é válida e pode ser usada para invocar a si mesma.
+
+Exemplo Prático: Fatorial Recursivo
+
+cpp
+Copy
+#include <functional>
+#include <iostream>
+
+int main() {
+    // 1. Declaramos o std::function.
+    std::function<int(int)> fatorial;
+
+    // 2. Definimos a lambda, capturando 'fatorial' por referência.
+    // 3. Atribuímos a lambda a 'fatorial'.
+    fatorial = [&fatorial](int n) -> int {
+        if (n <= 1) {
+            return 1;
+        } else {
+            // A chamada recursiva é feita através da referência capturada.
+            return n * fatorial(n - 1);
+        }
+    };
+
+    std::cout << "Fatorial de 5: " << fatorial(5) << std::endl; // Imprime 120
+}
+Esta técnica, embora um pouco verbosa, é robusta e clara. Existem métodos mais avançados e puramente funcionais (como o uso de lambdas genéricas para emular o Y-Combinator), mas a abordagem com std::function é a mais idiomática e de fácil manutenção para a maioria dos programadores C++.
+
+Estes padrões demonstram que as lambdas transcendem a mera conveniência sintática. Elas são ferramentas de design que permitem a criação de código mais encapsulado, flexível e expressivo, resolvendo problemas de inicialização, configuração e recursão de maneiras que antes eram desajeitadas ou excessivamente complexas.

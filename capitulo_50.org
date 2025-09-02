@@ -1,0 +1,121 @@
+* Capítulo 50: Tarefas e o Futuro (std::async, std::future, std::promise)
+
+A programação baseada em tarefas desacopla a especificação do trabalho de sua execução. O principal benefício é a clareza e a redução da complexidade. Em vez de lidar com ponteiros compartilhados, mutexes e variáveis de condição para comunicar um resultado de volta de uma thread trabalhadora para uma thread principal, usamos um mecanismo elegante e robusto: o par future/promise.
+
+** 50.1 std::future — Um Canal de Comunicação Unidirecional
+
+Imagine que você pede a um colega para realizar um cálculo demorado. Você não fica parado olhando para ele; você lhe entrega as instruções e continua com seu próprio trabalho. O colega lhe dá um "recibo" que você pode usar mais tarde para pegar o resultado.
+
+std::future é esse recibo. É um objeto que representa um resultado que ainda não está disponível, mas que estará em algum momento no futuro. Ele atua como a ponta de "leitura" de um canal de comunicação assíncrono. A operação mais importante em um std::future é get():
+
+  - future.get(): Esta chamada bloqueia a thread atual até que o resultado esteja pronto. Uma vez que o resultado esteja disponível, get() o retorna. Se a tarefa assíncrona lançou uma exceção, get() irá re-lançar essa mesma exceção na thread que o chamou. É crucial notar que get() só pode ser chamado uma única vez em um std::future.
+
+** 50.2 std::async — Lançando Tarefas de Forma Simples
+
+A maneira mais fácil de criar e lançar uma tarefa que retorna um std::future é usando std::async. Esta função, localizada no header <future>, aceita uma função (ou qualquer objeto chamável) e seus argumentos, e a executa de forma assíncrona.
+
+#+begin_src cpp
+#include <iostream>
+#include <future>
+#include <chrono>
+#include <thread>
+
+long long calculo_demorado(int x) {
+    std::cout << "Thread de trabalho iniciada...\n";
+    std::this_thread::sleep_for(std::chrono::seconds(3));
+    return static_cast<long long>(x) * x;
+}
+
+int main() {
+    std::cout << "Thread principal: lançando cálculo demorado.\n";
+
+    // Lança a tarefa. A execução de calculo_demorado pode começar
+    // imediatamente em uma nova thread. 'futuro' recebe o "recibo".
+    std::future<long long> futuro = std::async(calculo_demorado, 1000);
+
+    std::cout << "Thread principal: fazendo outro trabalho enquanto o cálculo acontece.\n";
+    // ... podemos fazer outras coisas aqui ...
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    std::cout << "Thread principal: trabalho intermediário concluído.\n";
+
+    std::cout << "Thread principal: aguardando o resultado...\n";
+    // A chamada a get() irá bloquear aqui até que calculo_demorado retorne.
+    // Se os 3 segundos já passaram, retorna imediatamente.
+    long long resultado = futuro.get();
+
+    std::cout << "Thread principal: o resultado é " << resultado << ".\n";
+}
+#+end_src
+
+Observe a beleza desta abstração: não há std::thread explícito, nenhum std::mutex, nenhum dado compartilhado para proteger. A comunicação do resultado (ou da exceção) é gerenciada inteiramente pelo par std::async/std::future.
+
+Políticas de Lançamento: std::async pode receber um primeiro argumento opcional que especifica a política de lançamento:
+
+  - std::launch::async: Garante que a tarefa será executada em uma nova thread.
+
+  - std::launch::deferred: A tarefa não é executada. Em vez disso, sua execução é adiada até que get() seja chamado no futuro correspondente. A execução ocorrerá de forma síncrona na thread que chamou get().
+
+  - std::launch::async | std::launch::deferred (o padrão): Permite que a implementação da biblioteca padrão escolha. Ela pode lançar uma nova thread ou adiar a execução, geralmente com base na disponibilidade de threads em um pool interno. Essa flexibilidade pode otimizar o uso de recursos, mas remove a garantia de execução paralela.
+
+** 50.3 std::promise — O Lado do Produtor
+
+std::async é uma abstração de alto nível que combina a criação de uma tarefa com a criação do par future/promise. E se precisarmos de mais controle? E se a thread que produz o resultado não for a mesma que foi lançada para fazer o trabalho?
+
+Para isso, podemos construir o canal de comunicação manualmente usando std::promise. Um std::promise é a ponta de "escrita" do canal.
+
+  - Você cria um std::promise<T>.
+
+  - Você obtém seu std::future<T> associado chamando promise.get_future().
+
+  - Você move o promise para a thread produtora.
+
+  - Você passa o future para a thread consumidora.
+
+  - Quando a produtora tiver o resultado, ela chama promise.set_value(resultado). Isso desbloqueia a consumidora que estava esperando em future.get().
+
+#+begin_src cpp
+void produtor(std::promise<int> prom) {
+    std::cout << "Produtor: trabalhando...\n";
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    std::cout << "Produtor: encontrei o valor!\n";
+    prom.set_value(42); // Cumpre a promessa.
+}
+
+int main() {
+    std::promise<int> promessa;
+    std::future<int> futuro = promessa.get_future();
+
+    // Lançamos uma thread e movemos a promessa para ela.
+    std::thread t(produtor, std::move(promessa));
+
+    std::cout << "Consumidor: esperando pelo valor...\n";
+    int resultado = futuro.get(); // Bloqueia até set_value() ser chamado.
+    std::cout << "Consumidor: o valor é " << resultado << ".\n";
+
+    t.join();
+}
+#+end_src
+
+** 50.4 std::packaged_task — Empacotando o Trabalho
+
+std::packaged_task é um intermediário útil. Ele encapsula uma função ou objeto chamável e o conecta a um par future/promise. Quando o packaged_task é invocado (como uma função normal), ele chama a função encapsulada e armazena o resultado (ou exceção) na promessa interna.
+
+Isso é extremamente útil para criar sistemas de "fila de tarefas" ou "thread pools", onde você pode enfileirar packaged_tasks e fazer com que threads trabalhadoras os retirem da fila e os executem.
+
+#+begin_src cpp
+// ...
+std::packaged_task<long long(int)> tarefa(calculo_demorado);
+std::future<long long> futuro = tarefa.get_future();
+
+// A tarefa ainda não foi executada.
+// Podemos movê-la para uma fila, passá-la para outra thread, etc.
+
+// Para executar, simplesmente a invocamos.
+std::thread t(std::move(tarefa), 2000);
+
+long long resultado = futuro.get(); // Espera a tarefa ser invocada e terminar.
+// ...
+t.join();
+#+end_src
+
+Com estas ferramentas, concluímos nossa exploração fundamental da concorrência em C++. Passamos do controle manual de threads e travas para a expressividade de alto nível das tarefas assíncronas. A regra geral é: prefira std::async sempre que seu objetivo for simplesmente executar uma computação em segundo plano e obter seu resultado. Recorra a std::thread e mutexes quando precisar de controle de baixo nível sobre o ciclo de vida da thread ou ao implementar primitivas de sincronização complexas.

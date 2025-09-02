@@ -1,0 +1,105 @@
+* Capítulo 34: A Arte da Captura — catch e a Hierarquia de Exceções
+
+Um bloco catch é um manipulador de exceções. Sua assinatura declara o tipo de erro que ele está preparado para tratar. Quando o runtime, durante o desenrolamento da pilha, encontra um bloco try, ele examina os catch associados em ordem, procurando o primeiro cuja assinatura seja compatível com o tipo do objeto que foi lançado.
+
+** 34.1 Capturar por Valor, Referência ou Ponteiro? A Decisão Crítica
+
+A sintaxe do C++ permite três maneiras de especificar o tipo em um catch, mas apenas uma delas é considerada a prática idiomática e correta. As outras duas introduzem problemas sutis e perigosos.
+
+*1. Capturar por Valor (catch (MyException e)) - A Abordagem Problemática*
+
+Esta sintaxe instrui o compilador a criar uma cópia do objeto da exceção.
+
+  - Problema Principal: Slicing (Fatiamento de Objeto): Este é o defeito fatal da captura por valor. Se você lança um objeto de uma classe derivada, mas o captura por valor como uma de suas classes base, a parte "derivada" do objeto é "fatiada". Você perde o polimorfismo.
+
+  #+begin_src cpp
+#include <iostream>
+#include <stdexcept>
+
+class MinhaExcecaoBase : public std::exception {
+public:
+    const char* what() const noexcept override { return "Exceção Base"; }
+};
+
+class MinhaExcecaoDerivada : public MinhaExcecaoBase {
+public:
+    // Note a sobrescrita (override) do método virtual.
+    const char* what() const noexcept override { return "Exceção Derivada"; }
+};
+
+int main() {
+    try {
+        throw MinhaExcecaoDerivada();
+    } catch (MinhaExcecaoBase e) { // CAPTURA POR VALOR
+        // 'e' é uma CÓPIA do tipo MinhaExcecaoBase.
+        // A informação de que o objeto original era uma MinhaExcecaoDerivada foi perdida.
+        // A chamada a 'what()' invocará a versão da classe base.
+        std::cout << "Capturado: " << e.what() << std::endl; // Imprime "Exceção Base"
+    }
+}
+#+end_src
+
+O comportamento polimórfico, que é essencial para um bom design de hierarquias de exceção, é completamente quebrado.
+
+*2. Capturar por Ponteiro (catch (MyException* e)) - O Antipadrão*
+
+Esta sintaxe só captura exceções que foram lançadas como ponteiros (throw new MyException()).
+
+Problema Principal: Gerenciamento de Memória: Quem é o responsável por chamar delete e? Se o manipulador catch o fizer, ele precisa saber se o ponteiro foi alocado com new. Se não o fizer, a memória vaza. Lançar ponteiros brutos para objetos alocados dinamicamente é um antipadrão que destrói as garantias de gerenciamento de recursos.
+3. Capturar por Referência (catch (const MyException& e)) - O Idioma Canônico
+
+Esta é a maneira correta, segura e idiomática de capturar exceções em C++.
+
+Mecânica: Ela vincula uma referência diretamente ao objeto da exceção original (que o runtime garante que permanecerá vivo durante a execução do catch).
+Benefícios:
+Evita o Slicing: Uma referência a uma classe base pode se vincular a um objeto de uma classe derivada sem perder a identidade do objeto derivado. O polimorfismo é preservado.
+Evita Cópias: Nenhuma cópia dispendiosa do objeto da exceção é feita.
+const Correctness: Capturar por referência a const é a prática recomendada. O propósito de um bloco catch é analisar e tratar um erro, não modificar o objeto que o descreve.
+cpp
+Copy
+// O exemplo anterior, corrigido:
+try {
+    throw MinhaExcecaoDerivada();
+} catch (const MinhaExcecaoBase& e) { // CAPTURA POR REFERÊNCIA A CONST
+    // 'e' é uma referência ao objeto original MinhaExcecaoDerivada.
+    // O polimorfismo funciona como esperado.
+    // A chamada a 'what()' invocará a versão da classe derivada.
+    std::cout << "Capturado: " << e.what() << std::endl; // Imprime "Exceção Derivada"
+}
+34.2 A Hierarquia std::exception
+A biblioteca padrão fornece, no header <exception>, uma classe base para todas as exceções padrão: std::exception. Seu principal recurso é o método virtual what(), projetado para ser sobrescrito por classes derivadas a fim de fornecer uma mensagem de erro descritiva.
+
+As exceções padrão, como std::runtime_error, std::logic_error, std::bad_alloc, etc., herdam de std::exception.
+
+Melhor Prática: Suas próprias classes de exceção devem herdar publicamente de std::exception ou de uma de suas descendentes. Isso permite que seu código e o código de terceiros capturem exceções de forma genérica.
+
+cpp
+Copy
+catch (const std::exception& e) {
+    // Este bloco pode capturar qualquer exceção padrão da STL
+    // e qualquer exceção customizada que siga a boa prática de herdar de std::exception.
+    log_error(e.what());
+}
+34.3 A Ordem Importa: Do Específico ao Geral
+O runtime testa os blocos catch na ordem em que aparecem no código. O primeiro que corresponder será executado, e os demais serão ignorados. Isso tem uma implicação crucial ao lidar com hierarquias de exceção.
+
+Você deve sempre capturar a classe mais derivada (específica) antes de capturar a classe base (geral).
+
+cpp
+Copy
+try {
+    // ... código que pode lançar diferentes tipos de erro de arquivo ...
+} catch (const ArquivoNaoEncontrado& e) { // 1. Mais específico
+    // Lógica para lidar com um arquivo ausente.
+} catch (const PermissaoNegada& e) {     // 2. Específico
+    // Lógica para lidar com problemas de permissão.
+} catch (const ErroDeArquivo& e) {        // 3. Mais geral
+    // Lógica para qualquer outro erro de arquivo.
+} catch (const std::exception& e) {       // 4. Genérico
+    // Lógica para qualquer outra exceção padrão.
+}
+Se o catch (const ErroDeArquivo& e) viesse primeiro, ele capturaria também ArquivoNaoEncontrado e PermissaoNegada (assumindo que herdam dele), e os blocos de tratamento específicos nunca seriam alcançados.
+
+34.4 Mecanismos Especiais: Re-lançamento e Catch-All
+Re-lançamento (throw;): Dentro de um bloco catch, uma instrução throw; (sem nenhum objeto) re-lança a exceção original que foi capturada. Isso é útil quando um manipulador pode apenas tratar parcialmente um erro (por exemplo, logar a ocorrência) e precisa propagar a exceção para um nível superior da pilha de chamadas para uma recuperação mais completa. É crucial usar throw; e não throw e;, pois o último poderia "fatiar" a exceção se e for uma captura por valor.
+Catch-All (catch (...)): A elipse ... como assinatura de um catch cria um manipulador que captura qualquer exceção, independentemente do tipo. Como ele não fornece nenhuma informação sobre o que foi capturado, seu uso é limitado. Seu principal papel é como uma rede de segurança final no nível mais alto de um programa (no main ou no ponto de entrada de uma thread) para garantir que o programa possa terminar de forma controlada em vez de abortar, mesmo diante de exceções inesperadas (incluindo as lançadas por bibliotecas C de terceiros).

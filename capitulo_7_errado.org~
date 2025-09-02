@@ -1,0 +1,151 @@
+* Capítulo 7: Agregando Dados — A Simplicidade e o Poder das Structs
+
+Até este ponto, lidamos com dados em sua forma atômica: um int para um número, um double para uma fração, um char para um caractere. Mas os problemas do mundo real raramente são tão simples. Um jogador em um jogo não é apenas um número de pontuação; ele tem um nome, pontos de vida, uma posição no mapa. Um ponto em um gráfico não é apenas um x; ele tem um x e um y.
+
+Para representar essas entidades compostas, precisamos de uma maneira de agregar múltiplos dados em uma única unidade lógica. Em C++, a ferramenta primária e mais direta para isso é a struct. Este capítulo introduz o conceito de tipos de dados definidos pelo usuário, um passo que nos move de meros manipuladores de dados para arquitetos de informação.
+
+** 7.1 O Que é uma struct?
+
+Uma struct (abreviação de "structure", ou estrutura) é um tipo de dado composto que agrupa um ou mais variáveis, chamadas de membros, sob um único nome. Isso permite que você crie seu próprio tipo de dado, adaptado às necessidades do seu problema.
+
+A sintaxe para definir uma struct é a seguinte:
+#+begin_src cpp
+
+struct NomeDoTipo {
+    Tipo1 membro1;
+    Tipo2 membro2;
+    // ... outros membros
+};
+#+end_src
+
+Vamos modelar um ponto 2D simples:
+
+#+begin_src cpp
+struct Ponto2D {
+    double x;
+    double y;
+};
+#+end_src
+
+Com essa definição, nós criamos um novo tipo em nosso programa: Ponto2D. Agora podemos declarar variáveis deste tipo, assim como faríamos com int ou double.
+
+#+begin_src cpp
+#include <iostream>
+
+// Definição da struct
+struct Ponto2D {
+    double x;
+    double y;
+};
+
+int main() {
+    // Declaração de uma variável do tipo Ponto2D
+    Ponto2D pontoInicial;
+}
+#+end_src
+
+** 7.2 Acessando e Modificando Membros
+
+Para trabalhar com os dados dentro de uma variável struct, usamos o operador de acesso a membro, que é um simples ponto (.).
+
+#+begin_src cpp
+int main() {
+    Ponto2D pontoInicial;
+
+    // Atribuindo valores aos membros
+    pontoInicial.x = 10.5;
+    pontoInicial.y = -3.2;
+
+    // Lendo valores dos membros
+    std::cout << "Coordenadas do ponto: ("
+              << pontoInicial.x << ", "
+              << pontoInicial.y << ")" << std::endl;
+
+    return 0;
+}
+#+end_src
+
+** 7.3 structs e Funções: Passagem e Retorno
+
+A verdadeira utilidade das structs se manifesta quando as usamos com funções. Elas nos permitem passar um conjunto complexo de dados como uma única unidade.
+
+Considere uma função que calcula a distância de um ponto até a origem (0,0).
+
+#+begin_src cpp
+#include <cmath> // Para a função sqrt (raiz quadrada)
+
+// ... definição da struct Ponto2D ...
+
+// Passando a struct POR VALOR
+double calcularDistancia(Ponto2D p) {
+    // Uma cópia de 'p' é criada para esta função
+    return std::sqrt(p.x * p.x + p.y * p.y);
+}
+#+end_src
+
+Como vimos no capítulo sobre funções, a passagem por valor cria uma cópia. Para uma struct pequena como Ponto2D, o custo é baixo. Mas se tivéssemos uma struct Jogador com muitos membros, a cópia poderia se tornar um gargalo de performance.
+
+A abordagem recomendada para structs não triviais é a passagem por referência para const:
+
+#+begin_src cpp
+// Passando a struct POR REFERÊNCIA PARA CONST
+// Sem cópia, mais eficiente e seguro (a função não pode modificar o original)
+double calcularDistanciaEficiente(const Ponto2D& p) {
+    return std::sqrt(p.x * p.x + p.y * p.y);
+}
+#+end_src
+
+Também podemos retornar structs de funções, permitindo que uma função produza um resultado composto.
+
+#+begin_src cpp
+Ponto2D criarPonto(double x, double y) {
+    Ponto2D novoPonto;
+    novoPonto.x = x;
+    novoPonto.y = y;
+    return novoPonto; // RVO (Return Value Optimization) geralmente evita a cópia aqui
+}
+#+end_src
+
+** 7.4 Inicialização de structs
+
+C++ oferece maneiras convenientes e seguras de inicializar uma struct no momento de sua criação.
+
+*** 7.4.1 Inicialização Agregada
+
+Podemos fornecer os valores para os membros em ordem, dentro de chaves {}.
+
+#+begin_src cpp
+// Os valores são atribuídos a 'x' e 'y', respectivamente.
+Ponto2D pontoA = {10.5, -3.2};
+#+end_src
+
+7.4.2 Inicializadores Designados (C++20)
+Uma adição valiosa no C++20 são os inicializadores designados. Eles permitem nomear explicitamente qual membro você está inicializando, tornando o código mais legível e menos propenso a erros se a ordem dos membros na struct mudar.
+
+cpp
+Copy
+// A ordem não importa, e a intenção é clara.
+Ponto2D pontoB = {.y = 20.0, .x = 5.0};
+Esta forma de inicialização é frequentemente preferida por sua clareza e robustez.
+
+7.5 struct vs. class: Uma Prévia
+Você pode ter ouvido falar da palavra-chave class e se perguntar qual a diferença. Em C++, a distinção técnica é mínima:
+
+Em uma struct, os membros são public por padrão (acessíveis de qualquer lugar).
+Em uma class, os membros são private por padrão (acessíveis apenas de dentro da própria classe).
+Apesar da pequena diferença técnica, a comunidade C++ adota uma convenção idiomática forte:
+
+Use struct para tipos de dados cujo propósito principal é agregar dados que não possuem regras complexas (invariantes) para manter. Elas são "Plain Old Data" (POD). Ponto2D é um exemplo perfeito.
+Use class quando você quer encapsular dados e comportamento, esconder detalhes de implementação e garantir que o objeto esteja sempre em um estado válido (impondo invariantes).
+Exploraremos class em profundidade mais adiante. Por enquanto, pense em structs como pacotes de dados convenientes.
+
+7.6 Resumo do Capítulo: Criando Nossos Próprios Tipos
+Neste capítulo, demos um passo significativo: passamos de usar os tipos fornecidos pela linguagem para criar os nossos.
+
+structs nos permitem agrupar variáveis relacionadas em um único tipo de dado composto.
+O operador ponto (.) é usado para acessar os membros de uma struct.
+Passar structs para funções por const& é uma prática comum para obter eficiência e segurança.
+A inicialização agregada e, em especial, os inicializadores designados do C++20, oferecem maneiras claras e seguras de criar instâncias de structs.
+Agora que sabemos como criar nossos próprios tipos de dados agregados, a próxima pergunta se torna mais urgente e relevante: como podemos nos referir a esses objetos na memória de forma eficiente, especialmente quando precisamos passá-los entre diferentes partes do nosso programa ou criar estruturas de dados mais complexas?
+
+A resposta a essa pergunta nos leva diretamente ao nosso próximo tópico: o estudo de ponteiros e referências.

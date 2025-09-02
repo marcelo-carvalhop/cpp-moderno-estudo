@@ -1,0 +1,112 @@
+* Capítulo 9: A Arquitetura da Memória e o Gerenciamento Dinâmico
+
+Até agora, a maior parte da memória que usamos foi gerenciada automaticamente. Variáveis declaradas dentro de uma função são alocadas na pilha (stack) e destruídas quando a função retorna. Este modelo é simples, rápido e eficiente, mas tem uma limitação fundamental: o tempo de vida dos dados está rigidamente vinculado ao escopo em que foram criados.
+
+E se precisarmos de um objeto cujo tempo de vida não se encaixa em um escopo específico? E se precisarmos de uma quantidade de memória cujo tamanho só é conhecido em tempo de execução? Para esses cenários, precisamos de um controle mais explícito sobre o ciclo de vida da memória. Isso nos leva ao conceito de alocação dinâmica e a uma segunda grande área da memória do programa: o heap.
+
+** 9.1 Pilha (Stack) vs. Heap: Dois Modelos de Memória
+
+Todo programa C++ opera com pelo menos duas regiões de memória distintas para alocação de dados:
+
+  1. A Pilha (The Stack):
+    - Gerenciamento: Totalmente automático. O compilador gerencia a alocação e desalocação através do mecanismo de stack frames que vimos no capítulo sobre funções.
+    - Velocidade: Extremamente rápida. A alocação/desalocação é simplesmente o incremento/decremento de um único ponteiro (o ponteiro da pilha).
+    - Tamanho: Fixo e relativamente pequeno (geralmente alguns megabytes).
+    - Tempo de Vida: Estritamente LIFO (Last-In, First-Out), vinculado ao escopo.
+    - Uso: Variáveis locais, parâmetros de função.
+
+  2. O Heap (ou Free Store):
+    - Gerenciamento: Totalmente manual. O programador é responsável por solicitar explicitamente a memória e, crucialmente, por devolvê-la ao sistema quando não for mais necessária.
+    - Velocidade: Mais lenta. A alocação pode envolver a busca por um bloco de memória livre de tamanho adequado, um processo mais complexo.
+    - Tamanho: Grande, limitado apenas pela memória RAM disponível no sistema.
+    - Tempo de Vida: Flexível. Um objeto alocado no heap persiste até ser explicitamente desalocado, independentemente do escopo em que foi criado.
+    - Uso: Objetos grandes, objetos cujo tamanho é desconhecido em tempo de compilação, ou objetos que precisam sobreviver ao escopo que os criou.
+
+** 9.2 Os Operadores new e delete: A Mecânica da Alocação Dinâmica
+
+C++ fornece os operadores new e delete para interagir com o heap.
+
+  - new: Aloca memória no heap para um objeto, chama o construtor do objeto para inicializá-lo e retorna um ponteiro para o objeto recém-criado.
+
+  - delete: Recebe um ponteiro para um objeto alocado com new, chama o destrutor do objeto e devolve a memória ao sistema.
+
+#+begin_src cpp
+#include <iostream>
+
+struct Player {
+    std::string name;
+    Player(const std::string& n) : name(n) { std::cout << "Player " << name << " criado.\n"; }
+    ~Player() { std::cout << "Player " << name << " destruído.\n"; }
+};
+
+void game_session() {
+    // Aloca um objeto Player no heap.
+    // 'ptr_player' é uma variável local na pilha, mas o objeto Player em si está no heap.
+    Player* ptr_player = new Player("Gandalf");
+
+    // ... usa o jogador ...
+    std::cout << "Sessão de jogo com " << ptr_player->name << " em andamento.\n";
+
+    // O programador DEVE liberar a memória explicitamente.
+    delete ptr_player;
+} // 'ptr_player' sai de escopo aqui, mas se 'delete' não fosse chamado,
+  // a memória do objeto Player no heap teria vazado.
+
+int main() {
+    game_session();
+}
+#+end_src
+
+A regra fundamental é simples, mas inflexível: toda chamada a new deve ter uma chamada correspondente a delete.
+
+9.3 Alocação de Arrays Dinâmicos
+Também podemos alocar arrays de objetos no heap, usando uma sintaxe ligeiramente diferente. A desalocação requer o uso do operador delete[].
+
+cpp
+Copy
+// Aloca um array de 10 inteiros no heap.
+int* arr_dinamico = new int[10];
+
+// ... usa o array ...
+arr_dinamico[0] = 5;
+
+// A desalocação DEVE usar a forma de array.
+delete[] arr_dinamico;
+Usar delete em um array alocado com new[], ou delete[] em um objeto único, é comportamento indefinido. O compilador precisa da forma [] para saber que deve chamar o destrutor para cada elemento do array antes de liberar a memória.
+
+9.4 Os Perigos do Gerenciamento Manual: Vazamentos e Corrupção
+O gerenciamento manual de memória é uma fonte notória de bugs.
+
+Vazamentos de Memória (Memory Leaks): Ocorrem quando a memória alocada com new não é liberada com delete. O programa perde a referência àquela memória, que permanece alocada e indisponível até o término do programa. Em aplicações de longa duração (como servidores), vazamentos cumulativos podem exaurir a memória do sistema.
+Ponteiros Pendentes (Dangling Pointers) e Dupla Liberação (Double Free):
+Após chamar delete ptr;, o ponteiro ptr em si não muda de valor; ele ainda contém o endereço da memória agora liberada. Ele se torna um ponteiro pendente.
+Tentar dereferenciar este ponteiro pendente é UB.
+Chamar delete uma segunda vez no mesmo ponteiro (dupla liberação) também é UB e pode corromper as estruturas internas do gerenciador de memória do heap.
+cpp
+Copy
+Player* p = new Player("Sauron");
+delete p;
+// Neste ponto, 'p' é um ponteiro pendente.
+// p->name = "Gollum"; // UB!
+// delete p;           // UB! Double free.
+Uma prática comum, embora não infalível, é atribuir nullptr a um ponteiro imediatamente após deletá-lo, o que o invalida de forma segura.
+Exceções e Vazamentos: O que acontece se uma exceção for lançada entre uma chamada a new e a chamada a delete?
+cpp
+Copy
+void process_data() {
+    Resource* r = new Resource();
+    faz_algo_que_pode_lancar_excecao(); // Se isso lançar, a linha abaixo nunca é alcançada.
+    delete r; // VAZAMENTO DE MEMÓRIA!
+}
+Garantir a liberação de recursos na presença de exceções é um problema complexo de resolver manualmente.
+9.5 RAII e Ponteiros Inteligentes: A Solução Moderna
+Os problemas do gerenciamento manual são tão significativos que o C++ moderno oferece uma solução idiomática e robusta baseada no princípio RAII (Resource Acquisition Is Initialization).
+
+A ideia é encapsular a posse de um recurso alocado no heap (como a memória de new) dentro de um objeto alocado na pilha. O construtor do objeto adquire o recurso, e seu destrutor o libera. Como o objeto encapsulador vive na pilha, sua destruição é garantida quando ele sai de escopo — mesmo na presença de exceções — e seu destrutor é chamado automaticamente, liberando o recurso.
+
+Esta é a base dos ponteiros inteligentes (smart pointers), definidos no cabeçalho <memory>. Eles são a ferramenta preferencial para todo gerenciamento de memória dinâmica em código C++ moderno.
+
+std::unique_ptr: Representa a posse única e exclusiva de um recurso. É leve e tem praticamente a mesma performance de um ponteiro bruto. Quando o unique_ptr é destruído, ele chama delete no ponteiro que gerencia. Não pode ser copiado, apenas movido.
+std::shared_ptr: Representa a posse compartilhada. Ele mantém uma contagem de referências de quantos shared_ptrs estão apontando para o mesmo recurso. O recurso só é deletado quando a última referência é destruída.
+std::weak_ptr: Uma referência não proprietária a um objeto gerenciado por um shared_ptr. Usado para quebrar ciclos de referência.
+Devido à sua importância, dedicaremos o próximo capítulo a uma análise detalhada e prática do uso de ponteiros inteligentes. Eles são a resposta da linguagem aos perigos que exploramos aqui. O uso de new e delete diretamente deve ser considerado uma prática de exceção em código moderno, restrita a implementações de baixo nível ou interoperabilidade com código legado.

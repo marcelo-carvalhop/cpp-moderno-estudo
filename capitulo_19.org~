@@ -1,0 +1,154 @@
+* Capítulo 19: A Arquitetura Moderna — Módulos, Partições e Interfaces
+
+Os módulos não são apenas uma melhoria incremental; eles representam uma mudança de paradigma na forma como o código C++ é organizado e compilado. Eles substituem a frágil mecânica textual do pré-processador por um sistema semântico, consciente do código, que oferece encapsulamento robusto, compilação mais rápida e uma estrutura de projeto mais limpa.
+
+** 19.1 A Anatomia de um Módulo: Além do Básico
+
+Como vimos, um módulo é definido por uma unidade de interface de módulo. Esta unidade declara o nome do módulo e exporta as entidades que compõem sua interface pública. No entanto, um módulo não precisa ser um único arquivo monolítico. Ele pode ser composto por múltiplos arquivos, incluindo arquivos de implementação e partições.
+
+  - Unidade de Interface de Módulo Primária: Todo módulo deve ter exatamente uma. É aqui que o nome do módulo é declarado com export module [nome];.
+
+  - Unidade de Implementação de Módulo: Um arquivo que pertence a um módulo, mas não exporta nada. Ele pode importar o módulo para ver todas as declarações (incluindo as não exportadas) e fornecer as definições para as declarações da interface. Seu cabeçalho é module [nome]; (sem export).
+
+  - Partições de Módulo: Um mecanismo para dividir a implementação de um módulo grande em múltiplos arquivos gerenciáveis, sem expor esses detalhes de implementação aos consumidores do módulo.
+19.2 Unidades de Implementação: Separando Interface e Definição
+Assim como no modelo clássico, é uma boa prática separar a declaração da definição. Os módulos suportam isso de forma limpa.
+
+geometry.cppm (Unidade de Interface Primária)
+
+cpp
+Copy
+export module geometry;
+
+import <cmath>; // Importando outro módulo
+
+// A interface pública exporta a classe e suas funções membro públicas.
+export class Point {
+public:
+    Point(double x, double y);
+
+    void translate(double dx, double dy);
+    double distance_to_origin() const;
+
+private:
+    double m_x;
+    double m_y;
+};
+
+// Exporta uma função livre.
+export double distance_between(const Point& p1, const Point& p2);
+geometry_impl.cpp (Unidade de Implementação de Módulo)
+
+cpp
+Copy
+module geometry; // Declara que este arquivo é parte do módulo 'geometry'.
+
+// Este arquivo pode "ver" os membros privados de Point porque pertence ao mesmo módulo.
+
+Point::Point(double x, double y) : m_x(x), m_y(y) {}
+
+void Point::translate(double dx, double dy) {
+    m_x += dx;
+    m_y += dy;
+}
+
+double Point::distance_to_origin() const {
+    return std::sqrt(m_x * m_x + m_y * m_y);
+}
+
+double distance_between(const Point& p1, const Point& p2) {
+    // Como este arquivo é parte do módulo, ele pode acessar os membros privados
+    // de Point, mesmo não sendo um método da classe. Isso é poderoso, mas
+    // deve ser usado com cuidado.
+    double dx = p1.m_x - p2.m_x;
+    double dy = p1.m_y - p2.m_y;
+    return std::sqrt(dx * dx + dy * dy);
+}
+O consumidor do módulo (import geometry;) só tem acesso ao que foi exportado em geometry.cppm. Ele não sabe e não se importa que a implementação esteja em geometry_impl.cpp.
+
+19.3 Partições: Organizando Módulos Grandes
+Para um módulo muito grande (pense em uma biblioteca de física ou um motor de renderização), colocar toda a implementação em um único arquivo _impl.cpp é impraticável. As partições permitem dividir o módulo em pedaços lógicos.
+
+Uma partição é um tipo especial de unidade de implementação que pode ser importada por outras partes do mesmo módulo. O nome de uma partição contém dois pontos (:).
+
+Partição de Interface: Declara e exporta entidades para serem usadas por outras partes do módulo. export module [nome_modulo]:[nome_particao];
+Partição de Implementação: Apenas implementa. module [nome_modulo]:[nome_particao];
+Exemplo de Estrutura com Partições:
+
+Imagine um módulo renderer com subsistemas para shaders e models.
+
+renderer.cppm (Interface Primária)
+
+cpp
+Copy
+export module renderer;
+
+// Importa as partições de interface. As entidades exportadas por elas
+// são re-exportadas aqui, tornando-se parte da interface pública do 'renderer'.
+export import :shaders;
+export import :models;
+
+// Exporta uma função que usa ambos os subsistemas.
+export void render_scene();
+shaders.cppm (Partição de Interface)
+
+cpp
+Copy
+export module renderer:shaders; // Note o ':'
+
+export class ShaderProgram {
+public:
+    void bind();
+    // ...
+};
+models.cppm (Partição de Interface)
+
+cpp
+Copy
+export module renderer:models;
+
+export class Model {
+public:
+    void draw();
+    // ...
+};
+renderer_impl.cpp (Implementação Principal)
+
+cpp
+Copy
+module renderer;
+
+import :shaders; // Importa as partições para usar seus tipos.
+import :models;
+import <iostream>;
+
+void render_scene() {
+    ShaderProgram shader;
+    Model model;
+
+    shader.bind();
+    model.draw();
+    std::cout << "Cena renderizada.\n";
+}
+main.cpp (Consumidor)
+
+cpp
+Copy
+import renderer; // Importa o módulo principal.
+
+int main() {
+    // O consumidor pode usar os tipos das partições porque eles foram re-exportados.
+    ShaderProgram my_shader;
+    Model my_model;
+
+    render_scene();
+}
+Neste modelo, a complexidade interna do módulo renderer é gerenciada por partições, mas o consumidor só precisa de um único import renderer; para ter acesso a toda a interface pública.
+
+19.4 O Módulo Global e a Interoperabilidade
+E o código legado que usa headers? Os módulos precisam coexistir com eles.
+
+Importando Headers: Você pode importar headers tradicionais em um módulo. A diretiva #include ainda funciona.
+Header Units: O C++20 permite tratar um header como se fosse um módulo, usando import "meu_header.hpp";. Isso pode ser mais eficiente, pois o compilador pode "modularizar" o header uma vez.
+O Fragmento de Módulo Global: Para casos complexos de transição, uma unidade de módulo pode ter um "fragmento de módulo global" (module; seguido por #includes) para lidar com headers que usam macros que precisam ser visíveis globalmente.
+Os módulos são uma mudança profunda e benéfica. Eles exigem uma nova forma de pensar sobre a estrutura do projeto e novas flags para o compilador, mas os ganhos em robustez, velocidade de compilação e clareza do design são imensos. A necessidade de ferramentas de build que entendam as dependências de módulos, como veremos a seguir, torna-se ainda mais evidente.

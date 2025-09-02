@@ -1,0 +1,111 @@
+* Capítulo 31: Lambdas e a Programação Genérica
+
+A programação genérica, a arte de escrever código que opera sobre tipos não especificados, é uma das maiores forças do C++. Originalmente, essa capacidade era domínio exclusivo das funções e classes template. Contudo, a evolução da linguagem, particularmente a partir do C++14, integrou esse poder diretamente na sintaxe das lambdas, tornando-as ferramentas ainda mais versáteis e indispensáveis.
+
+** 31.1 A Primeira Evolução: Lambdas Genéricas com auto (C++14)
+
+Antes do C++14, se quiséssemos uma lógica similar a uma lambda que funcionasse para diferentes tipos, não havia uma solução direta. Seria necessário definir um functor template completo, uma solução verbosa que ia contra a própria conveniência das lambdas.
+
+O C++14 introduziu uma solução elegante e intuitiva: o uso da palavra-chave auto na lista de parâmetros de uma lambda.
+
+#+begin_src cpp
+// Uma lambda genérica que pode somar quaisquer dois tipos
+// que suportem o operador '+'
+auto somador_generico = [](auto a, auto b) {
+    return a + b;
+};
+
+int resultado_int = somador_generico(5, 10);                 // a, b são deduzidos como int
+double resultado_double = somador_generico(3.14, 2.71);       // a, b são deduzidos como double
+std::string s1 = "Olá, ";
+std::string s2 = "Mundo!";
+std::string resultado_str = somador_generico(s1, s2); // a, b são deduzidos como std::string
+#+end_src
+
+*A Mecânica Interna:*
+Assim como uma lambda normal é açúcar sintático para um functor, uma lambda genérica é açúcar sintático para um functor cujo operator() é um template de método.
+
+O compilador transforma a lambda somador_generico em algo conceitualmente similar a isto:
+
+#+begin_src cpp
+class __FunctorSomadorGenerico_ID_Unico {
+public:
+    // O operator() é agora um template de método.
+    template <typename T1, typename T2>
+    auto operator()(T1 a, T2 b) const {
+        return a + b;
+    }
+};
+#+end_src
+
+Cada chamada a somador_generico com um novo conjunto de tipos de argumento faz com que o compilador instancie uma nova versão do operator() template, exatamente como faria com uma função template normal. Isso proporciona um poder imenso com uma sintaxe mínima.
+
+** 31.2 O Controle Explícito: Templates de Lambda (C++20)
+
+O uso de auto é conveniente, mas possui uma limitação: ele não nos dá um nome para o tipo deduzido. Em certas situações, precisamos nos referir explicitamente ao tipo dentro do corpo da lambda, por exemplo, para declarar variáveis locais daquele tipo ou para realizar uma conversão explícita (static_cast).
+
+O C++20 resolveu essa questão introduzindo uma sintaxe de template explícita para lambdas, que espelha a sintaxe de templates de função.
+
+Sintaxe: []<typename T, ...>(T param, ...){ ... }
+
+#+begin_src cpp
+#include <vector>
+#include <iostream>
+
+// Uma lambda que aceita um valor de qualquer tipo T
+// e cria um vetor contendo 10 cópias desse valor.
+auto criar_vetor_replicado = []<typename T>(const T& valor, size_t tamanho) {
+    // Aqui, precisamos do nome 'T' para declarar o tipo do vetor.
+    // Isso seria muito mais verboso sem a sintaxe de template explícita.
+    std::vector<T> resultado;
+    resultado.reserve(tamanho);
+    for (size_t i = 0; i < tamanho; ++i) {
+        resultado.push_back(valor);
+    }
+    return resultado;
+};
+
+auto vetor_de_ints = criar_vetor_replicado(42, 5); // T é deduzido como int
+auto vetor_de_strings = criar_vetor_replicado(std::string("oi"), 3); // T é deduzido como std::string
+#+end_src
+
+Essa sintaxe também se estende naturalmente para templates variádicos, permitindo a criação de lambdas que aceitam um número arbitrário de argumentos de tipos variados, tornando-as ferramentas perfeitas para tarefas como a implementação de um printf genérico.
+
+** 31.3 A Segurança Genérica: Constraints e Concepts (C++20)
+
+A programação genérica com templates (e, por extensão, com lambdas genéricas) historicamente sofria de um problema: mensagens de erro terríveis. Se você passasse um tipo para uma função template que não suportava uma das operações em seu corpo, o erro de compilação ocorreria nas profundezas da implementação do template, gerando uma cascata de mensagens crípticas.
+
+Os Concepts, introduzidos no C++20, resolvem este problema permitindo que especifiquemos restrições (constraints) nos tipos aceitos por um template. Essa capacidade se aplica diretamente às lambdas genéricas.
+
+Podemos restringir os tipos de auto usando uma cláusula requires.
+
+*Exemplo: Restringindo uma Lambda a Tipos Integrais*
+#+begin_src cpp
+#include <concepts> // Necessário para os concepts padrão
+#include <iostream>
+
+// Esta lambda só aceitará tipos que satisfaçam o conceito std::integral.
+auto processar_apenas_inteiros = [](const auto& valor) requires std::integral<decltype(valor)> {
+    std::cout << "Valor integral: " << valor << ", o dobro é " << valor * 2 << std::endl;
+};
+
+// Uma sintaxe mais concisa e preferível:
+auto processar_apenas_inteiros_v2 = [](const std::integral auto& valor) {
+    std::cout << "Valor integral: " << valor << ", o dobro é " << valor * 2 << std::endl;
+};
+
+processar_apenas_inteiros_v2(10);      // OK, int é um tipo integral.
+processar_apenas_inteiros_v2(50L);     // OK, long é um tipo integral.
+
+// A linha a seguir produz um erro de compilação CLARO e IMEDIATO.
+// A mensagem de erro indicará que 'double' não satisfaz o conceito 'std::integral'.
+// processar_apenas_inteiros_v2(3.14);
+#+end_Src
+
+*Benefícios dos Concepts com Lambdas:*
+
+  1. Clareza da Intenção: O código documenta explicitamente quais são os requisitos para os tipos de dados que ele aceita.
+  2. Mensagens de Erro Superiores: O erro de compilação ocorre no local da chamada, não dentro da implementação da lambda. A mensagem é direta e informa exatamente qual restrição não foi satisfeita.
+  3. Melhor Sobrecarga: Permite que o compilador escolha entre múltiplas lambdas genéricas com base nos concepts que os tipos de argumento satisfazem.
+
+A jornada das lambdas na programação genérica reflete a maturação da própria linguagem C++: do poder bruto e flexível do C++14 à expressividade controlada e segura do C++20. As lambdas genéricas, especialmente quando combinadas com concepts, são uma das ferramentas mais poderosas e elegantes no arsenal do programador C++ moderno.

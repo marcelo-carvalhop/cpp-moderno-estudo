@@ -1,0 +1,130 @@
+* Capítulo 44: Classes Abstratas e Interfaces
+
+Uma Classe Base Abstrata (CBA), ou Abstract Base Class (ABC), é uma classe que não pode ser instanciada por si só. Ela existe apenas para servir como uma base para outras classes. Seu propósito é definir uma interface — um contrato — que todas as classes derivadas devem seguir.
+
+** 44.1 O Mecanismo: Funções Virtuais Puras
+
+Tornamos uma classe abstrata ao incluir nela pelo menos uma função virtual pura. Uma função virtual pura é uma função virtual que é declarada mas não definida na classe base. A sintaxe para isso é adicionar = 0 ao final da declaração da função.
+
+#+begin_src cpp
+virtual void minha_funcao() const = 0; // Sintaxe de uma função virtual pura
+#+end_src
+
+A presença de = 0 diz duas coisas ao compilador:
+
+  1. Esta função deve ser sobrescrita por qualquer classe derivada concreta.
+  2. Como esta função não tem uma implementação na classe base, a classe se torna abstrata e não pode ser instanciada.
+
+** 44.2 Refatorando Animal para ser uma Classe Abstrata
+
+A função fazer_som() em nossa classe Animal tinha uma implementação genérica que não era muito útil. Este é um candidato perfeito para se tornar uma função virtual pura. Todo animal concreto faz um som, mas não existe um "som de animal genérico".
+
+#+begin_src cpp
+#include <iostream>
+#include <string>
+#include <vector>
+#include <memory>
+
+// Animal agora é uma Classe Base Abstrata (CBA)
+class Animal {
+protected:
+    std::string m_nome;
+public:
+    Animal(const std::string& nome) : m_nome(nome) {}
+    virtual ~Animal() = default; // Mais sobre isso no próximo capítulo!
+
+    const std::string& getNome() const { return m_nome; }
+
+    // Esta é agora uma função virtual pura.
+    // Animal não tem uma implementação; ele define um contrato.
+    virtual void fazer_som() const = 0; 
+};
+
+class Cachorro : public Animal {
+public:
+    Cachorro(const std::string& nome) : Animal(nome) {}
+
+    // Cachorro CUMPRE o contrato ao implementar fazer_som().
+    void fazer_som() const override {
+        std::cout << getNome() << " diz: Au au!" << std::endl;
+    }
+};
+
+class Gato : public Animal {
+public:
+    Gato(const std::string& nome) : Animal(nome) {}
+
+    // Gato também CUMPRE o contrato.
+    void fazer_som() const override {
+        std::cout << getNome() << " diz: Miau!" << std::endl;
+    }
+};
+#+end_src
+
+*As Consequências do Contrato:*
+
+  1. Não é possível instanciar a classe base: O código a seguir agora resultará em um erro de compilação. O compilador nos impede de criar um objeto de um tipo abstrato.
+
+#+begin_src cpp
+// ERRO DE COMPILAÇÃO!
+// Animal animal_generico("Coisa"); 
+#+end_src
+
+  2. Classes derivadas devem implementar a função: Se uma classe herda de Animal mas não fornece uma implementação para fazer_som(), ela também se torna uma classe abstrata e não pode ser instanciada.
+
+#+begin_src cpp
+class Hamster : public Animal {
+public:
+    Hamster(const std::string& nome) : Animal(nome) {}
+    // Onde está a implementação de fazer_som()?
+};
+
+// ERRO DE COMPILAÇÃO!
+// Hamster meu_hamster("Bolinha"); // Hamster também é abstrato.
+#+end_src
+
+Isso força os programadores a aderirem ao design da hierarquia, garantindo que todos os subtipos concretos de Animal possam, de fato, fazer_som().
+
+** 44.3 O Conceito de Interface
+
+Levando a ideia ao extremo, podemos criar uma classe que consiste apenas em funções virtuais puras. Em C++, isso é o mais próximo que temos de uma "interface" formal, como em outras linguagens. Uma interface define um conjunto de capacidades sem ditar absolutamente nada sobre a implementação.
+
+Este é um padrão de design extremamente poderoso para desacoplar componentes de um sistema.
+
+Exemplo: Uma Interface IShape
+
+#+begin_src cpp
+// Por convenção, interfaces às vezes começam com 'I'.
+class IShape {
+public:
+    virtual ~IShape() = default;
+    virtual void draw() const = 0;
+    virtual double area() const = 0;
+};
+
+// Circle implementa a interface IShape.
+class Circle : public IShape {
+public:
+    void draw() const override { /* ... código para desenhar um círculo ... */ }
+    double area() const override { /* ... código para calcular a área ... */ }
+};
+
+// Square também implementa a interface.
+class Square : public IShape {
+public:
+    void draw() const override { /* ... código para desenhar um quadrado ... */ }
+    double area() const override { /* ... código para calcular a área ... */ }
+};
+
+// Este código agora pode operar sobre qualquer objeto que CUMPRA
+// o contrato de IShape, sem saber nada sobre círculos ou quadrados.
+void renderizarNaTela(const std::vector<std::unique_ptr<IShape>>& formas) {
+    for (const auto& forma : formas) {
+        forma->draw();
+    }
+}
+#+end_src
+
+Ao usar classes abstratas e interfaces, passamos de simplesmente agrupar dados e funções para definir contratos robustos. Isso força uma estrutura de design clara, melhora o encapsulamento e permite a criação de sistemas flexíveis onde os componentes podem ser trocados e estendidos sem quebrar o código existente.
+
+No entanto, há um detalhe crucial e perigoso em todas as nossas hierarquias até agora: o destrutor. O que acontece quando tentamos deletar um objeto derivado através de um ponteiro para a classe base? A resposta nos leva a uma das regras mais importantes do C++ orientado a objetos, que veremos a seguir.

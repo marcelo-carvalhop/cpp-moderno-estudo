@@ -1,0 +1,96 @@
+* Capítulo 46: Introdução às Threads (std::thread)
+
+Uma thread (ou linha de execução) é a menor sequência de instruções programadas que pode ser gerenciada de forma independente por um escalonador de sistema operacional. Todo programa C++ começa com uma única thread, geralmente chamada de "thread principal" (aquela que executa a função main). O multithreading é a prática de criar e gerenciar threads adicionais que rodam concorrentemente com a thread principal.
+
+A biblioteca padrão do C++11 nos deu a classe std::thread, localizada no header <thread>, que fornece uma maneira portável e orientada a objetos de interagir com as threads do sistema operacional.
+
+** 46.1 Lançando uma Thread
+
+Criar uma nova thread é surpreendentemente simples. O construtor de std::thread aceita uma "entidade chamável" (como uma função, um objeto de função ou, mais comumente, uma lambda) e seus argumentos.
+
+O ponto crucial a entender é que a nova thread começa a executar imediatamente (ou o mais rápido que o sistema operacional permitir) assim que o objeto std::thread é construído.
+
+#+begin_src cpp
+#include <iostream>
+#include <thread>
+#include <chrono>
+
+void tarefa_simples() {
+    std::cout << "Thread secundária iniciada.\n";
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    std::cout << "Thread secundária terminando.\n";
+}
+
+int main() {
+    std::cout << "Thread principal: iniciando uma nova thread.\n";
+
+    // Constrói o objeto t1, passando a função 'tarefa_simples'.
+    // A execução de tarefa_simples começa imediatamente em uma nova thread.
+    std::thread t1(tarefa_simples);
+
+    std::cout << "Thread principal: continua executando enquanto a outra thread trabalha.\n";
+
+    // O que acontece aqui? A thread principal precisa esperar?
+    // Por enquanto, vamos apenas esperar a thread t1 terminar.
+    t1.join(); 
+
+    std::cout << "Thread principal: terminou.\n";
+}
+#+end_src
+
+** 46.2 O Ciclo de Vida: join() vs. detach()
+
+Um objeto std::thread representa um recurso do sistema operacional. Assim como um std::unique_ptr representa a posse de memória, std::thread representa a posse de uma thread de execução. Antes que um objeto std::thread seja destruído (por exemplo, ao sair do escopo), você deve decidir explicitamente o que fazer com a thread que ele representa. Existem duas opções:
+
+  1. join() (Juntar-se): Esta é a opção mais comum e segura. Chamar t1.join() faz com que a thread que chamou (a thread principal, no nosso caso) bloqueie e espere até que a thread t1 complete sua execução. É uma forma de sincronização. A metáfora é que o fluxo de execução da thread secundária "junta-se" de volta ao fluxo da thread principal. Depois que join() retorna, você tem a garantia de que a thread secundária terminou.
+  2. detach() (Desanexar): Esta é a opção "dispare e esqueça". Chamar t1.detach() quebra a conexão entre o objeto std::thread e a thread de execução real. A thread secundária continua a rodar em segundo plano como um "daemon", e o objeto t1 não representa mais essa execução. Isso é perigoso. Se a thread principal terminar, todas as threads desanexadas são terminadas abruptamente. Além disso, se uma thread desanexada tentar acessar dados que foram destruídos com a saída da thread principal, o resultado é comportamento indefinido. Use detach() com extrema cautela.
+
+** 46.3 A Regra do Destrutor: std::terminate
+
+A posse de uma thread é um recurso sério. Para evitar que programadores esqueçam de lidar com suas threads, o C++ impõe uma regra drástica:
+
+#+begin_quote
+Se o destrutor de um objeto std::thread for chamado enquanto ele ainda estiver "juntável" (joinable) — ou seja, se você não chamou nem join() nem detach() nele —, o destrutor chamará std::terminate(), abortando o programa inteiro.
+#+end_quote
+
+Isso força o programador a ser explícito sobre o ciclo de vida de cada thread, tornando o std::thread um exemplo perfeito do princípio RAII aplicado à concorrência.
+
+** 46.4 Passando Argumentos para Threads
+
+Você pode passar argumentos para a função da sua thread simplesmente adicionando-os ao construtor de std::thread.
+
+Um detalhe crucial: por padrão, os argumentos são copiados para o armazenamento interno da nova thread. Se você precisar passar um argumento por referência, deve envolvê-lo explicitamente em std::ref() ou std::cref().
+
+#+begin_src cpp
+#include <iostream>
+#include <thread>
+#include <string>
+
+void tarefa_com_args(int id, const std::string& msg) {
+    std::cout << "Thread " << id << " diz: " << msg << std::endl;
+}
+
+void modifica_valor(int& valor) {
+    valor = 42;
+}
+
+int main() {
+    // Argumentos passados por cópia.
+    std::thread t1(tarefa_com_args, 1, "Olá do t1");
+
+    int meu_valor = 10;
+    // Para passar por referência, use std::ref().
+    std::thread t2(modifica_valor, std::ref(meu_valor));
+
+    t1.join();
+    t2.join();
+
+    std::cout << "Valor final: " << meu_valor << std::endl; // Imprimirá 42.
+}
+#+end_src
+
+Com std::thread, temos a capacidade de lançar novas linhas de execução. No entanto, assim que temos mais de uma thread, surge o maior desafio da programação concorrente: como elas compartilham dados de forma segura? Este será o tópico do nosso próximo capítulo.
+
+
+		   | [[./capitulo_45.org][Anterior]] | [[./cpp_moder_indice.org][Índice]] | [[./capitulo_47.org][Próximo]] |
+

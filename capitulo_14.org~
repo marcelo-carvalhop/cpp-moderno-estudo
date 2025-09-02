@@ -1,0 +1,228 @@
+Capítulo 14: Interagindo com o Mundo Exterior — Manipulação de Arquivos em C++
+Um programa raramente existe em total isolamento. A necessidade de persistir dados entre execuções, ler configurações, processar grandes conjuntos de dados ou gerar relatórios exige uma interação direta com o sistema de arquivos. A biblioteca padrão do C++ fornece um conjunto robusto de ferramentas para essas operações, encapsuladas em um modelo de objetos que abstrai as complexidades do sistema operacional subjacente e se integra perfeitamente com o princípio RAII.
+
+Este capítulo explora a arquitetura do I/O (Entrada/Saída) de arquivos em C++, desde a abertura e manipulação de streams de texto e binários até as modernas funcionalidades de gerenciamento do sistema de arquivos introduzidas no C++17.
+
+14.1 A Arquitetura de Streams (Fluxos)
+O modelo de I/O do C++ é baseado no conceito de streams (fluxos), uma abstração que representa uma sequência de bytes fluindo de uma origem para um destino. Essa origem ou destino pode ser o console (std::cin, std::cout), uma string na memória (std::stringstream) ou, como focaremos aqui, um arquivo. A beleza dessa abstração é que a interface para ler e escrever dados é amplamente consistente, independentemente do tipo de stream.
+
+As principais classes para manipulação de arquivos estão no cabeçalho <fstream>:
+
+std::ifstream: Input File Stream. Usada para ler dados de um arquivo.
+std::ofstream: Output File Stream. Usada para escrever dados em um arquivo.
+std::fstream: File Stream. Combina as funcionalidades de ifstream e ofstream, permitindo operações de leitura e escrita no mesmo arquivo.
+Essas classes gerenciam o handle do arquivo do sistema operacional. Seus construtores podem abrir um arquivo, e seus destrutores garantem que o arquivo seja fechado automaticamente quando o objeto stream sai de escopo. Este é um exemplo perfeito de RAII em ação, prevenindo vazamentos de recursos (handles de arquivo não fechados).
+
+14.2 Leitura e Escrita de Arquivos de Texto
+Arquivos de texto são sequências de caracteres organizados em linhas. As operações de I/O com eles são formatadas, convertendo os dados da sua representação binária na memória para uma representação textual no arquivo, e vice-versa.
+
+14.2.1 Escrita em Arquivos de Texto
+Para escrever em um arquivo, criamos uma instância de std::ofstream. Por padrão, se o arquivo não existe, ele é criado. Se existe, seu conteúdo é apagado (truncado). O operador de inserção (<<), o mesmo usado com std::cout, é sobrecarregado para escrever dados no stream.
+
+cpp
+Copy
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
+
+void write_config_file(const std::string& filepath) {
+    // Cria um objeto ofstream. O construtor tenta abrir o arquivo.
+    // O destrutor garantirá que o arquivo seja fechado, mesmo se ocorrerem exceções.
+    std::ofstream config_file(filepath);
+
+    // É uma boa prática verificar se o arquivo foi aberto com sucesso.
+    if (!config_file.is_open()) {
+        std::cerr << "Erro: Não foi possível abrir o arquivo para escrita: " << filepath << std::endl;
+        return;
+    }
+
+    std::cout << "Escrevendo no arquivo de configuração: " << filepath << std::endl;
+
+    // Usando o operador << para escrever dados formatados.
+    config_file << "# Arquivo de Configuração do Servidor\n";
+    config_file << "host = 127.0.0.1\n";
+    config_file << "port = 8080\n";
+    config_file << "enable_tls = true\n";
+    config_file << "allowed_users = user1,user2,admin\n";
+
+    std::cout << "Escrita concluída. O arquivo será fechado automaticamente.\n";
+}
+14.2.2 Leitura de Arquivos de Texto
+Para ler de um arquivo, usamos std::ifstream. O operador de extração (>>) pode ser usado para ler dados formatados (palavra por palavra, ignorando espaços em branco), enquanto a função std::getline é ideal para ler o arquivo linha por linha.
+
+cpp
+Copy
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <sstream>
+
+void read_and_parse_config(const std::string& filepath) {
+    std::ifstream config_file(filepath);
+
+    if (!config_file.is_open()) {
+        std::cerr << "Erro: Não foi possível abrir o arquivo para leitura: " << filepath << std::endl;
+        return;
+    }
+
+    std::cout << "\nLendo e processando o arquivo de configuração: " << filepath << std::endl;
+
+    std::string line;
+    int line_number = 0;
+    // Loop para ler o arquivo linha por linha até o final.
+    while (std::getline(config_file, line)) {
+        line_number++;
+        // Ignora linhas vazias ou comentários (começando com '#')
+        if (line.empty() || line[0] == '#') {
+            continue;
+        }
+
+        // Usa um stringstream para facilitar o parsing da linha
+        std::stringstream ss(line);
+        std::string key, value;
+        char separator;
+
+        // Tenta extrair 'chave', '=', 'valor'
+        if (std::getline(ss, key, '=') && std::getline(ss, value)) {
+            // Remove espaços em branco no início/fim (trimming simples)
+            key.erase(0, key.find_first_not_of(" \t"));
+            key.erase(key.find_last_not_of(" \t") + 1);
+            value.erase(0, value.find_first_not_of(" \t"));
+            value.erase(value.find_last_not_of(" \t") + 1);
+            
+            std::cout << "  Linha " << line_number << ": Chave='" << key << "', Valor='" << value << "'\n";
+        }
+    }
+}
+
+int main() {
+    const std::string filename = "server.conf";
+    write_config_file(filename);
+    read_and_parse_config(filename);
+    return 0;
+}
+14.3 Modos de Abertura de Arquivo
+O comportamento padrão de ofstream (truncar) nem sempre é o desejado. O construtor dos streams de arquivo aceita um segundo argumento, um conjunto de flags de modo de abertura, que podem ser combinados com o operador | (OU bit a bit).
+
+std::ios::in: Abrir para leitura (padrão para ifstream).
+std::ios::out: Abrir para escrita (padrão para ofstream).
+std::ios::app (append): Anexar. Todas as operações de escrita ocorrem no final do arquivo.
+std::ios::trunc (truncate): Truncar. Se o arquivo existe, seu conteúdo é descartado (padrão para ofstream se app não for especificado).
+std::ios::ate (at end): Posiciona o cursor no final do arquivo ao abrir, mas permite escrever em qualquer lugar.
+std::ios::binary: Tratar o arquivo como binário (ver próxima seção).
+Exemplo de Anexação:
+
+cpp
+Copy
+std::ofstream log_file("activity.log", std::ios::app);
+log_file << "2025-07-21 10:30:00 - Servidor iniciado.\n";
+14.4 Manipulação de Arquivos Binários
+Arquivos binários contêm dados em sua representação de memória bruta, sem formatação textual. Isso é muito mais eficiente em termos de espaço e velocidade para dados não-textuais, como imagens, áudio, ou grandes estruturas de dados numéricos.
+
+Para trabalhar com arquivos binários, o modo std::ios::binary deve ser especificado. As operações de leitura e escrita são feitas com os métodos read() e write(), que operam em blocos de bytes.
+
+write(const char* data, std::streamsize count): Escreve count bytes a partir do buffer de memória apontado por data.
+read(char* buffer, std::streamsize count): Lê count bytes do arquivo para o buffer de memória apontado por buffer.
+É necessário usar reinterpret_cast para converter ponteiros de/para char*, pois a interface opera em termos de bytes brutos.
+
+Exemplo de Escrita e Leitura Binária:
+
+cpp
+Copy
+#include <iostream>
+#include <fstream>
+#include <vector>
+
+struct Point3D {
+    double x, y, z;
+};
+
+int main() {
+    const std::string filename = "points.bin";
+
+    // --- Escrita Binária ---
+    {
+        std::ofstream out_file(filename, std::ios::binary | std::ios::trunc);
+        if (!out_file) { return 1; }
+
+        std::vector<Point3D> points = {{1.0, 2.0, 3.0}, {4.5, 5.5, 6.5}};
+        
+        // Escreve o número de pontos primeiro, para sabermos quantos ler depois.
+        size_t num_points = points.size();
+        out_file.write(reinterpret_cast<const char*>(&num_points), sizeof(num_points));
+
+        // Escreve os dados do vetor de uma só vez.
+        out_file.write(reinterpret_cast<const char*>(points.data()), points.size() * sizeof(Point3D));
+    }
+
+    // --- Leitura Binária ---
+    {
+        std::ifstream in_file(filename, std::ios::binary);
+        if (!in_file) { return 1; }
+
+        size_t num_points_to_read = 0;
+        in_file.read(reinterpret_cast<char*>(&num_points_to_read), sizeof(num_points_to_read));
+
+        std::vector<Point3D> read_points(num_points_to_read);
+        in_file.read(reinterpret_cast<char*>(read_points.data()), num_points_to_read * sizeof(Point3D));
+
+        std::cout << "Pontos lidos do arquivo binário:\n";
+        for (const auto& p : read_points) {
+            std::cout << "  (" << p.x << ", " << p.y << ", " << p.z << ")\n";
+        }
+    }
+    return 0;
+}
+Atenção: Arquivos binários não são portáveis entre sistemas com arquiteturas diferentes (ex: endianness diferente ou tamanhos de tipo diferentes). Para portabilidade, um formato de serialização bem definido (como JSON, Protobuf, ou mesmo XML) é necessário.
+
+14.5 Gerenciamento do Sistema de Arquivos com <filesystem> (C++17)
+Antes do C++17, tarefas como verificar se um arquivo existe, criar um diretório ou listar os arquivos de uma pasta exigiam o uso de APIs específicas do sistema operacional. A biblioteca <filesystem> fornece uma interface padrão e portável para essas operações.
+
+O objeto central é std::filesystem::path, que representa um caminho no sistema de arquivos de forma abstrata. As funções livres no namespace std::filesystem operam nesses objetos path.
+
+Exemplo de <filesystem>:
+
+#+begin_src cpp
+#include <iostream>
+#include <fstream>
+#include <filesystem> // Cabeçalho necessário
+
+namespace fs = std::filesystem; // Alias comum para conveniência
+
+int main() {
+    // 1. Construindo e manipulando um path
+    fs::path data_dir = "app_data";
+    fs::path config_path = data_dir / "settings.json"; // Operador / sobrecarregado para juntar caminhos
+
+    std::cout << "Caminho completo: " << config_path << std::endl;
+    std::cout << "Nome do arquivo: " << config_path.filename() << std::endl;
+    std::cout << "Diretório pai: " << config_path.parent_path() << std::endl;
+    std::cout << "Extensão: " << config_path.extension() << std::endl;
+
+    // 2. Verificando e criando diretórios
+    if (!fs::exists(data_dir)) {
+        std::cout << "Diretório '" << data_dir << "' não existe. Criando...\n";
+        fs::create_directory(data_dir);
+    }
+
+    // 3. Verificando a existência e o tipo de um arquivo
+    if (fs::exists(config_path)) {
+        std::cout << "'" << config_path << "' existe.\n";
+        if (fs::is_regular_file(config_path)) {
+            std::cout << "É um arquivo regular.\n";
+        }
+    } else {
+        std::cout << "'" << config_path << "' não existe. Criando um arquivo vazio...\n";
+        std::ofstream(config_path) << "{}"; // Cria e fecha
+    }
+
+    // 4. Deletando arquivos e diretórios
+    std::cout << "Deletando o arquivo: " << fs::remove(config_path) << " (1 para sucesso)\n";
+    std::cout << "Deletando o diretório: " << fs::remove(data_dir) << " (1 para sucesso)\n";
+
+    return 0;
+}
+#+end_src
+
+A biblioteca <filesystem> é uma adição poderosa que moderniza o C++, permitindo a criação de programas que gerenciam seus próprios arquivos e diretórios de forma limpa e portável.

@@ -1,0 +1,94 @@
+* Capítulo 41: Uma Nuance Final — O Padrão Copy-and-Swap
+
+Quando implementamos o operador de atribuição por cópia no Capítulo 38 (A Regra dos Três), nossa implementação funcionava, mas tinha duas fraquezas sutis:
+
+  1. Duplicação de Código: A lógica de alocação e cópia de recursos era muito similar à do construtor de cópia.
+  2. Insegurança de Exceção: A implementação não oferecia a Garantia Forte de Exceção.
+
+Vamos revisitar nossa implementação "ingênua" do operator=:
+
+#+begin_src cpp
+// VERSÃO INSEGURA CONTRA EXCEÇÕES
+String& operator=(const String& outro) {
+    if (this == &outro) { return *this; }
+
+    // 1. Libera o recurso antigo.
+    delete[] m_dados;
+
+    // 2. Tenta alocar um novo recurso.
+    //    E SE 'new' LANÇAR std::bad_alloc AQUI?
+    m_dados = new char[outro.m_tamanho + 1]; 
+    m_tamanho = outro.m_tamanho;
+    strcpy(m_dados, outro.m_dados);
+
+    return *this;
+}
+#+end_src
+
+O problema reside no que acontece se a alocação de memória (new) falhar. Nesse ponto, já liberamos os dados antigos (delete[] m_dados). O objeto *this fica em um estado corrompido, com um ponteiro inválido e um tamanho incorreto. Ele violou até mesmo a Garantia Básica, pois não está mais em um estado válido e destrutível.
+
+O idioma Copy-and-Swap resolve todos esses problemas de uma só vez.
+
+** 41.1 A Mecânica do Idioma
+
+O padrão consiste em duas partes:
+
+  1. Uma função swap pública e noexcept: Esta função deve ser capaz de trocar o estado interno de dois objetos de sua classe de forma eficiente e, crucialmente, sem nunca lançar uma exceção. Ela tipicamente apenas troca os ponteiros e os membros de dados primitivos.
+  2. Um operator= que aceita seu parâmetro por valor: Esta é a chave do idioma. Ao passar por valor, nós delegamos o trabalho de cópia para o construtor de cópia da classe.
+Passo a Passo da Execução:
+
+Quando s1 = s2; é chamado:
+
+  1. Uma cópia temporária de s2 é criada para servir como o parâmetro outro para o operator=. Isso é feito pelo construtor de cópia. Se esta etapa falhar (por exemplo, por falta de memória), a exceção é lançada antes que o corpo do nosso operator= comece a executar. O objeto original s1 permanece completamente intocado. A Garantia Forte já está parcialmente garantida aqui.
+  2. Dentro do operator=, chamamos swap(*this, outro). Isso troca o estado interno de s1 com o estado da cópia temporária. Esta operação é noexcept, então ela não pode falhar. Agora, s1 tem os novos dados, e o objeto temporário outro tem os dados antigos de s1.
+  3. A função operator= termina. O objeto temporário outro sai do escopo.
+  4. O destrutor de outro é chamado, liberando os recursos que originalmente pertenciam a s1.
+
+** 41.2 Implementando o Padrão em Nossa Classe String
+
+Vamos refatorar nossa classe String da Regra dos Cinco para usar este idioma.
+
+#+begin_src cpp
+#include <cstring>
+#include <algorithm> // Para std::swap
+
+class String {
+private:
+    char* m_dados;
+    size_t m_tamanho;
+public:
+    // Construtor, Destrutor, Construtor de Cópia (como antes)
+    String(const char* s = "") { /* ... */ }
+    ~String() { delete[] m_dados; }
+    String(const String& outro) { /* ... deep copy ... */ }
+    
+    // Construtor de Movimento e Atribuição por Movimento (como antes)
+    String(String&& outro) noexcept { /* ... */ }
+    String& operator=(String&& outro) noexcept { /* ... */ }
+
+    // 1. A função swap, pública e noexcept.
+    void swap(String& outro) noexcept {
+        // Troca os ponteiros e os tamanhos.
+        std::swap(m_dados, outro.m_dados);
+        std::swap(m_tamanho, outro.m_tamanho);
+    }
+
+    // 2. O operador de atribuição por cópia, implementado com o idioma.
+    String& operator=(String outro) noexcept { // Passagem por valor!
+        swap(outro); // Troca o estado atual com o da cópia.
+        return *this;
+    }
+};
+#+end_src
+
+Note que o operator= agora pode ser noexcept porque as únicas operações que ele realiza são a chamada a swap (que é noexcept) e o retorno, ambos sem risco de exceção. A operação que poderia falhar (a cópia) acontece antes, na criação do parâmetro.
+
+
+** 41.3 Análise dos Benefícios
+
+  1. Garantia Forte de Exceção: O padrão fornece a garantia forte de forma natural. Se a cópia falha, o objeto original não é modificado. Se a cópia for bem-sucedida, o resto da operação (o swap) não pode falhar.
+  2. Reúso de Código (DRY - Don't Repeat Yourself): A lógica de cópia reside em um único lugar: o construtor de cópia. O operador de atribuição simplesmente o reutiliza.
+  3. Tratamento Correto de Auto-Atribuição: O padrão lida com a auto-atribuição (s1 = s1;) corretamente, sem a necessidade de uma verificação if (this == &outro). Embora seja um pouco ineficiente nesse caso específico (uma cópia desnecessária é feita), ele é perfeitamente seguro e correto, e a auto-atribuição é um caso raro na prática.
+  4. Unificação da Atribuição: Uma otimização comum é ter um único operator= que aceita por valor. Ele lida tanto com a atribuição por cópia (quando um l-value é passado, o construtor de cópia é chamado) quanto com a atribuição por movimento (quando um r-value é passado, o construtor de movimento é chamado, que é mais eficiente).
+
+O idioma Copy-and-Swap é a personificação do design robusto em C++. Ele demonstra como a composição de funções de membro bem definidas (construtor de cópia, destrutor e uma swap noexcept) pode levar a um comportamento emergente que é seguro, correto e conciso. Embora a Regra do Zero nos diga para evitar escrever essas funções sempre que possível, quando precisamos escrevê-las, o Copy-and-Swap é a ferramenta certa para o trabalho.

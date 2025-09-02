@@ -1,0 +1,235 @@
+* Capítulo 2: Tipos Fundamentais, Variáveis e Controle de Fluxo: Os Átomos da Lógica
+
+No capítulo anterior, montamos e executamos nosso primeiro programa. Foi um vislumbre do que é possível. Agora, vamos desmontar a máquina e examinar suas peças mais básicas: os dados que ela manipula e as regras que ditam seu comportamento. Este capítulo trata dos "átomos" do C++: como armazenar informações (variáveis e tipos) e como tomar decisões e repetir tarefas (controle de fluxo). Dominar estes fundamentos é o pré-requisito para construir qualquer lógica complexa.
+
+** 2.1 Variáveis e Tipos Fundamentais: A Memória Tem um Nome
+
+Pense em uma variável como uma caixa de armazenamento na memória do computador. Essa caixa tem um nome (o identificador da variável) e um tipo, que define que tipo de informação ela pode guardar e que operações podemos fazer com ela. Em C++, uma linguagem de tipagem estática, o tipo de uma variável é fixo e verificado em tempo de compilação, o que previne uma classe inteira de erros.
+
+*** 2.1.1 Os Tipos Inteiros: Números sem Frações
+
+Usados para representar números inteiros. C++ oferece várias opções, dependendo do tamanho do número que você precisa armazenar.
+
+  - int: O tipo inteiro "natural" para a arquitetura do seu computador. É geralmente sua primeira escolha para números inteiros.
+  - short: Usa menos memória que int, para números menores.
+  - long: Usa pelo menos a mesma memória que int, mas potencialmente mais.
+  - long long: Garante pelo menos 64 bits, para números muito grandes.
+
+Cada um desses tipos pode ser prefixado com unsigned, o que significa que eles só podem armazenar valores não-negativos (zero e positivos), dobrando seu limite superior.
+
+#+begin_src cpp
+int populacaoCidade = 1500000;
+long long populacaoMundial = 7800000000; // Um int normal poderia não ser suficiente
+unsigned int idade = 30; // Idade não pode ser negativa
+#+end_src
+
+#+begin_quote
+*C++ Moderno em Foco: Inteiros de Largura Fixa*
+E se você precisar de um inteiro que tenha exatamente 32 bits, não importa se o programa é compilado em um relógio de pulso ou em um supercomputador? Para isso, o C++ Moderno incentiva o uso dos tipos do cabeçalho <cstdint>:
+
+  - int8_t, int16_t, int32_t, int64_t (inteiros com sinal)
+  - uint8_t, uint16_t, uint32_t, uint64_t (inteiros sem sinal)
+
+Usar esses tipos torna seu código mais portável e suas intenções sobre o uso de memória, explícitas.
+#+end_quote
+
+*** 2.1.2 Os Tipos de Ponto Flutuante: Lidando com Decimais
+
+Para números reais que contêm uma parte fracionária.
+
+  - float: Precisão simples. Usa menos memória, mas é menos preciso.
+  - double: Precisão dupla. É o tipo de ponto flutuante padrão para a maioria das aplicações. Use-o a menos que tenha um bom motivo para não o fazer.
+  - long double: Precisão estendida. Oferece ainda mais precisão, mas a um custo maior de memória e performance.
+
+#+begin_src cpp
+float precoProduto = 19.99f; // O 'f' no final indica que é um float
+double pi = 3.141592653589793;
+#+end_src
+
+*** 2.1.3 O Tipo Booleano: Verdade ou Mentira
+
+O tipo bool é simples, mas vital. Ele pode ter apenas dois valores: true (verdadeiro) ou false (falso). É a base para toda a lógica condicional.
+
+#+begin_src cpp
+bool usuarioEstaLogado = true;
+bool tarefaConcluida = false;
+#+end_src
+
+*** 2.1.4 O Tipo Caractere: Letras e Símbolos
+
+O tipo char é usado para armazenar um único caractere, como uma letra, um número ou um símbolo. Internamente, ele é apenas um número inteiro pequeno (geralmente 8 bits), mapeado para um caractere através de uma tabela como a ASCII.
+
+#+begin_src cpp
+char inicial = 'A';
+char simbolo = '#';
+#+end_src
+
+** 2.2 Declaração e Inicialização: Dando Vida às Variáveis
+
+Declarar uma variável é dizer ao compilador seu tipo e nome. Inicializá-la é dar-lhe um valor inicial.
+
+A Regra de Ouro do C++ Moderno: Sempre inicialize suas variáveis!
+
+Uma variável não inicializada contém "lixo" de memória — o que quer que estivesse naquele local antes. Usar esse valor leva a um comportamento indefinido, uma das fontes de bugs mais difíceis de rastrear.
+
+*** 2.2.1 Sintaxes de Inicialização
+
+C++ oferece algumas maneiras de inicializar variáveis:
+
+#+begin_src cpp
+int a = 5;      // Inicialização por cópia (estilo C)
+int b(5);       // Inicialização direta (estilo construtor)
+int c{5};       // Inicialização uniforme/com chaves (preferencial no C++ Moderno)
+int d = {5};    // Variante da inicialização com chaves
+#+end_src
+
+*Por que a inicialização com chaves ({}) é preferível?*
+
+  1. Uniformidade: Funciona para todos os tipos, desde int até objetos complexos que criaremos mais tarde.
+  2. Segurança: Ela proíbe "conversões de estreitamento" (narrowing conversions), que podem levar à perda de dados.
+Veja a diferença:
+
+#+begin_src cpp
+int x = 3.14;  // Válido, mas perigoso. x se torna 3, a parte decimal é descartada silenciosamente.
+int y{3.14};   // Erro de compilação! O compilador te protege de perder dados.
+#+end_src
+
+Adote int var{valor}; como sua forma padrão de inicialização.
+
+*** 2.2.2 Inferência de Tipo com auto
+
+Às vezes, o tipo de uma variável é óbvio a partir do valor que ela recebe. O C++ Moderno nos dá a palavra-chave auto para que o compilador deduza o tipo para nós.
+
+#+begin_src cpp
+auto i = 10;             // i é deduzido como int
+auto d = 3.14;           // d é deduzido como double
+auto s = "Olá";          // s é deduzido como const char* (veremos isso depois)
+auto b = true;           // b é deduzido como bool
+#+end_src
+
+auto não torna o C++ uma linguagem de tipagem dinâmica. O tipo ainda é fixo em tempo de compilação. auto é uma ferramenta de conveniência e robustez: torna o código mais limpo e evita erros de digitação de tipos complexos.
+
+*** 2.2.3 Constantes com const e constexpr
+
+- const: Use const para declarar uma variável cujo valor não pode ser alterado após a inicialização. Isso comunica sua intenção e permite que o compilador faça otimizações.
+
+#+begin_src cpp
+const double PI{3.14159};
+// PI = 4; // Erro de compilação! PI é constante.
+#+end_src
+
+- constexpr: Leva a ideia de constante um passo adiante. Uma variável constexpr deve ter seu valor conhecido em tempo de compilação. Isso significa que o compilador pode literalmente substituir a variável pelo seu valor no código final, resultando em um programa mais rápido.
+
+#+begin_src cpp
+constexpr int LADO_DO_QUADRADO{10};
+constexpr int AREA{LADO_DO_QUADRADO * LADO_DO_QUADRADO}; // Calculado durante a compilação!
+#+end_src
+
+Prática recomendada: Use constexpr para verdadeiras constantes matemáticas ou de configuração. Use const para valores que não devem mudar durante a execução de uma função ou escopo.
+
+** 2.3 Operadores: As Ferramentas de Manipulação
+
+Operadores são os símbolos que executam operações em variáveis e valores.
+
+  - Aritméticos: + (adição), - (subtração), * (multiplicação), / (divisão), % (módulo/resto da divisão).
+  - Atribuição: = (atribuição simples), +=, -=, *=, /= (atribuição composta, ex: x += 5 é o mesmo que x = x + 5).
+  - Comparação: == (igual a), != (diferente de), < (menor que), > (maior que), <= (menor ou igual a), >= (maior ou igual a). O resultado é sempre um bool.
+  - Lógicos: && (E lógico), || (OU lógico), ! (NÃO lógico). Usados para combinar expressões booleanas.
+  - Incremento/Decremento: ++ (incrementa por 1), -- (decrementa por 1).
+
+** 2.4 Controle de Fluxo: Tomando Decisões e Repetindo Ações
+
+Um programa não é apenas uma lista de instruções executadas em sequência. Seu poder real vem da capacidade de alterar o fluxo de execução com base em condições.
+
+*** 2.4.1 Condicionais: if, else if, else
+
+A estrutura if permite executar um bloco de código somente se uma condição for verdadeira.
+
+#+begin_src cpp
+int idade{18};
+
+if (idade >= 18) {
+    std::cout << "Pode entrar na festa." << std::endl;
+} else {
+    std::cout << "Acesso negado, volte quando for mais velho." << std::endl;
+}
+#+end_src
+
+#+begin_quote
+C++ Moderno em Foco: if com Inicializador
+Frequentemente, você precisa de uma variável apenas para o teste do if. O C++17 introduziu uma sintaxe que limita o escopo dessa variável ao bloco if/else, tornando o código mais limpo e seguro.
+
+#+begin_src cpp
+  // A variável 'resultado' só existe dentro deste bloco if/else
+  if (auto resultado = algumaFuncaoQueRetornaUmNumero(); resultado > 0) {
+    std::cout << "Sucesso! Resultado: " << resultado << std::endl;
+   } else {
+    std::cout << "Falha. Código de erro: " << resultado << std::endl;
+   }
+#+end_src
+
+#+end_quote 
+
+*** 2.4.2 A Estrutura switch
+
+Quando você tem múltiplas escolhas baseadas no valor de uma única variável inteira ou char, switch é mais limpo que uma cadeia de if-else if.
+
+#+begin_src cpp
+int opcao{2};
+
+switch (opcao) {
+    case 1:
+        std::cout << "Opção 1 selecionada." << std::endl;
+        break; // 'break' é crucial para sair do switch
+    case 2:
+        std::cout << "Opção 2 selecionada." << std::endl;
+        break;
+    default: // Executado se nenhum 'case' corresponder
+        std::cout << "Opção inválida." << std::endl;
+        break;
+}
+#+end_src
+
+*** 2.4.3 Laços de Repetição (Loops)
+
+Loops são usados para executar um bloco de código repetidamente.
+
+Laço while: Testa a condição antes de cada iteração.
+
+#+begin_src cpp
+      int contador{5};
+      while (contador > 0) {
+          std::cout << contador << "... ";
+          --contador; // Decrementa o contador
+      }
+      std::cout << "Lançar!" << std::endl;
+#+end_src
+
+  - Laço for (clássico): Ideal quando o número de iterações é conhecido. Combina inicialização, condição e passo de iteração em uma única linha.
+
+  #+begin_src cpp
+      for (int i{0}; i < 5; ++i) {
+          std::cout << "Iteração número " << i << std::endl;
+      }
+  #+end_src
+  
+  - Laço for baseado em intervalo (Range-based for): A forma mais moderna e segura de iterar sobre todos os elementos de uma coleção (como o std::vector do Capítulo 1). Prefira-o sempre que possível.
+
+#+begin_src cpp
+   std::vector<int> numeros = {10, 20, 30, 40, 50};
+
+   for (const int& numero : numeros) {
+       std::cout << "Número na coleção: " << numero << std::endl;
+   }
+#+end_src
+
+** 2.5 Resumo do Capítulo
+
+Neste capítulo, estabelecemos as fundações. Aprendemos que:
+
+  - Variáveis são espaços nomeados na memória com um tipo definido.
+  - A regra de ouro é sempre inicializar variáveis, preferencialmente com a sintaxe de chaves {} para maior segurança.
+  - auto, const e constexpr são ferramentas modernas para escrever código mais limpo, seguro e eficiente.
+  - Estruturas de controle de fluxo como if, switch e laços for/while nos permitem ditar a lógica e o comportamento de nossos programas.
+
+Você agora possui as ferramentas para manipular dados e criar algoritmos simples. No próximo capítulo, aprenderemos a organizar essa lógica em blocos reutilizáveis e nomeados, o pilar da engenharia de software: as funções.

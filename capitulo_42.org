@@ -1,0 +1,141 @@
+* Capítulo 42: Herança — Construindo Hierarquias de Tipos
+
+No mundo real, classificamos as coisas em hierarquias. Um "Cachorro" é um "Mamífero", que por sua vez é um "Animal". Um "Botão" é um "Componente de UI", que é um "Elemento Gráfico". A herança em C++ nos permite modelar essas relações diretamente no nosso código.
+
+A classe mais geral na hierarquia (ex: Animal) é chamada de classe base (ou superclasse, ou classe pai). A classe mais especializada (ex: Cachorro) que herda da classe base é chamada de classe derivada (ou subclasse, ou classe filha).
+
+** 42.1 Sintaxe e Mecânica Básica
+
+Vamos modelar uma hierarquia simples. Teremos uma classe base Animal com características comuns a todos os animais, e uma classe derivada Cachorro que herda essas características e adiciona um comportamento específico.
+
+#+begin_src cpp
+#include <iostream>
+#include <string>
+
+// A Classe Base
+class Animal {
+private:
+    std::string m_nome;
+public:
+    Animal(const std::string& nome) : m_nome(nome) {}
+
+    const std::string& getNome() const { return m_nome; }
+
+    void comer() const {
+        std::cout << m_nome << " está comendo." << std::endl;
+    }
+};
+
+// A Classe Derivada
+// A sintaxe ': public Animal' significa que Cachorro herda publicamente de Animal.
+class Cachorro : public Animal {
+public:
+    // O construtor do Cachorro DEVE chamar o construtor do Animal.
+    Cachorro(const std::string& nome) : Animal(nome) {}
+
+    // Comportamento específico do Cachorro
+    void latir() const {
+        // getNome() foi herdado de Animal.
+        std::cout << getNome() << " diz: Au au!" << std::endl;
+    }
+};
+
+int main() {
+    Cachorro meu_cao("Rex");
+
+    meu_cao.comer(); // Método herdado da classe base Animal.
+    meu_cao.latir(); // Método da própria classe derivada Cachorro.
+    
+    std::cout << "O nome do meu cão é " << meu_cao.getNome() << "." << std::endl;
+}
+#+end_src
+
+Neste exemplo, a classe Cachorro herda a capacidade de comer() e getNome() de Animal sem precisar reimplementá-las. Ela então adiciona sua própria funcionalidade, latir().
+
+** 42.2 Controle de Acesso: public, protected e private
+
+Quando uma classe herda de outra, o controle de acesso dos membros da classe base determina como eles podem ser usados pela classe derivada.
+
+  - public: Membros públicos da base são públicos na derivada. Eles podem ser acessados por qualquer um.
+  - private: Membros privados da base são herdados, mas não são acessíveis diretamente pela classe derivada. No nosso exemplo, Cachorro não pode acessar m_nome diretamente; ele precisa usar o método público getNome(). Esta é a forma mais forte de encapsulamento.
+  - protected: Este é um modificador de acesso intermediário. Membros protected da base são como membros private, mas com uma exceção: eles são acessíveis diretamente pela classe derivada (e pelas filhas dela).
+Vamos modificar nosso Animal para ilustrar:
+
+#+begin_src cpp
+class AnimalProtegido {
+protected:
+    // Agora m_nome é acessível por AnimalProtegido e suas classes filhas.
+    std::string m_nome; 
+public:
+    AnimalProtegido(const std::string& nome) : m_nome(nome) {}
+    // ...
+};
+
+class Gato : public AnimalProtegido {
+public:
+    Gato(const std::string& nome) : AnimalProtegido(nome) {}
+
+    void miar() const {
+        // OK! A classe derivada pode acessar o membro protected da base.
+        std::cout << m_nome << " diz: Miau!" << std::endl;
+    }
+};
+#+end_src
+
+A escolha entre private e protected é uma decisão de design. Usar private com getters/setters públicos ou protegidos oferece melhor encapsulamento, enquanto protected pode ser um atalho conveniente, mas acopla a classe derivada mais firmemente à implementação da classe base.
+
+** 42.3 A Cadeia de Construção e Destruição
+
+Quando um objeto de uma classe derivada é criado, o que acontece nos bastidores? A linguagem garante uma ordem estrita de inicialização para garantir que o objeto seja construído corretamente de dentro para fora.
+
+*Regra de Construção: Base antes de Derivada*
+
+  1. O construtor da classe base é executado primeiro.
+  2. Em seguida, o construtor da classe derivada é executado.
+
+É por isso que a sintaxe da lista de inicializadores de membro é obrigatória para chamar o construtor da base: Derivada(...) : Base(...) {}. A parte "Base" do objeto precisa ser totalmente construída antes que a parte "Derivada" possa começar sua construção.
+
+*Regra de Destruição: Derivada antes de Base*
+A destruição ocorre na ordem inversa exata da construção.
+
+  1. O destrutor da classe derivada é executado primeiro.
+  2. Em seguida, o destrutor da classe base é executado.
+     
+Isso garante que a classe derivada possa limpar seus próprios recursos antes que a parte base do objeto, da qual ela pode depender, seja destruída.
+
+Vamos ver isso em ação:
+
+#+begin_src cpp
+#include <iostream>
+
+class Base {
+public:
+    Base() { std::cout << "Construtor da Base" << std::endl; }
+    ~Base() { std::cout << "Destrutor da Base" << std::endl; }
+};
+
+class Derivada : public Base {
+public:
+    Derivada() { std::cout << "Construtor da Derivada" << std::endl; }
+    ~Derivada() { std::cout << "Destrutor da Derivada" << std::endl; }
+};
+
+int main() {
+    std::cout << "Criando objeto Derivada..." << std::endl;
+    Derivada d;
+    std::cout << "Objeto Derivada prestes a sair do escopo..." << std::endl;
+}
+#+end_src
+
+A saída deste programa será:
+
+#+begin_src sh
+Criando objeto Derivada...
+Construtor da Base
+Construtor da Derivada
+Objeto Derivada prestes a sair do escopo...
+Destrutor da Derivada
+Destrutor da Base
+#+end_src 
+
+A herança é uma ferramenta poderosa para estruturar código e evitar duplicação. No entanto, seu verdadeiro poder só é desbloqueado quando a combinamos com o polimorfismo, que nos permite tratar objetos de classes derivadas através de uma interface de classe base comum. Esse será o tópico do nosso próximo capítulo.

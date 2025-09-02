@@ -1,0 +1,179 @@
+* Capítulo 10: Posse Exclusiva e Gerenciamento de Recursos — Uma Análise de std::unique_ptr
+
+O std::unique_ptr é a representação canônica do princípio RAII (Resource Acquisition Is Initialization) para recursos de posse exclusiva em C++. Sua finalidade é encapsular um ponteiro para um recurso alocado dinamicamente, garantindo que o recurso seja liberado de forma determinística quando o unique_ptr que o possui for destruído. A sua semântica de "posse única" não é uma convenção, mas uma regra imposta em tempo de compilação através da supressão de suas operações de cópia, tornando-o uma ferramenta de design de software que previne erros de gerenciamento de memória por construção.
+
+** 10.1 Criação e a Primazia de std::make_unique
+
+A instanciação de um std::unique_ptr deve ser feita, preferencialmente, através da função auxiliar std::make_unique (introduzida no C++14).
+
+#+begin_src cpp
+#include <iostream>
+#include <memory>
+#include <string>
+
+struct Engine {
+    int horsepower;
+    Engine(int hp) : horsepower(hp) {
+        std::cout << "Engine com " << horsepower << "hp criado no endereço " << this << std::endl;
+    }
+    ~Engine() {
+        std::cout << "Engine com " << horsepower << "hp destruído no endereço " << this << std::endl;
+    }
+    void start() {
+        std::cout << "Engine ligado." << std::endl;
+    }
+};
+
+int main() {
+    // Criação de um unique_ptr usando a função auxiliar recomendada.
+    // std::make_unique aloca memória para o Engine e constrói o objeto no local.
+    auto engine_ptr = std::make_unique<Engine>(450);
+
+    // O programa utiliza o objeto através do unique_ptr.
+    engine_ptr->start();
+
+    // Nenhuma chamada a 'delete' é necessária.
+    // Quando 'engine_ptr' sai de escopo no final de main, seu destrutor
+    // é invocado automaticamente, que por sua vez chama 'delete' no ponteiro encapsulado.
+    return 0;
+}
+#+end_src
+
+A preferência por std::make_unique<T>(args...) sobre a forma std::unique_ptr<T>(new T(args...)) é fundamentada em duas razões técnicas:
+
+  1. Simplicidade e Redundância: A forma com new exige que o tipo T seja especificado duas vezes, aumentando a verbosidade e a chance de erro.
+
+  2. Segurança Forte Contra Exceções (Strong Exception Safety): Considere a chamada de uma função process(std::unique_ptr<Engine>(new Engine(500)), compute_priority()). O compilador tem liberdade para reordenar a execução das partes desta expressão. Ele poderia executar na seguinte ordem: 1) new Engine(500), 2) compute_priority(), 3) std::unique_ptr<Engine>::constructor. Se compute_priority() lançar uma exceção, a memória alocada por new Engine(500) nunca será atribuída ao unique_ptr e, portanto, nunca será liberada, resultando em um vazamento de memória. std::make_unique realiza a alocação e a construção em uma única chamada de função, garantindo que o ponteiro inteligente assuma a posse imediatamente, sem janelas de oportunidade para vazamentos induzidos por exceções.
+
+** 10.2 A Interface de std::unique_ptr
+
+Um unique_ptr se comporta de forma muito semelhante a um ponteiro bruto, sobrecarregando os operadores * e -> para acesso ao objeto gerenciado. Contudo, ele oferece um conjunto de métodos para manipulação explícita da posse e do recurso.
+
+  - get(): Retorna o ponteiro bruto encapsulado. Este método é uma "escotilha de escape" para interoperabilidade com bibliotecas ou APIs legadas que esperam um ponteiro bruto. O uso de get() deve ser feito com cautela, pois o ponteiro retornado não carrega nenhuma informação de posse. O chamador não deve, em hipótese alguma, chamar delete neste ponteiro.
+
+  - release(): Libera a posse do ponteiro encapsulado. O unique_ptr que chama release() se torna nulo, e o método retorna o ponteiro bruto. A partir deste momento, o chamador se torna totalmente responsável por deletar o ponteiro retornado. É uma transferência de posse do mundo RAII para o gerenciamento manual.
+
+  - reset(pointer p = nullptr): Substitui o objeto gerenciado. Se o unique_ptr já gerenciava um objeto, o destrutor desse objeto antigo é chamado. Em seguida, o unique_ptr assume a posse do novo ponteiro p passado como argumento. Se nenhum argumento for fornecido, o unique_ptr simplesmente libera o objeto antigo e se torna nulo.
+
+  - std::move(): Como unique_ptr não pode ser copiado, a transferência de posse entre escopos ou para dentro de contêineres é realizada com std::move. Isso invoca o construtor de movimento ou o operador de atribuição por movimento, que transfere o ponteiro bruto do unique_ptr de origem para o de destino, tornando o original nulo.
+
+*Exemplo de Interface:*
+#+begin_src cpp
+#include <iostream>
+#include <memory>
+#include <vector>
+
+// Usando a mesma struct Engine do exemplo anterior.
+struct Engine { /* ... */ };
+
+// Uma função legada que espera um ponteiro bruto.
+void legacy_diagnostics(Engine* raw_ptr) {
+    if (raw_ptr) {
+        std::cout << "Diagnóstico legado: Engine no endereço " << raw_ptr << " está OK.\n";
+    }
+}
+
+int main() {
+    auto ptr1 = std::make_unique<Engine>(300);
+
+    // 1. Usando get() para interoperabilidade
+    legacy_diagnostics(ptr1.get());
+
+    // 2. Usando reset() para substituir o objeto
+    std::cout << "Resetando ptr1 para um novo Engine.\n";
+    auto old_engine_raw_ptr = ptr1.get();
+    ptr1.reset(new Engine(500)); // O Engine de 300hp é destruído aqui.
+    std::cout << "O ponteiro antigo era " << old_engine_raw_ptr << ", o novo é " << ptr1.get() << std::endl;
+
+    // 3. Usando release() para transferir para gerenciamento manual
+    std::cout << "Liberando a posse de ptr1.\n";
+    Engine* manual_ptr = ptr1.release(); // ptr1 agora é nulo.
+    // Agora somos responsáveis por este ponteiro.
+    std::cout << "ptr1.get() agora retorna: " << ptr1.get() << std::endl;
+    std::cout << "Deletando manualmente o ponteiro em " << manual_ptr << std::endl;
+    delete manual_ptr; // Liberação manual necessária.
+
+    // 4. Usando std::move() para transferir posse para outro unique_ptr
+    auto ptr2 = std::make_unique<Engine>(700);
+    std::cout << "Movendo posse de ptr2 para ptr3.\n";
+    auto ptr3 = std::move(ptr2);
+    std::cout << "ptr2.get() agora retorna: " << ptr2.get() << std::endl;
+    std::cout << "ptr3 gerencia o Engine em " << ptr3.get() << std::endl;
+
+    return 0; // ptr3 sai de escopo, destruindo o Engine de 700hp.
+}
+#+end_src
+
+** 10.3 Especialização para Arrays
+
+std::unique_ptr possui uma especialização para arrays, std::unique_ptr<T[]>. Esta versão é ciente de que gerencia um array e, crucialmente, chamará delete[] em seu destrutor em vez de delete. Além disso, ela sobrecarrega o operador de subscrito (operator[]) para acesso aos elementos, em vez dos operadores * e ->.
+
+#+begin_src cpp
+#include <iostream>
+#include <memory>
+
+int main() {
+    size_t size = 5;
+    // Cria um array de 'size' inteiros no heap.
+    auto array_ptr = std::make_unique<int[]>(size);
+
+    // Acesso aos elementos usando o operador de subscrito.
+    for (size_t i = 0; i < size; ++i) {
+        array_ptr[i] = i * 10;
+    }
+
+    for (size_t i = 0; i < size; ++i) {
+        std::cout << "array_ptr[" << i << "] = " << array_ptr[i] << std::endl;
+    }
+
+    // Quando array_ptr sai de escopo, 'delete[]' é chamado automaticamente.
+    return 0;
+}
+#+end_src
+
+Esta especialização torna o gerenciamento de arrays alocados dinamicamente tão seguro e simples quanto o de objetos únicos, eliminando uma classe comum de erros relacionados ao uso incorreto de delete vs. delete[].
+
+** 10.4 Deletores Customizados
+
+O poder do std::unique_ptr se estende para além da memória alocada com new. Ele pode gerenciar qualquer recurso que tenha uma operação de aquisição e uma de liberação. Isso é alcançado através de um deletor customizado, especificado como o segundo parâmetro de template do unique_ptr.
+
+Isso é particularmente útil ao interagir com APIs C ou outras bibliotecas que usam pares de funções como fopen/fclose, malloc/free, ou funções de API específicas para criar/destruir handles.
+
+O deletor pode ser uma função ou um objeto de função (functor).
+
+*Exemplo com a API de arquivos C:*
+#+begin_src cpp
+#include <iostream>
+#include <memory>
+#include <cstdio> // Para FILE, fopen, fclose
+
+// Um deletor é uma struct/classe com um operator() sobrecarregado.
+struct FileCloser {
+    void operator()(FILE* file) const {
+        if (file) {
+            std::cout << "Fechando o arquivo via deletor customizado." << std::endl;
+            fclose(file);
+        }
+    }
+};
+
+int main() {
+    // O tipo do deletor agora faz parte do tipo do unique_ptr.
+    // unique_ptr<FILE, FileCloser> é um tipo diferente de unique_ptr<FILE>.
+    std::unique_ptr<FILE, FileCloser> file_handle(fopen("test.txt", "w"));
+
+    if (file_handle) {
+        fprintf(file_handle.get(), "Olá, RAII!");
+    }
+
+    // Quando file_handle sai de escopo, o destrutor do unique_ptr não chama 'delete',
+    // mas sim invoca o objeto FileCloser, que por sua vez chama 'fclose'.
+    // O recurso do sistema operacional (o handle do arquivo) é liberado de forma segura.
+    return 0;
+}
+#+end_src
+
+Uma implicação importante é que o tipo do deletor faz parte do tipo do unique_ptr. Isso significa que um std::unique_ptr<T, DeleterA> não pode ser atribuído ou movido para um std::unique_ptr<T, DeleterB> se DeleterA e DeleterB forem tipos diferentes. Isso reforça a segurança de tipo, garantindo que um recurso seja sempre liberado pela lógica correta.
+
+
+|[[./capitulo_9.org][Anterior]]|[[./cpp_moderno_indice.org][Índice]]|[[./capitulo_11.org][Próximo]]|

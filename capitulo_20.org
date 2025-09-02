@@ -1,0 +1,122 @@
+* Capítulo 20: Da Linha de Comando à Automação — Construindo Projetos com make e Makefile
+
+À medida que um projeto cresce, o processo de compilação se torna uma coreografia complexa de dependências. O main.cpp depende do logger.hpp, então se o logger.hpp mudar, o main.cpp precisa ser recompilado. O logger.cpp também precisa ser compilado, mas apenas se ele mesmo mudar. Finalmente, todos os arquivos objeto (.o) precisam ser linkados para criar o executável, mas apenas se um deles tiver sido recém-compilado.
+
+Rastrear isso manualmente é um pesadelo. A solução é um sistema de build, uma ferramenta que automatiza esse processo. make é uma das mais antigas e influentes dessas ferramentas. Ela lê um arquivo de receita, chamado Makefile, que descreve as dependências e os comandos necessários para construir o projeto.
+
+** 20.1 A Filosofia do make: Alvos, Dependências e Comandos
+
+Um Makefile é composto por um conjunto de regras. Cada regra tem a seguinte estrutura:
+
+#+begin_src makefile
+alvo: dependencia1 dependencia2 ...
+	comando1
+	comando2
+	...
+#+end_src
+
+  - Alvo (Target): O nome do arquivo que a regra se destina a criar (ex: meu_programa, main.o).
+
+  - Dependências (Prerequisites): Uma lista de arquivos ou outros alvos que devem existir e estar atualizados antes que os comandos para criar o alvo possam ser executados.
+
+  - Comandos (Commands): Uma série de comandos do shell (como g++) que são executados para criar o alvo. Importante: cada linha de comando deve começar com um caractere de tabulação (\t), não com espaços.
+
+O make funciona de forma inteligente: ao pedir para ele construir um alvo, ele verifica as datas de modificação dos arquivos. Se alguma dependência for mais recente que o alvo, o make sabe que o alvo está desatualizado e executa os comandos para recriá-lo. Se o alvo for mais recente que todas as suas dependências, o make não faz nada, economizando tempo de compilação.
+
+** 20.2 Um Makefile Básico para o Modelo Clássico
+
+Vamos criar um Makefile para o projeto logger do Capítulo 18.
+
+*Estrutura do Projeto:*
+/
+|-- logger.hpp
+|-- logger.cpp
+|-- main.cpp
+|-- Makefile
+Makefile:
+
+#+begin_src makefile
+
+# Define o compilador a ser usado. Usar variáveis torna o Makefile mais flexível.
+CXX = g++
+# Define as flags de compilação. -std=c++20 para usar C++20, -Wall para todos os avisos.
+CXXFLAGS = -std=c++20 -Wall
+
+# O primeiro alvo no Makefile é o alvo padrão, executado quando você digita apenas 'make'.
+# Nosso alvo final é o executável 'app'.
+# Ele depende dos arquivos objeto main.o e logger.o.
+app: main.o logger.o
+	$(CXX) $(CXXFLAGS) main.o logger.o -o app
+
+# Regra para criar main.o.
+# Ele depende de main.cpp e logger.hpp.
+main.o: main.cpp logger.hpp
+	$(CXX) $(CXXFLAGS) -c main.cpp -o main.o
+
+# Regra para criar logger.o.
+# Ele depende de logger.cpp e logger.hpp.
+logger.o: logger.cpp logger.hpp
+	$(CXX) $(CXXFLAGS) -c logger.cpp -o logger.o
+
+# Um "alvo falso" (phony target) para limpeza.
+# Não cria um arquivo chamado 'clean', mas executa os comandos.
+.PHONY: clean
+clean:
+	rm -f app main.o logger.o
+#+end_src
+
+Como Usar:
+  - make: Constrói o projeto. make determinará quais arquivos precisam ser recompilados e executará os comandos necessários.
+  - make clean: Remove todos os arquivos gerados, permitindo uma reconstrução limpa.
+
+** 20.3 Aprimorando o Makefile com Variáveis e Regras de Padrão
+
+O Makefile acima funciona, mas é repetitivo. Podemos torná-lo mais conciso e escalável usando as funcionalidades mais avançadas do make.
+
+  - Variáveis: Já usamos CXX e CXXFLAGS. Podemos definir outras para listar nossos arquivos fonte e objeto.
+  - Regras de Padrão (Pattern Rules): make tem regras implícitas. Uma delas sabe como criar um arquivo .o a partir de um arquivo .cpp correspondente. Podemos usar o caractere % como um curinga para definir nossas próprias regras de padrão.
+
+*Makefile Aprimorado:*
+#+begin_src makefile
+CXX = g++
+CXXFLAGS = -std=c++20 -Wall -g # Adicionando -g para informações de depuração
+
+# Lista de arquivos objeto. make irá inferir os arquivos .cpp correspondentes.
+OBJS = main.o logger.o
+
+# Nome do executável final.
+TARGET = app
+
+# Alvo padrão.
+all: $(TARGET)
+
+# Regra de linkagem.
+$(TARGET): $(OBJS)
+	$(CXX) $(CXXFLAGS) $(OBJS) -o $(TARGET)
+
+# Regra de padrão para compilar qualquer .cpp em um .o.
+# '$<' é uma variável automática que se refere à primeira dependência (o .cpp).
+# '$@' é uma variável automática que se refere ao alvo (o .o).
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+.PHONY: clean all
+
+clean:
+	rm -f $(TARGET) $(OBJS)
+#+end_src
+
+Este Makefile é muito mais limpo. Se adicionarmos um novo arquivo utils.cpp ao projeto, tudo o que precisamos fazer é adicionar utils.o à variável OBJS. A regra de padrão cuidará do resto.
+
+** 20.4 Desafios com Módulos do C++20
+
+Construir projetos com módulos usando make é mais complexo, pois make não entende nativamente as dependências de import. O compilador precisa ser invocado para descobrir essas dependências, o que requer Makefiles mais avançados que geram dependências dinamicamente.
+
+Embora seja possível, é aqui que sistemas de build mais modernos como CMake ou Meson brilham, pois eles têm suporte integrado para descobrir dependências de módulos do C++20, simplificando enormemente o processo.
+
+Para o nosso projeto, no entanto, dominar o Makefile clássico é o passo fundamental. Ele nos dá um controle transparente e direto sobre o processo de compilação e nos ensina os princípios de dependências que se aplicam a todos os sistemas de build.
+
+Agora, com o conhecimento de como organizar nosso código em múltiplos arquivos e como automatizar sua compilação, estamos verdadeiramente prontos para iniciar o pequeno projeto que você propôs.
+
+
+|[[./capitulo_19.org][Anterior]]|[[./cpp_moderno_indice.org][Índice]]|[[./capitulo_21.org][Próximo]]|

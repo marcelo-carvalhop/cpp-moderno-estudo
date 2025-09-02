@@ -1,0 +1,131 @@
+* Capítulo 29: A Alma da Lambda — Mecânica de Captura em Detalhe
+
+O bloco de captura [] é o coração de uma lambda. Ele age como uma lista de instruções para o construtor do functor anônimo, especificando quais variáveis do escopo externo devem se tornar membros de dados desse functor e como devem ser inicializadas. Cada modo de captura carrega consigo um conjunto distinto de implicações sobre performance, semântica e, mais criticamente, sobre o tempo de vida dos objetos.
+
+** 29.1 Captura por Cópia: Segurança Através da Posse
+
+A captura por cópia instrui o compilador a criar uma cópia da variável externa como um membro de dados dentro do objeto da lambda.
+
+  - Sintaxe:
+    - [variavel]: Captura a variável variavel por cópia.
+    - [=]: Captura por cópia todas as variáveis externas utilizadas na lambda (captura padrão por cópia).
+  - Mecânica: Quando o objeto da lambda é construído, o construtor do functor copia o valor da variável externa para o seu membro de dados interno. A partir desse momento, a lambda opera em sua própria cópia privada. A variável original e a cópia da lambda são entidades completamente independentes.
+  - Implicações:
+    - Performance: O custo da captura é o custo de uma cópia. Para tipos primitivos como int ou double, o custo é insignificante. Para objetos grandes, como um std::vector com milhões de elementos, a cópia pode ser uma operação cara em termos de tempo e memória.
+    - Segurança de Tempo de Vida: Esta é a principal vantagem e a razão pela qual a captura por cópia é o método mais seguro. Como a lambda possui sua própria cópia dos dados, seu tempo de vida é desvinculado do tempo de vida da variável original. A lambda pode ser retornada de uma função, armazenada e chamada muito depois que a variável original foi destruída, sem nenhum risco.
+
+*Exemplo Prático: A Lambda Segura*
+#+begin_src cpp
+#include <iostream>
+#include <string>
+#include <functional>
+
+// Esta função cria e retorna uma função de log.
+std::function<void(const std::string&)> criarLogger() {
+    std::string prefixo_local = "LOG: ";
+    std::cout << "  (Dentro de criarLogger: 'prefixo_local' criado na pilha)\n";
+    
+    // Capturamos 'prefixo_local' POR CÓPIA.
+    // A lambda agora tem sua própria cópia de "LOG: ".
+    return [prefixo_local](const std::string& msg) {
+        std::cout << prefixo_local << msg << std::endl;
+    };
+} // 'prefixo_local' é destruído aqui, ao sair do escopo.
+
+int main() {
+    std::cout << "Chamando criarLogger...\n";
+    auto meu_logger = criarLogger();
+    std::cout << "  (Fora de criarLogger: a variável original não existe mais)\n";
+    
+    std::cout << "Usando o logger retornado...\n";
+    // Isto é perfeitamente seguro. O logger usa sua cópia interna.
+    meu_logger("Sistema iniciado."); 
+}
+#+end_src
+
+** 29.2 Captura por Referência: Eficiência com Risco
+
+A captura por referência instrui o compilador a armazenar uma referência (ou, internamente, um ponteiro) para a variável original.
+
+  - Sintaxe:
+    - [&variavel]: Captura a variável variavel por referência.
+    - [&]: Captura por referência todas as variáveis externas utilizadas na lambda.
+  - Mecânica: A lambda não possui os dados; ela apenas mantém um "link" para a variável original. Qualquer modificação feita na variável através da lambda afeta a variável original, e vice-versa.
+  - Implicações:
+    - Performance: A captura é extremamente barata, pois envolve apenas a cópia de uma referência (do tamanho de um ponteiro), independentemente do tamanho do objeto original.
+    - O Perigo da Referência Pendente (Dangling Reference): Este é um dos erros mais perigosos em C++. Se o tempo de vida da lambda exceder o da variável capturada, a referência dentro da lambda se tornará "pendente", apontando para memória que já foi liberada. Usar essa referência resulta em Comportamento Indefinido (Undefined Behavior).
+
+A Regra de Ouro: Capture por referência apenas e somente quando você puder garantir que a lambda será destruída antes da variável que ela captura. O caso de uso mais comum e seguro é em chamadas de algoritmos da STL, onde a lambda existe apenas durante a execução do algoritmo.
+
+*Exemplo Prático: A Lambda Perigosa*
+#+begin_src cpp
+#include <iostream>
+#include <string>
+#include <functional>
+
+// Esta versão é PERIGOSA e ERRADA.
+std::function<void(const std::string&)> criarLoggerPerigoso() {
+    std::string prefixo_local = "LOG: ";
+    
+    // Capturamos 'prefixo_local' POR REFERÊNCIA.
+    // A lambda agora tem uma referência para a variável na pilha de criarLoggerPerigoso.
+    return [&prefixo_local](const std::string& msg) {
+        // QUANDO ESTA LINHA EXECUTAR, 'prefixo_local' JÁ FOI DESTRUÍDO!
+        std::cout << prefixo_local << msg << std::endl;
+    };
+} // 'prefixo_local' é destruído aqui. A referência dentro da lambda agora é inválida.
+
+int main() {
+    auto logger_perigoso = criarLoggerPerigoso();
+    
+    // A chamada a seguir é COMPORTAMENTO INDEFINIDO.
+    // Pode travar, imprimir lixo, ou parecer funcionar por acaso.
+    logger_perigoso("Isso é perigoso.");
+}
+#+end_src
+
+** 29.3 Capturas Mistas e Específicas
+
+É possível misturar os modos de captura para um controle fino, especificando um padrão e exceções a ele.
+
+  - [=, &var1]: Captura var1 por referência e todo o resto por cópia.
+  - [&, var1]: Captura var1 por cópia e todo o resto por referência.
+
+Isso é útil para otimizar a performance e garantir a segurança simultaneamente. Por exemplo, pode-se capturar um contador grande por referência para modificá-lo, enquanto se captura uma string de configuração pequena por cópia para garantir a segurança.
+
+** 29.4 Captura de this
+
+Dentro de um método de uma classe, [this] captura o ponteiro this do objeto atual. Isso concede à lambda acesso a todos os membros (variáveis e métodos) da instância da classe.
+
+  - Mecânica: É conceitualmente uma captura por referência. A lambda depende da existência do objeto. Se o objeto for destruído antes da lambda ser chamada, o resultado é comportamento indefinido.
+  - C++17: [*this] (Captura por Cópia do Objeto): Para cenários assíncronos onde o objeto original pode ser destruído, o C++17 introduziu [*this]. Isso cria uma cópia completa do objeto (*this) como um membro dentro da lambda, garantindo que a operação assíncrona tenha sua própria instância segura para trabalhar.
+
+** 29.5 Captura com Inicialização (C++14)
+
+Também conhecida como "captura generalizada", esta é a forma mais flexível. Ela permite criar e inicializar um novo membro dentro da lambda, cujo nome só existe no escopo da própria lambda.
+
+  - Sintaxe: [identificador = expressão]
+  - Casos de Uso:
+    1. Renomear Variáveis: [novo_nome = nome_longo_e_confuso] { ... }
+    2. Pré-calcular Valores: [resultado = calculo_caro()] { ... }
+    3. Capturar por Movimento (Move Capture): Este é o caso de uso mais importante. Permite mover a posse de um recurso (como um std::unique_ptr, que não pode ser copiado) para dentro da lambda.
+
+*Exemplo de Captura por Movimento:*
+#+begin_src cpp
+#include <memory>
+
+auto ptr = std::make_unique<int>(10);
+
+// Erro de compilação: unique_ptr não pode ser copiado.
+// auto lambda_erro = [ptr] { ... }; 
+
+// Correto: move a posse de 'ptr' para 'ptr_lambda' dentro da lambda.
+auto lambda_correta = [ptr_lambda = std::move(ptr)] {
+    // Agora a lambda é a dona do unique_ptr.
+    return *ptr_lambda;
+};
+
+// Após a criação da lambda, 'ptr' no escopo externo é nullptr.
+#+end_src
+
+A escolha do método de captura é uma decisão de design fundamental. Ela reside no balanço entre a segurança de tempo de vida (cópia) e a eficiência (referência), com a captura generalizada oferecendo a máxima flexibilidade para cenários avançados.

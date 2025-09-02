@@ -1,0 +1,118 @@
+* Capítulo 45: A Regra de Ouro — Destrutores Virtuais
+
+Este capítulo aborda uma das fontes mais comuns de comportamento indefinido e vazamentos de memória em C++ orientado a objetos. A regra que aprenderemos aqui não é uma sugestão; é um requisito absoluto para a correção do código.
+
+** 45.1 O Perigo Oculto: Destruição Incompleta
+
+Vamos construir um cenário para demonstrar o problema. Teremos uma classe Base e uma Derivada. A Derivada alocará um recurso em seu construtor para que possamos ver o que acontece quando sua destruição falha.
+
+#+begin_src cpp
+#include <iostream>
+
+class Base {
+public:
+    Base() { std::cout << "Construtor da Base\n"; }
+    // ATENÇÃO: Destrutor NÃO-VIRTUAL! Este é o problema.
+    ~Base() { std::cout << "Destrutor da Base\n"; }
+};
+
+class Derivada : public Base {
+private:
+    int* m_recurso;
+public:
+    Derivada() { 
+        std::cout << "Construtor da Derivada (alocando recurso)\n";
+        m_recurso = new int[100]; // Aloca um recurso.
+    }
+    ~Derivada() { 
+        std::cout << "Destrutor da Derivada (liberando recurso)\n";
+        delete[] m_recurso; // Libera o recurso.
+    }
+};
+
+int main() {
+    std::cout << "Criando Derivada através de um ponteiro de Base...\n";
+    Base* p = new Derivada(); // Cenário polimórfico padrão.
+
+    std::cout << "\nDeletando o objeto através do ponteiro de Base...\n";
+    delete p; // O que acontece aqui?
+
+    std::cout << "\nPrograma terminando.\n";
+}
+#+end_src
+
+Vamos analisar a saída deste programa:
+
+Criando Derivada através de um ponteiro de Base...
+Construtor da Base
+Construtor da Derivada (alocando recurso)
+
+Deletando o objeto através do ponteiro de Base...
+Destrutor da Base
+
+Programa terminando.
+Observe o que está terrivelmente errado: o destrutor da classe Derivada nunca foi chamado!
+
+** 45.2 Por que Isso Acontece? Ligação Estática vs. Dinâmica
+
+Quando o compilador encontra a linha delete p;, ele olha para o tipo estático do ponteiro p, que é Base*. Como o destrutor ~Base() não é virtual, o compilador usa ligação estática (static binding). Ele gera uma chamada direta para ~Base(), sem se importar com o tipo real do objeto para o qual p aponta.
+
+As consequências são catastróficas:
+
+  1. Comportamento Indefinido (Undefined Behavior): De acordo com o padrão C++, deletar um objeto de tipo derivado através de um ponteiro para um tipo base que tem um destrutor não-virtual resulta em comportamento indefinido. O programa pode travar, pode corromper dados, ou pode parecer funcionar, escondendo o bug. É a pior categoria de erro em C++.
+
+  2. Vazamento de Recursos (Resource Leaks): Como o destrutor ~Derivada() nunca foi chamado, a linha delete[] m_recurso; nunca foi executada. Os 100 ints que alocamos vazaram para sempre. Em uma aplicação real, isso levaria ao esgotamento da memória.
+
+** 45.3 A Solução: virtual no Destrutor
+
+A solução é notavelmente simples. Assim como usamos virtual para habilitar o despacho dinâmico para funções de membro normais, devemos fazer o mesmo para o destrutor.
+
+Vamos corrigir a classe Base:
+
+#+begin_src cpp
+class BaseCorrigida {
+public:
+    BaseCorrigida() { /* ... */ }
+    // A SOLUÇÃO: Tornamos o destrutor da classe base virtual.
+    virtual ~BaseCorrigida() { std::cout << "Destrutor da Base\n"; }
+};
+
+// A classe Derivada permanece a mesma.
+#+end_src
+
+Se rodarmos o mesmo main usando BaseCorrigida, a saída muda completamente:
+
+Criando Derivada através de um ponteiro de Base...
+Construtor da Base
+Construtor da Derivada (alocando recurso)
+
+Deletando o objeto através do ponteiro de Base...
+Destrutor da Derivada (liberando recurso)
+Destrutor da Base
+
+Programa terminando.
+Agora, tudo funciona como esperado. Ao ver delete p;, o mecanismo de despacho dinâmico é ativado porque o destrutor é virtual. O sistema verifica o tipo real do objeto (que é Derivada), chama ~Derivada() primeiro, e então, como parte da cadeia de destruição, ~Base() é chamado automaticamente. Nenhum vazamento, nenhum comportamento indefinido.
+
+** 45.4 A Regra de Ouro
+
+Isso nos leva a uma das regras mais importantes e inquebráveis do C++ orientado a objetos:
+
+#+begin_quote
+Se uma classe é projetada para ser usada como uma classe base polimórfica (ou seja, se ela tem pelo menos uma função virtual), ela DEVE ter um destrutor virtual.
+#+end_quote
+
+Mesmo que sua classe base não precise de um destrutor para fazer nada, se ela for polimórfica, você ainda precisa declará-lo como virtual. A forma idiomática moderna para isso é:
+
+#+begin_src cpp
+class Base {
+public:
+    virtual void alguma_funcao() = 0;
+    // ...
+    // O destrutor não faz nada, mas sua virtualidade é essencial.
+    virtual ~Base() = default;
+};
+#+end_src
+
+Usar = default é limpo e expressa a intenção de que o comportamento padrão do destrutor é suficiente, mas garante que ele participe do mecanismo de despacho dinâmico.
+
+Com este capítulo, concluímos nosso módulo sobre herança e polimorfismo. Cobrimos a criação de hierarquias, o poder do despacho dinâmico, a definição de contratos com classes abstratas e, finalmente, a regra crucial que garante a segurança e a correção de todo o sistema.

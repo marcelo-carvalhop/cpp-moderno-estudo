@@ -1,0 +1,101 @@
+* Capítulo 1: Introdução ao C++ Moderno
+
+** 1.1 O que é C++?
+
+C++ é uma linguagem de programação de propósito geral, criada por Bjarne Stroustrup no início dos anos 1980, como uma extensão da linguagem C. Ao longo das décadas, C++ evoluiu significativamente, incorporando paradigmas de programação orientada a objetos, genérica e funcional. Com as versões modernas (C++11, C++14, C++17, C++20 e C++23), a linguagem tornou-se ainda mais poderosa, expressiva e segura, mantendo sua eficiência e controle de baixo nível.
+
+** 1.2 Por que aprender C++ Moderno?
+
+C++ é amplamente utilizado em sistemas embarcados, jogos, aplicações de alta performance, bancos de dados, sistemas operacionais e muito mais. O C++ moderno oferece recursos que facilitam o desenvolvimento seguro, eficiente e produtivo, como inferência de tipos, gerenciamento automático de recursos, programação concorrente e suporte aprimorado a templates.
+
+Aprender C++ moderno significa dominar não apenas a sintaxe básica, mas também as melhores práticas, padrões de projeto e as novas funcionalidades que tornam o código mais limpo, robusto e fácil de manter.
+
+** 1.3 Evolução da Linguagem
+
+A linguagem C++ passou por várias revisões importantes:
+
+  - C++98/03: Primeira padronização, com suporte a orientação a objetos, templates e exceções.
+  - C++11: Introduziu recursos como auto, lambda expressions, smart pointers, move semantics, range-based for, entre outros.
+  - C++14: Pequenas melhorias e correções.
+  - C++17: Novos recursos como std::optional, std::variant, if constexpr, structured bindings.
+  - C++20: Conceitos, ranges, corrotinas, módulos, e muito mais.
+  - C++23: Novas bibliotecas, aprimoramentos de sintaxe e melhorias de performance.
+
+Este livro foca principalmente em C++20 e C++23, mas sempre contextualizando com versões anteriores quando necessário.
+
+** 1.4 Paradigmas de Programação em C++
+
+C++ suporta múltiplos paradigmas:
+
+  + Procedural: Herdado do C, com funções e estruturas de controle.
+  + Orientado a Objetos: Classes, herança, polimorfismo, encapsulamento.
+  + Genérico: Templates, programação baseada em tipos.
+  + Funcional: Lambdas, funções de ordem superior, algoritmos da STL.
+
+O domínio desses paradigmas permite escrever código flexível, reutilizável e eficiente.
+
+** 1.5 Ferramentas Essenciais
+
+Para programar em C++ moderno, você precisará de:
+
+  + Compilador: GCC, Clang, MSVC, ou outros que suportem C++20/23.
+  + Editor/IDE: Visual Studio Code, CLion, Visual Studio, Qt Creator, etc.
+  + Build System: CMake é o padrão de fato para projetos modernos.
+  + Depurador: GDB, LLDB, ou integrados à IDE.
+
+** 1.6 Estrutura de um Programa C++ Simples
+
+Vamos começar com o clássico "Hello, World!" em C++ moderno:
+
+#+begin_src cpp
+#include <iostream>
+
+int main() {
+    std::cout << "Hello, World!" << std::endl;
+    return 0;
+}
+#+end_src
+
+
+Explicação rápida:
+
+  + #include <iostream>: Inclui a biblioteca padrão para entrada e saída.
+  + int main(): Função principal, ponto de entrada do programa.
+  + std::cout: Objeto para saída no console.
+  + std::endl: Quebra de linha e flush no buffer de saída.
+
+
+** 1.7 Compilando e Executando
+
+Para compilar e executar o exemplo acima usando o GCC:
+
+#+begin_src sh
+g++ -std=c++20 hello.cpp -o hello
+./hello
+#+end_src
+
+O parâmetro -std=c++20 garante que o compilador use os recursos do C++20.
+
+** 1.8 Convenções e Boas Práticas
+
+  + Sempre use cabeçalhos padrão (<iostream>, <vector>, etc.).
+  + Prefira std:: ao invés de using namespace std; para evitar conflitos de nomes.
+  + Escreva código legível, com indentação consistente e nomes descritivos.
+  + Utilize comentários para explicar decisões importantes, não o óbvio.
+
+** 1.9 O que esperar deste livro
+
+Nos próximos capítulos, você aprenderá:
+
+  + Tipos de dados, variáveis e operadores
+  + Controle de fluxo (if, switch, loops)
+  + Funções e sobrecarga
+  + Classes, objetos e herança
+  + Templates e programação genérica
+  + Recursos modernos: lambdas, smart pointers, ranges, corrotinas, módulos
+  + STL (Standard Template Library) e algoritmos
+  + Programação concorrente e paralela
+  + Boas práticas, padrões de projeto e dicas de performance
+
+** 1.10 Resumo
+C++ moderno é uma linguagem poderosa, versátil e em constante evolução. Dominar seus fundamentos e recursos avançados abrirá portas para projetos desafiadores e inovadores. Nos próximos capítulos, mergulharemos em cada aspecto da linguagem, sempre com exemplos práticos e explicações detalhadas.

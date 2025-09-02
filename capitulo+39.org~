@@ -1,0 +1,103 @@
+* Capítulo 39: A Regra dos Cinco — A Evolução com a Semântica de Movimento (C++11)
+
+A Regra dos Três resolveu o problema da correção, mas não o da eficiência. Toda vez que um objeto que possuía um recurso precisava ser passado ou retornado por valor, uma cópia profunda e potencialmente cara era realizada.
+
+** 39.1 O Problema de Performance: Cópias Desnecessárias
+
+Considere uma função que constrói e retorna nossa String da Regra dos Três:
+
+#+begin_src cpp
+String criar_saudacao() {
+    String temp("Bem-vindo"); // 1. Construtor Padrão
+    return temp;              // 2. Construtor de Cópia para criar o objeto de retorno
+}
+
+int main() {
+    String s = criar_saudacao(); // 3. Construtor de Cópia (pode ser otimizado pelo compilador, mas conceitualmente ocorre)
+}
+#+end_src
+
+O objeto temp dentro de criar_saudacao é um objeto temporário. Ele será destruído assim que a função retornar. Fazer uma cópia profunda de seus dados (alocando nova memória e copiando todos os caracteres) apenas para que o original seja imediatamente destruído é um desperdício monumental de recursos. Não seria muito mais eficiente se o novo objeto s pudesse simplesmente "roubar" o ponteiro de temp, que está prestes a morrer?
+
+39.2 A Solução: Semântica de Movimento e Referências R-value
+O C++11 introduziu a semântica de movimento para resolver exatamente este problema. A ideia central é a transferência de posse. Em vez de copiar o recurso, nós o movemos do objeto de origem para o objeto de destino.
+
+Para que o compilador saiba quando uma movimentação é segura (ou seja, quando o objeto de origem é um temporário ou foi explicitamente marcado para movimentação), foi introduzido um novo tipo de referência: a referência r-value, denotada por &&.
+
+Uma referência r-value só pode se ligar a objetos temporários (r-values), que são, por definição, seguros para terem seus recursos "roubados".
+
+39.3 Os Dois Novos Membros Especiais
+Para habilitar a semântica de movimento em nossas classes, a Regra dos Três foi estendida com dois novos membros especiais:
+
+Construtor de Movimento (String(String&& outro)): Chamado para construir um novo objeto a partir de um r-value (um temporário). Sua tarefa é roubar os recursos do outro.
+Operador de Atribuição por Movimento (String& operator=(String&& outro)): Chamado para atribuir a um objeto existente a partir de um r-value. Sua tarefa é liberar seus próprios recursos e depois roubar os recursos do outro.
+O Princípio Estendido (A Regra dos Cinco):
+
+Se uma classe requer um destrutor, construtor de cópia, atribuição por cópia, construtor de movimento ou atribuição por movimento definidos pelo usuário, ela provavelmente precisa de consideração para todos os cinco.
+
+Implementando a Regra dos Cinco para a Classe String:
+
+A implementação das operações de movimento é surpreendentemente simples. Elas realizam uma cópia rasa dos ponteiros e, em seguida, invalidam o ponteiro do objeto de origem para evitar a dupla liberação.
+
+cpp
+Copy
+class String {
+    // ... membros m_dados e m_tamanho ...
+public:
+    // ... Construtor, Destrutor, Construtor de Cópia, Atribuição por Cópia (da Regra dos Três) ...
+
+    // 4. Construtor de Movimento
+    String(String&& outro) noexcept
+        : m_dados(outro.m_dados), m_tamanho(outro.m_tamanho) // 1. Rouba os dados (cópia rasa)
+    {
+        // 2. Deixa o 'outro' em um estado válido e destrutível.
+        //    Isto é CRUCIAL para evitar a dupla liberação.
+        outro.m_dados = nullptr;
+        outro.m_tamanho = 0;
+    }
+
+    // 5. Operador de Atribuição por Movimento
+    String& operator=(String&& outro) noexcept {
+        // Proteção contra auto-atribuição (ex: s1 = std::move(s1);)
+        if (this == &outro) {
+            return *this;
+        }
+
+        // 1. Libera o recurso antigo do objeto atual.
+        delete[] m_dados;
+
+        // 2. Rouba os dados do 'outro'.
+        m_dados = outro.m_dados;
+        m_tamanho = outro.m_tamanho;
+
+        // 3. Deixa o 'outro' em um estado válido.
+        outro.m_dados = nullptr;
+        outro.m_tamanho = 0;
+
+        return *this;
+    }
+};
+A Importância Crítica do noexcept
+
+Note que ambas as operações de movimento são marcadas como noexcept. Isso é fundamental. Como vimos no Capítulo 36, os contêineres da STL, como std::vector, dependem dessa garantia para usar a movimentação de forma segura durante as realocações. Se as operações de movimento pudessem lançar exceções, o std::vector seria forçado a usar a cópia (mais lenta) para manter a garantia forte de exceção. Marcar as operações de movimento como noexcept é uma promessa ao compilador de que a transferência de posse não falhará, permitindo otimizações de performance cruciais.
+
+39.4 O Resultado: Eficiência por Padrão
+Vamos revisitar nosso exemplo original. Com a classe String agora aderindo à Regra dos Cinco, o que acontece?
+
+cpp
+Copy
+String criar_saudacao() {
+    String temp("Bem-vindo"); // 1. Construtor Padrão
+    return temp;              // 2. O compilador vê que 'temp' é um temporário.
+                              //    Em vez de chamar o construtor de cópia,
+                              //    ele chama o CONSTRUTOR DE MOVIMENTO.
+}
+
+int main() {
+    String s = criar_saudacao(); // O objeto retornado é movido para 's'.
+}
+Em vez de uma alocação de memória e uma cópia de todos os caracteres, a criação do objeto de retorno agora envolve apenas a cópia de um ponteiro e um size_t, seguida pela anulação do ponteiro original. A performance é drasticamente melhorada.
+
+A Regra dos Cinco e a semântica de movimento representaram um salto quântico na capacidade do C++ de combinar abstração de alto nível com performance de "metal nu". Elas tornaram o retorno de objetos grandes por valor uma operação barata e idiomática, simplificando o design de APIs e eliminando a necessidade de passar ponteiros de saída como parâmetros.
+
+No entanto, mesmo escrever os cinco membros especiais ainda é um trabalho manual e propenso a erros. Isso nos leva à filosofia final e mais importante do C++ moderno: a Regra do Zero.

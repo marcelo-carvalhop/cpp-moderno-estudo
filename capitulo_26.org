@@ -1,0 +1,76 @@
+* Capítulo 26: Contêineres Associativos — Busca e Recuperação Eficientes
+
+Diferentemente dos contêineres sequenciais, os contêineres associativos não organizam seus elementos por uma ordem linear de inserção, mas sim por uma chave associada a cada elemento. Essa organização permite uma busca extremamente rápida, eliminando a necessidade de percorrer a coleção linearmente. A STL divide essas estruturas em duas famílias principais, cuja escolha depende de uma única e crucial questão: a necessidade de manter os elementos ordenados.
+
+** 26.1 A Família Ordenada: std::map e std::set
+
+Estes contêineres garantem que seus elementos estejam sempre em uma ordem estrita, definida pela chave.
+
+  - Mecânica Interna: A implementação subjacente é, tipicamente, uma árvore rubro-negra (Red-Black Tree), um tipo de árvore de busca binária auto-balanceada. Essa estrutura garante que, independentemente da ordem de inserção, a árvore nunca se torna excessivamente desbalanceada. Como resultado, as operações de inserção, remoção e busca mantêm uma performance logarítmica, O(log n).
+  - Requisito da Chave: Para que a árvore possa organizar os elementos, ela precisa ser capaz de comparar duas chaves. Por padrão, isso é feito utilizando o operator<. Qualquer tipo usado como chave em um std::map ou std::set deve, portanto, ter um operator< definido ou uma função de comparação customizada deve ser fornecida.
+std::map<Key, Value>
+
+O std::map é o dicionário canônico do C++. Ele armazena pares chave-valor, onde cada chave deve ser única.
+
+  - Uso e Interface:
+    - Inserção: mapa.insert({chave, valor}); ou mapa[chave] = valor;.
+    - Acesso: mapa[chave] é a forma mais comum. Contudo, possui um comportamento importante: se a chave não existir, ela será inserida no mapa com um valor padrão (default-constructed), e uma referência a este novo valor será retornada. Para evitar inserções acidentais e apenas ler um valor, use mapa.at(chave), que lança uma exceção se a chave não for encontrada.
+    - Busca: mapa.find(chave) retorna um iterador. Se o iterador for igual a mapa.end(), a chave não foi encontrada.
+
+  - Caso de Uso Ideal: Utilize std::map quando precisar de buscas eficientes e da capacidade de iterar sobre os elementos em ordem crescente de suas chaves. Exemplos: um dicionário de palavras, um índice de um livro, ou um placar de jogo que precisa ser exibido em ordem de pontuação.
+std::set<Key>
+
+O std::set é uma coleção que armazena chaves únicas e ordenadas. Nele, a chave é o próprio valor.
+
+  - Uso e Interface: Sua principal função é manter um conjunto de itens únicos e verificar eficientemente a existência de um item.
+    - Inserção: conjunto.insert(valor);
+    - Busca: conjunto.count(valor) (retorna 1 ou 0) ou conjunto.find(valor) são as formas idiomáticas de verificar a presença de um elemento.
+
+  - Caso de Uso Ideal: Utilize std::set para manter um registro de itens únicos quando a ordem importa, ou quando for necessário encontrar rapidamente o próximo elemento maior ou menor que um dado valor. Exemplo: rastrear os usuários únicos que acessaram um recurso em um dia, e depois processá-los em ordem alfabética.
+
+** 26.2 A Família Não-Ordenada: std::unordered_map e std::unordered_set
+
+Introduzidos no C++11, estes contêineres priorizam a velocidade de busca acima de tudo, abrindo mão de qualquer garantia de ordenação.
+
+  - Mecânica Interna: A implementação é uma tabela de hash (hash table). Uma função de hash é aplicada à chave para calcular um índice (o "hash"). Esse índice determina um "balde" (bucket) onde o elemento será armazenado.
+    - Colisões: Ocasionalmente, duas chaves diferentes podem produzir o mesmo hash, um evento chamado de colisão. As tabelas de hash da STL resolvem isso armazenando uma pequena lista de elementos em cada balde.
+    - A performance de uma tabela de hash depende criticamente da qualidade da função de hash. Uma boa função distribui as chaves uniformemente pelos baldes, minimizando as colisões.
+  - Requisito da Chave: O tipo da chave deve ter duas coisas: uma especialização da std::hash (a função de hash) e um operator== (para comparar chaves dentro de um mesmo balde). A STL fornece implementações de std::hash para todos os tipos fundamentais e para muitos tipos da própria biblioteca, como std::string.
+  - Perfil de Performance: A grande vantagem desta família é a performance de busca, inserção e remoção em tempo médio constante, O(1). No pior caso (uma péssima função de hash que causa colisões para todas as chaves), a performance degrada para O(n), mas isso é extremamente raro na prática.
+
+std::unordered_map<Key, Value>
+
+Esta é a implementação de tabela de hash para pares chave-valor. É, em muitos cenários, um substituto direto e mais rápido para std::map.
+
+  - Caso de Uso Ideal: Utilize std::unordered_map sempre que a velocidade máxima de busca for a prioridade e a ordem de iteração for irrelevante. Esta é a escolha mais comum para caches, mapeamento de identificadores para objetos e qualquer cenário de dicionário onde a ordenação não é um requisito.
+
+std::unordered_set<Key>
+
+Esta é a implementação de tabela de hash para valores únicos.
+
+  - Caso de Uso Ideal: Utilize std::unordered_set para a verificação de existência mais rápida possível. Exemplo: um filtro para determinar se uma palavra já foi processada, ou para verificar se um item está em uma "lista negra" em tempo real.
+
+** 26.3 As Variantes "Multi"
+
+Tanto a família ordenada quanto a não-ordenada possuem variantes "multi": std::multimap, std::multiset, std::unordered_multimap e std::unordered_multiset. A única diferença é que estas versões permitem chaves duplicadas. Elas são úteis em cenários mais específicos, como um índice onde uma única chave pode apontar para múltiplos documentos.
+
+*Resumo Comparativo: map vs. unordered_map*
+A decisão mais comum recai entre std::map e std::unordered_map. A tabela a seguir resume os pontos cruciais:
+
++--------------------+----------------------------+---------------------------+
+| Caracterísstica    | std:map                    | std::unordered_map        |
++--------------------+----------------------------+---------------------------+
+| Estrutura Interna  | Árvore Rubro-Negra         | Tabela Hash               |
++--------------------+----------------------------+---------------------------+
+| Performance        | Sim, Chaves sempre         | Não, Ordem de iteração    |
+| (Busca)            | ordenadas                  | imprevisível              |
++--------------------+----------------------------+---------------------------+
+| Requisitos da      | operator< (ou comparador)  | std::hash e operator==    |
+| Chave              |                            |                           |
++--------------------+----------------------------+---------------------------+
+| Quando Usar        | Quando a iteração ordenada | Quando a velocidade máxima|
+|                    | necessária.                | de busca é a prioridade   |
++--------------------+----------------------------+---------------------------+
+
+
+|[[./capitulo_25.org][Anterior]]|[[./cpp_moderno_indice.org][Índice]]|[[./capitulo_27.org][Próximo]]|

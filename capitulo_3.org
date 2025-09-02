@@ -1,0 +1,153 @@
+* Capítulo 3: A Anatomia dos Dados: Um Mergulho Profundo nos Tipos Primitivos
+
+No capítulo anterior, introduzimos os tipos de dados como caixas rotuladas. É uma analogia útil, mas incompleta. Em C++, você não é apenas o usuário dessas caixas; você é o arquiteto que as projeta. Para construir sistemas robustos e eficientes, você precisa entender a matéria-prima com a qual trabalha: os bits e bytes que formam cada pedaço de informação no seu programa.
+
+Este capítulo abandona as abstrações e mergulha na representação fundamental dos dados. Vamos explorar o tamanho, o alcance, a precisão e as armadilhas de cada tipo primitivo, para que você possa fazer escolhas informadas e deliberadas em seu código.
+
+** 3.1 A Base de Tudo: Bits, Bytes e Memória
+
+Toda informação em um computador é, em sua essência, uma sequência de bits. Um bit é a menor unidade de dados possível, podendo assumir um de dois valores: 0 ou 1. Para trabalhar com dados de forma mais prática, os bits são agrupados em conjuntos de 8, formando um byte.
+
+Quando você declara uma variável, como int x;, você está pedindo ao sistema operacional para reservar um pedaço da memória RAM para você. O tamanho desse pedaço (quantos bytes) é determinado pelo tipo da variável. O sizeof é um operador em C++ que nos diz exatamente quantos bytes um tipo ou variável ocupa.
+
+#+begin_src cpp
+#include <iostream>
+
+int main() {
+    std::cout << "Tamanho de um char: " << sizeof(char) << " byte(s)\n";
+    std::cout << "Tamanho de um int: " << sizeof(int) << " byte(s)\n";
+    std::cout << "Tamanho de um double: " << sizeof(double) << " byte(s)\n";
+}
+#+end_src
+
+Nota: A saída para int e double pode variar dependendo da sua arquitetura (32-bit vs 64-bit), mas sizeof(char) é sempre garantido como 1.
+
+Compreender isso é crucial: a escolha de um tipo de dado é uma decisão sobre o uso de memória.
+
+** 3.2 Os Inteiros: Precisão Absoluta e o Perigo do Overflow
+
+Inteiros são a espinha dorsal da programação. Vamos analisá-los em detalhe.
+
+*** 3.2.1 signed vs. unsigned: A Questão do Sinal
+
+Por padrão, os tipos inteiros (short, int, long, long long) são signed, o que significa que eles podem representar números positivos, negativos e zero. Para conseguir isso, um dos bits (o bit mais significativo) é usado para indicar o sinal (geralmente 0 para positivo, 1 para negativo).
+
+Um tipo unsigned usa todos os seus bits para representar o valor, podendo assim armazenar apenas números não-negativos (0 e positivos). Em troca, seu alcance máximo positivo é o dobro de sua contraparte signed.
+
+| Tipo (em um sistema 32-bit) | Tamanho (Bytes) | Alcance Aproximado      |
+|-----------------------------+-----------------+-------------------------|
+| int                         |               4 | -2 bilhões a +2 bilhões |
+| usinged int                 |               4 | 0 a +4 bilhões          |
+
+*O Perigo do "Wraparound" (Overflow e Underflow)*
+
+O que acontece quando você tenta exceder o limite de um inteiro? Ele não gera um erro; ele "dá a volta" (wraps around).
+
+#+begin_src cpp
+unsigned int max_val = 4294967295; // O valor máximo para um unsigned int de 32 bits
+std::cout << "Valor máximo: " << max_val << std::endl;
+
+max_val = max_val + 1; // Overflow!
+std::cout << "Após somar 1: " << max_val << std::endl; // A saída será 0
+
+unsigned int min_val = 0;
+min_val = min_val - 1; // Underflow!
+std::cout << "Após subtrair 1: " << min_val << std::endl; // A saída será 4294967295
+#+end_src
+
+Este comportamento é uma fonte notória de bugs, especialmente em cálculos financeiros ou de segurança.
+
+Prática Recomendada: Use unsigned apenas quando estiver trabalhando com aritmética modular ou manipulação de bits, onde o comportamento de "wraparound" é esperado. Para quantidades do mundo real (como contagens, idades, saldos), prefira int. É mais seguro, pois o overflow de inteiros signed é tecnicamente "comportamento indefinido", e compiladores modernos podem avisá-lo sobre potenciais problemas.
+
+*** 3.2.2 Inteiros de Largura Fixa: A Escolha Moderna para Portabilidade
+
+Como vimos, o tamanho de um int pode variar. Isso é um problema quando seu código precisa ser portável ou interagir com hardware, formatos de arquivo ou protocolos de rede que exigem tamanhos de dados exatos.
+
+A solução é usar os tipos do cabeçalho <cstdint>, introduzidos no C++11.
+
+  - Tipos exatos: int8_t, int16_t, int32_t, int64_t (e suas versões uint..._t). Use-os quando você precisa de exatamente esse número de bits.
+  - Tipos mínimos: int_least8_t, int_least16_t, etc. Garante um tipo que tem pelo menos o número de bits especificado.
+  - Tipos rápidos: int_fast8_t, int_fast16_t, etc. Garante o tipo inteiro que será processado mais rapidamente pela arquitetura alvo e que tenha pelo menos o número de bits especificado.
+
+Prática Recomendada: Para programação de propósito geral, int ainda é uma boa escolha. Mas para qualquer código que exija portabilidade, serialização de dados ou layouts de memória precisos, use os tipos de largura fixa de <cstdint>.
+
+** 3.3 Os Caracteres: Mais do que Apenas Letras
+
+O tipo char é peculiar. Ele é garantido como tendo sizeof igual a 1, tornando-o a unidade fundamental de medida de memória em C++. Mas ele tem uma dupla identidade:
+
+  1. Como um caractere: Armazena um membro do conjunto de caracteres da máquina (geralmente ASCII).
+  2. Como um inteiro: É também o menor tipo inteiro disponível.
+
+Uma armadilha importante é que o padrão C++ não especifica se char é signed ou unsigned. Isso fica a critério da implementação do compilador!
+
+#+begin_src cpp
+char c = 200; // Em um sistema onde char é signed, isso pode virar um valor negativo!
+#+end_src
+
+Para evitar ambiguidades, seja explícito quando usar char para fins numéricos:
+
+  - signed char: Garante um alcance de pelo menos -127 a 127.
+  - unsigned char: Garante um alcance de pelo menos 0 a 255. É frequentemente usado para representar um byte "cru" de dados.
+
+*** 3.3.1 O Mundo do Unicode: char8_t, char16_t, char32_t
+
+O ASCII é limitado e não consegue representar os caracteres de todas as línguas do mundo. O padrão Unicode resolve isso. O C++ Moderno oferece tipos específicos para lidar com diferentes codificações Unicode:
+
+  - char8_t (C++20): Para caracteres em codificação UTF-8. Esta é a codificação dominante na web e a mais recomendada para texto em geral.
+  - char16_t: Para caracteres em UTF-16.
+  - char32_t: Para caracteres em UTF-32.
+
+** 3.4 Ponto Flutuante: O Universo da Imprecisão
+
+Tipos de ponto flutuante (float, double, long double) são usados para representar números com partes fracionárias. Eles seguem o padrão IEEE 754, que armazena números em uma forma de notação científica binária (um bit de sinal, um expoente e uma mantissa).
+
+Essa representação é eficiente, mas tem uma consequência fundamental: a maioria dos números decimais não pode ser representada com exatidão.
+
+#+begin_src cpp
+double d1 = 0.1;
+double d2 = 0.2;
+double soma = d1 + d2; // Matematicamente, a soma é 0.3
+
+// A condição abaixo será, muito provavelmente, FALSA!
+if (soma == 0.3) {
+    std::cout << "Igual!" << std::endl;
+} else {
+    std::cout << "Diferente!" << std::endl;
+    // Imprime o valor real para ver a imprecisão
+    std::cout.precision(17);
+    std::cout << "Soma é: " << std::fixed << soma << std::endl; // Ex: 0.30000000000000004
+}
+#+end_src
+
+*A Regra de Ouro do Ponto Flutuante: Nunca compare para igualdade exata!*
+
+Em vez disso, verifique se a diferença absoluta entre os dois números é menor que uma pequena tolerância (chamada de epsilon).
+
+#+begin_src cpp
+#include <cmath> // Para std::abs
+
+const double epsilon = 1e-9; // Uma tolerância pequena
+if (std::abs(soma - 0.3) < epsilon) {
+    std::cout << "Considerado igual!" << std::endl;
+}
+#+end_src
+
+Prática Recomendada: Use double como seu tipo de ponto flutuante padrão. Ele oferece um bom equilíbrio entre precisão e performance. Use float apenas se você tiver restrições severas de memória e puder tolerar menos precisão.
+
+** 3.5 O bool e o void: Lógica Pura e a Ausência de Tipo
+
+  - bool: Pode conter true ou false. Embora logicamente precise de apenas um bit, sizeof(bool) é geralmente 1 (um byte inteiro) por razões de alinhamento de memória. Em contextos numéricos, true converte para 1 e false para 0. Qualquer valor numérico diferente de zero converte para true, e zero converte para false.
+
+  - void: É um tipo especial que significa "ausência de tipo". Seus usos principais são:
+    1. Indicar que uma função não retorna nenhum valor: void minhaFuncao();
+    2. Em ponteiros genéricos (void*), um tópico avançado que veremos mais tarde.
+
+** 3.6 Resumo do Capítulo: Escolhendo com Intenção
+
+Nós dissecamos os tipos primitivos e vimos que eles são muito mais do que simples rótulos. Eles são um contrato com o compilador sobre uso de memória, alcance de valores e comportamento em casos extremos.
+
+  - Inteiros: Entenda a diferença entre signed e unsigned e o perigo do overflow. Prefira int para quantidades gerais e tipos de <cstdint> para portabilidade e controle de layout.
+  - Caracteres: Seja explícito com signed char ou unsigned char para uso numérico. Abrace os tipos charX_t para o processamento de texto moderno com Unicode.
+  - Ponto Flutuante: Lembre-se de que são aproximações. Nunca os compare com ==. Use double por padrão.
+
+Sua jornada para a maestria em C++ passa por internalizar esses detalhes. A escolha do tipo de dado correto não é uma micro-otimização prematura; é o primeiro passo para escrever código correto, seguro e que expressa claramente suas intenções. Com essa base sólida, estamos prontos para começar a agrupar lógica e dados em unidades mais complexas.

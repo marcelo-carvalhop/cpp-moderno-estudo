@@ -1,0 +1,117 @@
+* Capítulo 35: O Contrato de Segurança — Garantias de Exceção
+
+Quando uma exceção é lançada, o desenrolamento da pilha garante que os destrutores dos objetos locais sejam chamados, prevenindo vazamentos de recursos (graças ao RAII). No entanto, isso não diz nada sobre o estado lógico dos objetos que sobrevivem à exceção. Uma função que lança uma exceção pode facilmente deixar um objeto em um estado corrompido, quebrado ou inconsistente, mesmo que não vaze memória.
+
+As garantias de segurança contra exceções classificam o comportamento de uma função em face de erros. Existem quatro níveis principais.
+
+*1. Nenhuma Garantia (The No-Guarantee)*
+
+Este é o pior nível de segurança e é considerado um anti-padrão. Uma função que não oferece nenhuma garantia pode, ao lançar uma exceção, deixar os objetos em um estado corrompido e inutilizável. Vazamentos de recursos podem ocorrer, e os invariantes de classe (as regras que definem um objeto válido) podem ser violados.
+
+Exemplo: Um push_back mal implementado
+
+#+begin_src cpp
+// ANTI-PADRÃO: NÃO FAÇA ISSO
+template<typename T>
+class VetorRuim {
+private:
+    T* m_dados;
+    size_t m_tamanho;
+    size_t m_capacidade;
+public:
+    // ... construtores, etc. ...
+    void push_back(const T& valor) {
+        if (m_tamanho >= m_capacidade) {
+            // ... lógica de realocação ...
+        }
+        // VIOLAÇÃO: Modifica o estado ANTES da operação que pode falhar.
+        m_tamanho++; 
+        // A construção por cópia de 'T' pode lançar uma exceção.
+        // Se lançar, m_tamanho estará incorreto, apontando para memória não inicializada.
+        // O invariante (m_tamanho <= m_capacidade) pode ser mantido, mas o objeto
+        // está logicamente corrompido.
+        m_dados[m_tamanho - 1] = valor; 
+    }
+};
+#+end_src
+
+Código que não oferece nenhuma garantia é perigoso e deve ser evitado a todo custo.
+
+*2. A Garantia Básica (The Basic Guarantee)*
+
+Este é o requisito mínimo para um código aceitável. Uma função que oferece a garantia básica promete duas coisas se uma exceção for lançada:
+
+  1. Nenhum recurso vaza. O RAII geralmente cuida disso.
+  2. Todos os objetos permanecem em um estado válido, porém possivelmente alterado e imprevisível. "Válido" significa que os invariantes da classe são mantidos e que todos os métodos, incluindo o destrutor, podem ser chamados com segurança no objeto.
+
+*Exemplo: Corrigindo o push_back para a Garantia Básica*
+#+begin_src cpp
+template<typename T>
+class VetorBasico {
+    // ...
+    void push_back(const T& valor) {
+        if (m_tamanho >= m_capacidade) {
+            // ... lógica de realocação ...
+        }
+        // CORRETO: A operação que pode falhar (construção por cópia)
+        // vem ANTES da modificação do estado do objeto.
+        m_dados[m_tamanho] = valor; 
+        // Só incrementamos o tamanho se a linha anterior for bem-sucedida.
+        m_tamanho++;
+    }
+};
+#+end_src
+
+Se a linha m_dados[m_tamanho] = valor; lançar uma exceção, m_tamanho não terá sido incrementado. O vetor permanece em seu estado original e válido. A garantia básica é atendida (neste caso, até a garantia forte, como veremos).
+
+*3. A Garantia Forte (The Strong Guarantee)*
+
+Este é o "padrão ouro" para muitas operações. Uma função que oferece a garantia forte promete semântica transacional: se a operação terminar devido a uma exceção, o estado do programa é revertido para o estado exato em que estava antes da chamada da função. É uma operação de "tudo ou nada" (commit or rollback).
+
+A garantia forte é altamente desejável, mas pode ter um custo de performance (geralmente envolvendo a criação de cópias temporárias).
+
+*Implementando a Garantia Forte: O Idioma "Copy-and-Swap"*
+
+A maneira canônica de alcançar a garantia forte é o idioma "copy-and-swap".
+
+  1. Crie uma cópia temporária do objeto ou dos dados que serão modificados.
+  2. Execute todas as operações que podem lançar exceções na cópia temporária.
+  3. Se todas as operações forem bem-sucedidas, troque (swap) o conteúdo do objeto original com o da cópia temporária, usando uma função swap que seja garantidamente noexcept.
+
+*Exemplo: Um operador de atribuição com Garantia Forte*
+#+begin_src cpp
+class MinhaClasse {
+private:
+    int* m_dados;
+    size_t m_tamanho;
+public:
+    // ...
+    void swap(MinhaClasse& outro) noexcept {
+        std::swap(m_dados, outro.m_dados);
+        std::swap(m_tamanho, outro.m_tamanho);
+    }
+
+    MinhaClasse& operator=(const MinhaClasse& outro) {
+        // 1. Crie uma cópia temporária. A alocação de memória aqui pode falhar.
+        MinhaClasse temp(outro); 
+        // 2. Se a cópia foi bem-sucedida, troque o estado.
+        //    A função swap é noexcept, então esta parte não pode falhar.
+        swap(temp);
+        return *this;
+    } // 3. O destrutor de 'temp' é chamado aqui, liberando os dados antigos.
+};
+#+end_src
+
+Se a construção de temp falhar (por exemplo, new lança std::bad_alloc), o objeto original (*this) não foi modificado de forma alguma. A garantia forte é cumprida.
+
+*4. A Garantia Nothrow (The Nothrow Guarantee)*
+
+Este é o nível mais forte de todos. Uma função que oferece a garantia nothrow promete que nunca lançará uma exceção. Em C++ moderno, isso é explicitamente documentado com o especificador noexcept.
+
+Operações fundamentais, das quais outras garantias de segurança dependem, devem oferecer a garantia nothrow.
+
+  - Destrutores: Destrutores devem ser noexcept. Se um destrutor lança uma exceção durante o desenrolamento da pilha de outra exceção, o programa chama std::terminate().
+  - Funções swap: Para que o idioma "copy-and-swap" funcione, a função swap deve ser noexcept.
+  - Construtores de Movimento e Atribuições por Movimento: Para que os contêineres da STL (como std::vector) possam mover elementos de forma eficiente e segura durante uma realocação, é crucial que as operações de movimento dos elementos sejam noexcept. Se não forem, o std::vector pode ser forçado a usar operações de cópia (mais lentas) para manter a garantia forte.
+    
+Escolher o nível de garantia correto é uma decisão de design. A garantia básica é o mínimo. A garantia forte é ideal para muitas operações, mas pode ter um custo. A garantia nothrow é essencial para os blocos de construção fundamentais da robustez do software.

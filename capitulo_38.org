@@ -1,0 +1,120 @@
+* Capítulo 38: A Regra dos Três — O Paradigma Clássico de Gerenciamento de Recursos
+
+No universo do C++ pré-C++11 (conhecido como C++98/03), o gerenciamento manual de recursos era uma tarefa comum e perigosa. Recursos, neste contexto, referem-se tipicamente à memória alocada dinamicamente (new), mas o princípio se aplica a qualquer recurso que precise ser explicitamente liberado (ponteiros de arquivos, locks de mutex, etc.).
+
+Quando uma classe assume a responsabilidade de gerenciar um recurso, ela se torna uma "proprietária". Essa posse implica que a classe deve garantir que o recurso seja corretamente liberado quando ela mesma for destruída. No entanto, a complexidade surge quando objetos dessa classe são copiados ou atribuídos. Para lidar com essa complexidade, a comunidade C++ desenvolveu uma diretriz fundamental conhecida como a Regra dos Três.
+
+** 38.1 O Problema: A Traição das Funções Geradas pelo Compilador
+
+Por padrão, se você não fornecer certas funções de membro especiais, o compilador as gera para você. Para a cópia e atribuição, o comportamento padrão é a cópia membro a membro (memberwise copy). Para tipos simples como int ou double, isso funciona perfeitamente. Para ponteiros brutos que representam a posse de um recurso, esse comportamento é catastrófico.
+
+Considere uma classe String ingênua que gerencia um buffer de caracteres:
+
+#+begin_src cpp
+// VERSÃO INGENUA E PERIGOSA
+class String {
+private:
+    char* m_dados;
+    size_t m_tamanho;
+public:
+    String(const char* s = "") {
+        m_tamanho = strlen(s);
+        m_dados = new char[m_tamanho + 1];
+        strcpy(m_dados, s);
+    }
+
+    // O destrutor libera o recurso.
+    ~String() {
+        delete[] m_dados;
+    }
+    // ... Faltam o construtor de cópia e o operador de atribuição ...
+};
+#+end_src
+
+O que acontece quando copiamos um objeto desta classe?
+
+#+begin_src cpp
+int main() {
+    String s1("Olá");
+    String s2 = s1; // O construtor de cópia padrão é invocado.
+} // O escopo termina. s2 é destruído, depois s1 é destruído.
+#+end_src
+
+O construtor de cópia gerado pelo compilador simplesmente copia os membros: s2.m_tamanho = s1.m_tamanho e s2.m_dados = s1.m_dados. Isso é uma cópia rasa (shallow copy). Agora, tanto s1 quanto s2 possuem um ponteiro que aponta para o mesmo bloco de memória.
+
+Quando o main termina:
+
+  1. O destrutor de s2 é chamado. Ele executa delete[] s2.m_dados, liberando a memória.
+  2. O destrutor de s1 é chamado. Ele executa delete[] s1.m_dados, tentando liberar a mesma memória uma segunda vez.
+
+Isso resulta em dupla liberação (double free), um erro grave que leva a comportamento indefinido e, na maioria das vezes, ao travamento do programa.
+
+** 38.2 A Solução: A Regra dos Três
+
+A Regra dos Três é uma diretriz que afirma:
+
+Se uma classe requer um destrutor, um construtor de cópia ou um operador de atribuição por cópia definidos pelo usuário, ela quase certamente requer todos os três.
+
+A necessidade de escrever um destrutor (como em nossa classe String para chamar delete[]) é o sinal de alerta. Isso indica que a classe está gerenciando um recurso, o que, por sua vez, significa que as operações de cópia e atribuição geradas pelo compilador estarão erradas. Devemos, portanto, fornecer nossas próprias versões que executem uma cópia profunda (deep copy).
+
+*Os Três Membros Especiais:*
+
+  - Destrutor (~String()): Responsável por liberar o recurso. Já o tínhamos.
+  - Construtor de Cópia (String(const String& outro)): Responsável por criar um novo objeto como uma cópia profunda de outro. Ele deve alocar seu próprio recurso.
+  - Operador de Atribuição por Cópia (String& operator=(const String& outro)): Responsável por modificar um objeto existente para que ele se torne uma cópia profunda de outro. É mais complexo porque deve primeiro liberar seu recurso antigo.
+
+*Implementando a Regra dos Três para a Classe String:*
+
+#+begin_src cpp
+#include <cstring> // Para strlen e strcpy
+#include <algorithm> // Para std::swap
+
+class String {
+private:
+    char* m_dados;
+    size_t m_tamanho;
+public:
+    String(const char* s = "") {
+        m_tamanho = strlen(s);
+        m_dados = new char[m_tamanho + 1];
+        strcpy(m_dados, s);
+    }
+
+    // 1. Destrutor (O mesmo de antes)
+    ~String() {
+        delete[] m_dados;
+    }
+
+    // 2. Construtor de Cópia (Deep Copy)
+    String(const String& outro) {
+        m_tamanho = outro.m_tamanho;
+        // Aloca um novo buffer de memória.
+        m_dados = new char[m_tamanho + 1];
+        // Copia o conteúdo, não apenas o ponteiro.
+        strcpy(m_dados, outro.m_dados);
+    }
+
+    // 3. Operador de Atribuição por Cópia
+    String& operator=(const String& outro) {
+        // Proteção contra auto-atribuição (ex: s1 = s1;)
+        if (this == &outro) {
+            return *this;
+        }
+
+        // Libera o recurso antigo.
+        delete[] m_dados;
+
+        // Aloca um novo recurso e copia os dados (lógica similar ao construtor de cópia).
+        m_tamanho = outro.m_tamanho;
+        m_dados = new char[m_tamanho + 1];
+        strcpy(m_dados, outro.m_dados);
+
+        // Retorna uma referência ao objeto atual para permitir encadeamento (ex: s1 = s2 = s3;).
+        return *this;
+    }
+};
+#+end_src
+
+Com esta implementação, o código String s2 = s1; agora invoca nosso construtor de cópia. s2 alocará seu próprio buffer de memória e copiará o conteúdo de s1. Quando os destrutores forem chamados, cada um liberará seu próprio bloco de memória distinto, e o programa funcionará corretamente.
+
+A Regra dos Três foi o pilar do gerenciamento de recursos seguro em C++ por muitos anos. Ela é fundamental para entender a mecânica da posse de recursos. No entanto, como veremos no próximo capítulo, ela possui limitações de performance que foram elegantemente resolvidas com a introdução da semântica de movimento no C++11, levando à sua evolução para a "Regra dos Cinco".

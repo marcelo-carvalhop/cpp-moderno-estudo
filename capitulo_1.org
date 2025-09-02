@@ -1,0 +1,122 @@
+* Capítulo 1: Mergulhando no C++ Moderno: Fundamentos e Filosofia
+
+Bem-vindo ao fascinante universo do C++ Moderno. Se você está com este livro em mãos, provavelmente já ouviu falar da reputação do C++: uma linguagem poderosa, performática, mas também complexa e, por vezes, implacável. Embora parte dessa reputação seja merecida, o C++ que vamos explorar a partir de agora — o C++ de 2020 em diante — é uma linguagem drasticamente mais segura, expressiva e agradável de se trabalhar do que suas versões mais antigas.
+
+Este capítulo é a sua porta de entrada. Não vamos apenas escrever nosso primeiro programa, mas também construir a base filosófica e conceitual para que você entenda por que o C++ Moderno é do jeito que é.
+
+** 1.1 O que é C++, Afinal?
+
+C++ é uma linguagem de programação de propósito geral, multiparadigma e compilada. Vamos quebrar isso:
+
+  - Propósito Geral: Você pode usá-la para criar praticamente qualquer coisa: sistemas operacionais, motores de jogos de alta performance (como a Unreal Engine), softwares de negociação financeira de baixa latência, sistemas embarcados para carros ou foguetes, aplicações de desktop e até mesmo back-ends de serviços web.
+  - Multiparadigma: C++ não força você a seguir um único estilo de programação. Ela suporta programação procedural (como em C), orientada a objetos (com classes e herança), genérica (através de templates) e funcional (com lambdas e funções de alta ordem). O C++ Moderno incentiva a combinação inteligente desses paradigmas para resolver problemas da forma mais eficaz.
+  - Compilada: Seu código-fonte em C++ não é executado diretamente. Ele passa por um programa chamado compilador, que o traduz para código de máquina nativo, otimizado para a arquitetura do seu processador. É por isso que C++ é sinônimo de alta performance: o programa final "fala a língua" do hardware.
+
+A filosofia central do C++ é: "não pague pelo que você não usa". Isso significa que os recursos da linguagem são projetados para ter o mínimo de sobrecarga (overhead) possível. Você tem controle total sobre a memória e os recursos do sistema, um poder que vem com grande responsabilidade.
+
+** 1.2 Por que C++ Moderno? A Revolução Silenciosa
+
+Por muitos anos, programar em C++ envolvia gerenciamento manual de memória, ponteiros brutos e uma série de armadilhas que poderiam levar a bugs difíceis de rastrear. A partir do padrão C++11, uma verdadeira renascença começou. Os padrões C++11, 14, 17, 20 e 23 introduziram recursos que transformaram a linguagem.
+
+O "C++ Moderno" não é apenas uma nova versão; é uma nova maneira de pensar e escrever código. Os pilares dessa modernização são:
+
+  1. Segurança: Recursos como smart pointers (ponteiros inteligentes) gerenciam a memória automaticamente, quase eliminando vazamentos de memória (memory leaks) e acessos indevidos.
+  2. Expressividade: Escrever código complexo de forma concisa e legível se tornou mais fácil com lambdas, laços for baseados em intervalo (range-based for) e inferência de tipo com auto.
+  3. Eficiência: A semântica de movimento (move semantics) permite a transferência eficiente de recursos sem cópias desnecessárias, um ganho de performance crucial para objetos grandes.
+  4. Abstração Poderosa: Com conceitos (concepts, em C++20), podemos escrever código genérico mais claro e com mensagens de erro muito mais amigáveis. Com ranges (C++20), manipular coleções de dados se tornou tão elegante quanto em linguagens de mais alto nível.
+
+Neste livro, você aprenderá a escrever C++ que parece e se comporta de forma muito diferente do "C++ legado".
+
+** 1.3 Preparando seu Ambiente de Desenvolvimento
+
+Para começar, você precisa de três ferramentas essenciais:
+
+  1. Um Compilador C++20 (ou mais recente):
+    - GCC (GNU Compiler Collection): Padrão em sistemas Linux. Use a versão 10 ou superior.
+    - Clang: Outro excelente compilador de código aberto, frequentemente usado com o ecossistema LLVM. Use a versão 10 ou superior.
+    - MSVC (Microsoft Visual C++): Integrado ao Visual Studio no Windows. Use a versão do Visual Studio 2019 (v16.10) ou, preferencialmente, Visual Studio 2022.
+
+  2. Um Editor de Código ou IDE (Ambiente de Desenvolvimento Integrado):
+    - Visual Studio Code (VS Code): Leve, gratuito e altamente extensível. Ótima opção com as extensões corretas (C/C++, CMake Tools).
+    - CLion (da JetBrains): Uma IDE paga, poderosa e focada em C++, com excelente integração com CMake e ferramentas de refatoração.
+    - Visual Studio (da Microsoft): Uma IDE completa e robusta para desenvolvimento no Windows.
+
+  3. Um Sistema de Build (Build System):
+    - CMake: É o padrão de fato da indústria para gerenciar projetos C++. Ele não compila o código, mas gera os arquivos de projeto para o seu compilador (Makefiles para GCC/Clang, soluções do Visual Studio para MSVC). Aprender o básico de CMake é uma habilidade indispensável.
+
+** 1.4 Seu Primeiro Programa: O "Olá, Mundo!" Moderno
+
+Vamos à tradição. Crie um arquivo chamado main.cpp e digite o seguinte código:
+
+#+begin_src cpp
+#include <iostream> // Para entrada e saída (Input/Output)
+#include <string>   // Para usar o tipo de dado 'string'
+#include <vector>   // Para usar o tipo de dado 'vector' (uma lista dinâmica)
+
+int main() {
+    // Usa um inicializador de lista para criar um vetor de strings
+    std::vector<std::string> palavras = {"Olá,", "mundo", "do", "C++20!"};
+
+    // Laço 'for' moderno (range-based for) para iterar sobre o vetor
+    for (const std::string& palavra : palavras) {
+        // Imprime cada palavra seguida de um espaço
+        std::cout << palavra << " ";
+    }
+
+    // Imprime uma nova linha no final
+    std::cout << std::endl;
+
+    return 0; // Indica que o programa terminou com sucesso
+}
+#+end_src
+
+** 1.5 Compilando e Executando: Dando Vida ao Código
+
+Abra um terminal ou prompt de comando, navegue até a pasta onde você salvou o main.cpp e execute o comando de compilação.
+
+Com GCC ou Clang:
+
+#+begin_src sh
+# O comando g++ invoca o compilador GCC. Para Clang, use clang++
+# -std=c++20: Especifica que queremos usar o padrão C++20. Essencial!
+# -o ola_mundo: Define o nome do arquivo executável de saída.
+# main.cpp: Nosso arquivo de código-fonte.
+g++ -std=c++20 -o ola_mundo main.cpp
+#+end_src
+
+Se tudo ocorrer bem, nenhum erro será exibido. Agora, execute o programa:
+
+#+begin_src sh
+# No Linux ou macOS
+./ola_mundo
+
+# No Windows
+.\ola_mundo.exe
+A saída no seu terminal será:
+Olá, mundo do C++20!
+#+end_src
+
+Parabéns, você acabou de compilar e executar seu primeiro programa em C++ Moderno! Note como usamos recursos como std::vector, std::string e um laço for limpo e expressivo, que são a base do estilo de programação que adotaremos.
+
+** 1.6 Filosofia e Boas Práticas Iniciais
+
+Desde o início, vamos adotar alguns hábitos fundamentais:
+
+  + Prefira std::: Você notou o std:: antes de cout, vector, etc. Isso se chama namespace (espaço de nomes). Ele evita que os nomes da Biblioteca Padrão (Standard Library) colidam com os seus. Evite a prática antiga de using namespace std;, que pode causar ambiguidades em projetos maiores.
+
+  + RAII é Rei: Resource Acquisition Is Initialization (Aquisição de Recurso é Inicialização) é talvez o conceito mais importante do C++ Moderno. A ideia é que um recurso (como memória, um arquivo, uma trava de rede) deve ser associado ao tempo de vida de um objeto. Quando o objeto é criado, ele adquire o recurso. Quando é destruído (por exemplo, ao sair de um escopo), ele libera o recurso. std::vector e std::string já fazem isso por você com a memória. Veremos isso em detalhes com smart pointers.
+
+  + Const por Padrão: Use const sempre que uma variável ou objeto não precisar ser modificado após sua inicialização. Isso torna o código mais seguro e fácil de entender, comunicando suas intenções ao compilador e a outros desenvolvedores. No nosso exemplo, const std::string& palavra indica que não pretendemos modificar a palavra dentro do laço.
+
+** 1.7 O Caminho à Frente
+
+Este capítulo arranhou a superfície. Nos próximos, vamos mergulhar fundo em:
+
+  + Tipos Fundamentais, Variáveis e Controle de Fluxo: A base de qualquer linguagem.
+  + Funções e a Arte da Abstração: Como organizar seu código de forma limpa.
+  + Classes e Objetos: O coração da programação orientada a objetos.
+  + Templates e Programação Genérica: Escrevendo código que funciona com qualquer tipo.
+  + A Biblioteca Padrão (STL): Contêineres, iteradores e algoritmos que serão seus melhores amigos.
+  + Os "Quatro Grandes" do C++20: Módulos, Ranges, Conceitos e Corrotinas.
+
+Gerenciamento de Memória Moderno: Smart Pointers e a filosofia RAII em profundidade.

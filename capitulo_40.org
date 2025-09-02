@@ -1,0 +1,105 @@
+* Capítulo 40: A Regra do Zero — A Filosofia do C++ Moderno
+
+A Regra do Zero representa uma mudança de paradigma no design de classes em C++. Ela postula que a implementação mais robusta e de fácil manutenção das cinco funções de membro especiais é, na maioria das vezes, não escrever nenhuma delas.
+
+#+begin_quote
+A Regra do Zero: Classes que têm posse exclusiva de recursos devem ser raras. Em vez disso, as classes devem gerenciar recursos através de objetos de membro que já seguem a Regra dos Cinco (como os contêineres da STL e os smart pointers). Se uma classe não gerencia diretamente nenhum recurso, ela não precisa de um destrutor, construtor de cópia/movimento ou atribuição de cópia/movimento definidos pelo usuário.
+#+end_quote
+
+Em outras palavras: o melhor código é aquele que você não precisa escrever. Deixe o compilador e a biblioteca padrão fazerem o trabalho pesado por você.
+
+** 40.1 O Poder da Composição
+
+O mecanismo que torna a Regra do Zero possível é a composição. Quando o compilador precisa gerar uma função de membro especial para sua classe (por exemplo, um construtor de cópia), ele o faz invocando a função correspondente para cada um dos membros da classe, na ordem em que são declarados.
+
+  - O construtor de cópia gerado chama o construtor de cópia de cada membro.
+  - O construtor de movimento gerado chama o construtor de movimento de cada membro.
+  - O destrutor gerado chama o destrutor de cada membro.
+  - E assim por diante.
+
+A consequência disso é profunda: se sua classe é composta exclusivamente por membros que já sabem como se copiar, mover e destruir corretamente, então as funções geradas pelo compilador para sua classe farão automaticamente a coisa certa.
+
+** 40.2 Os Blocos de Construção: Tipos que Gerenciam Recursos
+
+A chave para seguir a Regra do Zero é usar os tipos de vocabulário fornecidos pela biblioteca padrão para expressar a posse de recursos. Em vez de usar ponteiros brutos e gerenciar a memória manualmente, usamos "wrappers" RAII que encapsulam esse comportamento.
+
+Os principais blocos de construção são:
+
+  - std::string: Para gerenciar strings de caracteres dinâmicas.
+  - std::vector, std::map, etc.: Para gerenciar coleções dinâmicas de objetos.
+  - std::unique_ptr: Para expressar a posse única e exclusiva de um objeto no heap.
+  - std::shared_ptr: Para expressar a posse compartilhada de um objeto no heap.
+
+Todos esses tipos da biblioteca padrão são implementados por especialistas para seguir perfeitamente a Regra dos Cinco. Eles são seguros, eficientes e robustos.
+
+** 40.3 Exemplo: Refatorando para a Regra do Zero
+
+Vamos considerar uma classe Pessoa que precisa armazenar um nome e um identificador único alocado dinamicamente.
+
+*Versão "Regra dos Cinco" (Manual e Obsoleta):*
+
+#+begin_src cpp
+// ABORDAGEM ANTIGA E PROPensa A ERROS
+class Pessoa_RegraDeCinco {
+private:
+    char* m_nome;
+    int* m_id;
+public:
+    Pessoa_RegraDeCinco(const char* nome, int id) {
+        m_nome = new char[strlen(nome) + 1];
+        strcpy(m_nome, nome);
+        m_id = new int(id);
+    }
+
+    // PRECISAMOS ESCREVER TODOS OS 5 MEMBROS ESPECIAIS!
+    ~Pessoa_RegraDeCinco() { delete[] m_nome; delete m_id; }
+    Pessoa_RegraDeCinco(const Pessoa_RegraDeCinco& outro); // Cópia
+    Pessoa_RegraDeCinco& operator=(const Pessoa_RegraDeCinco& outro); // Atribuição por cópia
+    Pessoa_RegraDeCinco(Pessoa_RegraDeCinco&& outro) noexcept; // Movimento
+    Pessoa_RegraDeCinco& operator=(Pessoa_RegraDeCinco&& outro) noexcept; // Atribuição por movimento
+    // ... implementação verbosa e complexa para todos eles ...
+};
+#+end_src
+
+Este código é longo, repetitivo e um campo minado para bugs.
+
+*Versão "Regra do Zero" (Moderna e Idiomática):*
+
+Agora, vamos refatorar a classe para usar os tipos de gerenciamento de recursos da STL.
+
+  - Para o nome, char* se torna std::string.
+  - Para o ID de posse única, int* se torna std::unique_ptr<int>.
+
+#+begin_src cpp
+#include <string>
+#include <memory>
+
+// ABORDAGEM MODERNA, SEGURA E CONCISA
+class Pessoa_RegraDeZero {
+private:
+    std::string m_nome;
+    std::unique_ptr<int> m_id;
+public:
+    Pessoa_RegraDeZero(const std::string& nome, int id)
+        : m_nome(nome), m_id(std::make_unique<int>(id))
+    {}
+
+    // FIM. Não precisamos escrever mais nada.
+};
+#+end_src
+
+*O que acontece nos bastidores?*
+
+  - Destrutor: O compilador gera um destrutor que chama o destrutor de m_nome e depois o destrutor de m_id. O destrutor de std::unique_ptr chama delete no int que ele gerencia. Perfeito.
+  - Construtor de Cópia/Atribuição: std::unique_ptr não é copiável. Portanto, o compilador desabilita automaticamente o construtor de cópia e a atribuição por cópia para a classe Pessoa_RegraDeZero. Isso é fantástico! O compilador nos protege de fazer cópias acidentais de um objeto que representa posse única. O comportamento correto (não-copiável) emerge naturalmente do design.
+  - Construtor de Movimento/Atribuição: std::string e std::unique_ptr são ambos "movíveis". Portanto, o compilador gera automaticamente um construtor de movimento e uma atribuição por movimento para nossa classe. Essas operações geradas simplesmente movem o m_nome e o m_id, o que é exatamente o comportamento eficiente e correto que queremos.
+
+** 40.4 A Filosofia do Design
+
+A Regra do Zero é mais do que uma técnica; é uma filosofia de design. Ela nos encoraja a:
+
+  1. Pensar em termos de posse: Em vez de pensar em ponteiros, pensamos em quem é o "dono" do recurso. A posse é expressa através do tipo (unique_ptr para posse única, shared_ptr para compartilhada, vector para uma coleção de posse).
+  2. Construir a partir de componentes robustos: Em vez de reinventar a roda do gerenciamento de memória, compomos nossas classes a partir dos blocos de construção da biblioteca padrão, que já são testados, otimizados e corretos.
+  3. Escrever classes com uma única responsabilidade: Uma classe deve fazer uma coisa bem. Se uma classe está focada na lógica de negócio, ela não deveria também estar se preocupando com os detalhes de baixo nível do gerenciamento de memória. Delegar essa responsabilidade para os tipos RAII leva a um design mais limpo.
+
+No C++ moderno, a necessidade de escrever uma classe que siga a Regra dos Cinco deve ser rara. Deve ser reservada para situações em que você está criando uma nova estrutura de dados de baixo nível ou um novo tipo de wrapper de recurso que não existe na biblioteca padrão. Para a esmagadora maioria das classes de lógica de negócio, a Regra do Zero é o caminho a seguir. Ela leva a um código mais seguro, mais curto e mais fácil de entender e manter.

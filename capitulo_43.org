@@ -1,0 +1,151 @@
+* Capítulo 43: Polimorfismo — Uma Interface, Múltiplas Formas
+
+Imagine que você está escrevendo uma função para interagir com animais. Sem polimorfismo, você teria que verificar o tipo de cada animal e chamar a função correta.
+
+#+begin_src cpp
+// O ANTI-PADRÃO: Código rígido e difícil de manter
+void interagirComAnimal(const Animal& animal) {
+    // Precisaríamos de alguma forma de saber o tipo exato...
+    if (/* é um Cachorro */) {
+        // ... e de um cast para chamar o método específico.
+        static_cast<const Cachorro&>(animal).latir();
+    } else if (/* é um Gato */) {
+        static_cast<const Gato&>(animal).miar();
+    }
+    // ... Toda vez que adicionarmos um novo animal, temos que modificar esta função!
+}
+#+end_src
+
+Este código é frágil e viola o Princípio Aberto/Fechado (aberto para extensão, fechado para modificação). O polimorfismo resolve este problema de forma elegante.
+
+** 43.1 O Mecanismo: Funções virtual e Despacho Dinâmico
+
+O polimorfismo em C++ é habilitado por dois ingredientes essenciais:
+
+  1. Manipulação via Ponteiros ou Referências de Base: Para que o polimorfismo funcione, devemos nos referir aos nossos objetos derivados através de um ponteiro ou referência à sua classe base (ex: Animal* p_animal = new Cachorro();). Se você criar um objeto base a partir de um derivado (Animal a = Cachorro();), ocorre o "object slicing" (fatiamento de objeto), a parte Cachorro é "fatiada" e você fica apenas com um Animal, perdendo todo o comportamento polimórfico.
+
+  2. A Palavra-Chave virtual: Quando você declara uma função na classe base com a palavra-chave virtual, você está dizendo ao compilador: "Não decida em tempo de compilação qual versão desta função chamar. Em vez disso, em tempo de execução, verifique o tipo real do objeto para o qual o ponteiro (ou referência) aponta e chame a versão da função daquele tipo." Isso é chamado de despacho dinâmico ou ligação tardia (late binding).
+Vamos refatorar nossa hierarquia Animal para ser polimórfica:
+
+#+begin_src cpp
+class Animal {
+public:
+    // ...
+    // Marcamos a função como virtual na classe base.
+    virtual void fazer_som() const {
+        std::cout << getNome() << " faz um som genérico." << std::endl;
+    }
+};
+
+class Cachorro : public Animal {
+public:
+    // ...
+    // Sobrescrevemos a função na classe derivada.
+    void fazer_som() const {
+        std::cout << getNome() << " diz: Au au!" << std::endl;
+    }
+};
+
+class Gato : public Animal {
+public:
+    // ...
+    void fazer_som() const {
+        std::cout << getNome() << " diz: Miau!" << std::endl;
+    }
+};
+#+end_src
+
+
+** 43.2 As Palavras-Chave override e final (C++11)
+
+O código acima funciona, mas o C++ moderno nos dá ferramentas para torná-lo mais seguro e explícito.
+
+override: Esta palavra-chave, colocada após a declaração de uma função na classe derivada, expressa a intenção de que a função está sobrescrevendo uma função virtual da classe base. Ela serve como uma verificação de segurança. Se você cometer um erro de digitação no nome da função ou alterar sua assinatura, o compilador gerará um erro, pois a função não estará mais sobrescrevendo nada.
+
+final: Esta palavra-chave pode ser usada em dois contextos:
+
+  - Em uma função virtual, ela impede que classes derivadas futuras a sobrescrevam.
+  - Em uma classe, ela impede que qualquer outra classe herde dela.
+
+*Hierarquia Refatorada com Boas Práticas Modernas:*
+
+#+begin_src cpp
+class Animal {
+public:
+    // ...
+    virtual void fazer_som() const { /* ... */ }
+};
+
+class Cachorro : public Animal {
+public:
+    // ...
+    // 'override' garante que estamos de fato sobrescrevendo uma função virtual da base.
+    void fazer_som() const override {
+        std::cout << getNome() << " diz: Au au!" << std::endl;
+    }
+};
+
+class Gato : public Animal {
+public:
+    // ...
+    void fazer_som() const override {
+        std::cout << getNome() << " diz: Miau!" << std::endl;
+    }
+};
+#+end_src
+
+Regra de ouro: Sempre use override ao sobrescrever funções virtuais. Isso previne uma classe inteira de bugs sutis e difíceis de rastrear.
+
+** 43.3 Polimorfismo em Ação
+
+Agora podemos escrever código genérico que funciona com qualquer Animal, presente ou futuro.
+
+#+begin_src cpp
+#include <iostream>
+#include <string>
+#include <vector>
+#include <memory>
+
+// ... (definições das classes Animal, Cachorro, Gato com 'override') ...
+
+// Uma função que opera sobre qualquer tipo de Animal.
+void fazer_barulho(const Animal& animal) {
+    animal.fazer_som(); // A chamada correta é decidida em tempo de execução!
+}
+
+int main() {
+    Cachorro cao("Rex");
+    Gato gato("Mimi");
+    Animal animal_generico("Coisa");
+
+    std::cout << "--- Chamadas diretas ---" << std::endl;
+    fazer_barulho(cao);
+    fazer_barulho(gato);
+    fazer_barulho(animal_generico);
+
+    std::cout << "\n--- Polimorfismo com um contêiner ---" << std::endl;
+    // Usamos smart pointers para gerenciar a memória e habilitar o polimorfismo.
+    std::vector<std::unique_ptr<Animal>> animais;
+    animais.push_back(std::make_unique<Cachorro>("Totó"));
+    animais.push_back(std::make_unique<Gato>("Frajola"));
+    
+    for (const auto& p_animal : animais) {
+        p_animal->fazer_som(); // Despacho dinâmico em ação!
+    }
+}
+#+end_src
+
+A saída será:
+
+#+begin_src sh 
+--- Chamadas diretas ---
+Rex diz: Au au!
+Mimi diz: Miau!
+Coisa faz um som genérico.
+
+--- Polimorfismo com um contêiner ---
+Totó diz: Au au!
+Frajola diz: Miau!
+#+end_src
+
+Observe como o loop for não sabe e não se importa se o ponteiro p_animal aponta para um Cachorro ou um Gato. Ele simplesmente chama fazer_som(), e o mecanismo de despacho dinâmico do C++ garante que a versão correta da função seja executada. Se amanhã adicionarmos uma classe Pato, não precisaremos mudar uma única linha do loop; ele simplesmente funcionará. Este é o poder do polimorfismo.

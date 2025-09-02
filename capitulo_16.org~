@@ -1,0 +1,134 @@
+* Capítulo 16: Construindo Abstrações — A class e o Encapsulamento
+
+Até agora, utilizamos struct para agregar dados, como em Point3D ou Record. Uma struct é uma coleção de variáveis membro publicamente acessíveis. Isso é perfeitamente adequado para agrupar dados passivos, mas falha em um aspecto crucial para a construção de software complexo e robusto: a capacidade de garantir a validade e a consistência desses dados.
+
+Considere uma struct para representar uma data:
+
+#+begin_src cpp
+struct SimpleDate {
+    int year;
+    int month;
+    int day;
+};
+
+// Código em qualquer lugar da aplicação pode fazer isso:
+SimpleDate invalid_date = {2024, 2, 30}; // Data inválida, mas o tipo não a impede.
+invalid_date.month = 15; // Modificação direta que quebra a lógica do objeto.
+#+end_src
+
+O tipo SimpleDate não tem como proteger a si mesmo de ser colocado em um estado sem sentido. A responsabilidade de manter os dados válidos recai inteiramente sobre o código que utiliza a struct, tornando o sistema frágil e propenso a erros.
+
+A class é a ferramenta do C++ para resolver este problema através do princípio do encapsulamento: o agrupamento de dados com os métodos que operam nesses dados, escondendo os detalhes da implementação e expondo apenas uma interface segura e controlada.
+
+** 16.1 class vs. struct: A Única Diferença Técnica
+
+Em C++, a única diferença técnica entre class e struct é o nível de acesso padrão de seus membros:
+
+class: Os membros são private (privados) por padrão.
+struct: Os membros são public (públicos) por padrão.
+É isso. Qualquer coisa que pode ser feita com uma class pode ser feita com uma struct e vice-versa, bastando adicionar as palavras-chave public: ou private: explicitamente.
+
+Contudo, por convenção, a comunidade C++ usa essa diferença para sinalizar a intenção do design:
+
+Use struct para agregados de dados passivos, onde o acesso direto aos membros é desejado e não há "invariantes" complexos a serem mantidos.
+Use class para criar tipos de dados que possuem lógica, comportamento e invariantes — regras que devem ser verdadeiras durante todo o tempo de vida do objeto.
+
+** 16.2 Controle de Acesso: public, private e protected
+
+Os especificadores de acesso são o mecanismo que implementa o encapsulamento.
+
+public: Define a interface pública da classe. Membros públicos (métodos e dados) são acessíveis por qualquer código fora da classe. Esta é a maneira como os "usuários" da sua classe devem interagir com ela.
+private: Define os detalhes de implementação. Membros privados só podem ser acessados por outros métodos da mesma classe. Eles são completamente invisíveis e inacessíveis para o mundo exterior. Isso protege os dados internos de modificações indesejadas e permite que a implementação da classe mude sem quebrar o código que a utiliza.
+protected: É um intermediário que se torna relevante com a herança. Membros protegidos são como os privados, mas também são acessíveis por classes derivadas. Abordaremos isso em detalhe no próximo capítulo.
+
+** 16.3 Encapsulamento em Ação: Uma Classe Date Robusta
+
+Vamos refatorar nossa SimpleDate para uma class Date robusta que protege seus próprios invariantes.
+
+#+begin_src cpp
+#include <iostream>
+#include <string>
+#include <stdexcept> // Para std::invalid_argument
+
+class Date {
+// Membros declarados aqui são 'private' por padrão.
+private:
+    int m_year;
+    int m_month;
+    int m_day;
+
+    // Um método de utilidade privado para verificar a validade.
+    // Só pode ser chamado por outros membros da classe.
+    bool is_valid() const {
+        if (m_month < 1 || m_month > 12 || m_day < 1 || m_day > 31) {
+            return false;
+        }
+        // Lógica simplificada para o exemplo. Uma implementação real
+        // verificaria meses com 30 dias e anos bissextos.
+        if (m_month == 2 && m_day > 29) {
+            return false;
+        }
+        return true;
+    }
+
+// A partir daqui, definimos a interface pública.
+public:
+    // O construtor é o "guardião". Ele garante que nenhum objeto Date
+    // possa ser criado em um estado inválido.
+    Date(int year, int month, int day) : m_year(year), m_month(month), m_day(day) {
+        if (!is_valid()) {
+            // Lança uma exceção se os dados de entrada forem inválidos.
+            throw std::invalid_argument("Data fornecida é inválida.");
+        }
+        std::cout << "Objeto Date criado com sucesso.\n";
+    }
+
+    // "Getters": Métodos públicos para fornecer acesso de LEITURA aos dados.
+    // São marcados como 'const' porque não modificam o estado do objeto.
+    int get_year() const { return m_year; }
+    int get_month() const { return m_month; }
+    int get_day() const { return m_day; }
+
+    // "Mutator": Um método que modifica o estado do objeto de forma controlada.
+    // Não fornecemos um set_day() direto, pois isso poderia invalidar a data.
+    // Em vez disso, fornecemos operações lógicas.
+    void add_days(int days_to_add) {
+        // Uma implementação real teria a lógica para avançar os meses e anos.
+        // Para este exemplo, vamos apenas modificar o dia e revalidar.
+        m_day += days_to_add;
+        if (!is_valid()) {
+            // Reverte a mudança ou lança uma exceção se a operação for inválida.
+            m_day -= days_to_add; // Reverte
+            throw std::runtime_error("Operação resultaria em uma data inválida.");
+        }
+    }
+};
+
+int main() {
+    // Tentativa de criar uma data válida
+    try {
+        Date today(2024, 7, 22);
+        std::cout << "Hoje é: " << today.get_day() << "/" << today.get_month() << "/" << today.get_year() << std::endl;
+
+        // Tentativa de modificar o estado diretamente (NÃO COMPILA!)
+        // today.m_day = 40; // ERRO: 'm_day' is private within this context
+
+        // Tentativa de criar uma data inválida
+        Date invalid_date(2024, 2, 30);
+
+    } catch (const std::invalid_argument& e) {
+        std::cerr << "Erro de criação capturado: " << e.what() << std::endl;
+    }
+
+    return 0;
+}
+#+end_src
+
+Neste exemplo, a class Date é a única responsável por seus dados.
+
+Criação Segura: O construtor atua como um portão, impedindo a criação de objetos em estado inválido.
+Acesso Controlado: O mundo exterior não pode modificar m_day diretamente. Ele só pode ler seu valor através de get_day().
+Modificação Lógica: As alterações no estado são feitas através de métodos públicos como add_days, que contêm a lógica para garantir que o objeto permaneça válido após a modificação.
+Este é o poder do encapsulamento. Ele reduz a carga cognitiva do programador que usa a classe, transforma bugs de tempo de execução em erros de compilação e permite que a implementação interna da classe seja aprimorada (por exemplo, adicionando a lógica de anos bissextos) sem afetar o código que a utiliza, desde que a interface pública permaneça a mesma.
+
+Com o conceito de class como uma abstração de dados encapsulada, estamos agora devidamente equipados para explorar as relações entre classes, o que nos leva diretamente aos pilares da Programação Orientada a Objetos: herança e polimorfismo.

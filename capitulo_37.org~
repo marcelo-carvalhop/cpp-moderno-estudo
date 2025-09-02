@@ -1,0 +1,106 @@
+* Capítulo 37: Além das Exceções — Tratamento de Erros no C++ Moderno
+
+O tratamento de erros em C++ evoluiu significativamente. A filosofia moderna não é sobre escolher um único mecanismo "vencedor", mas sim sobre empregar uma gama de estratégias que, juntas, produzem um código mais seguro, mais expressivo e, muitas vezes, mais performático.
+
+** 37.1 RAII como Estratégia Primária e Universal
+
+Antes de discutir qualquer outra técnica, devemos reafirmar o pilar fundamental: RAII (Resource Acquisition Is Initialization) não é apenas uma técnica de tratamento de erros, é a base sobre a qual todo o código C++ robusto é construído.
+
+Ao vincular a vida útil de um recurso (memória, arquivos, locks, sockets) à vida útil de um objeto na pilha, o RAII utiliza o mecanismo de desenrolamento da pilha a seu favor. A garantia da linguagem de que os destrutores serão chamados, quer a função retorne normalmente ou via exceção, significa que o RAII fornece uma limpeza de recursos automática e à prova de falhas.
+
+Em essência, o RAII transforma a prevenção de vazamento de recursos de um problema de tratamento de erros ativo (que requer blocos try/finally ou goto em outras linguagens) em um problema de design de classes passivo e resolvido. Qualquer discussão sobre tratamento de erros em C++ começa com a premissa de que o RAII está sendo usado corretamente.
+
+** 37.2 A Divisão Filosófica: Erros Esperados vs. Erros Excepcionais
+
+O ponto crucial do design moderno de tratamento de erros é a distinção entre dois tipos de falhas:
+
+  1. Erros Excepcionais: São falhas que violam as premissas fundamentais ou o contrato de uma função. A função não pode cumprir seu propósito e não pode continuar. Esses erros são tipicamente irrecuperáveis no escopo local e precisam ser comunicados a um nível superior do sistema que tenha contexto suficiente para lidar com o problema.
+    - Exemplos: Falha na alocação de memória (std::bad_alloc), um arquivo de configuração essencial que não pode ser encontrado, a perda de uma conexão de banco de dados no meio de uma transação.
+    - Ferramenta Ideal: Exceções. Seu mecanismo de fluxo de controle não-local é perfeitamente projetado para sinalizar esses problemas graves através das camadas do software até que um manipulador apropriado seja encontrado.
+
+  2. Erros Esperados: São "falhas" que fazem parte da operação normal e do contrato da função. A possibilidade de não produzir o resultado esperado é uma parte previsível de seu comportamento.
+    - Exemplos: Uma busca em um banco de dados que não retorna resultados, a validação de uma entrada de usuário que falha porque o formato está incorreto, uma tentativa de pop() em uma pilha vazia.
+    - Ferramenta Ideal: Valores de retorno. Usar exceções para esses casos é considerado um antipadrão ("usar exceções para controle de fluxo"). É semanticamente incorreto (a falha era esperada) e impõe uma sobrecarga de performance desnecessária.
+O C++ moderno fornece tipos de vocabulário sofisticados para lidar com erros esperados de forma limpa e segura.
+
+37.3 std::optional (C++17): Representando a Ausência de Valor
+O std::optional<T> é a solução para o problema de uma função que pode ou não retornar um valor. Ele substitui práticas antigas e propensas a erros, como retornar ponteiros nulos ou "valores mágicos" (como -1 para um índice).
+
+Um std::optional<T> pode estar em um de dois estados: ou ele contém um valor do tipo T, ou ele está vazio (std::nullopt).
+
+cpp
+Copy
+#include <optional>
+#include <iostream>
+#include <string>
+
+// Tenta encontrar um valor em um mapa. Pode ou não encontrar.
+std::optional<std::string> encontrarValor(int id) {
+    if (id == 42) {
+        return "Universo"; // Retorna um optional contendo o valor.
+    }
+    return std::nullopt; // Retorna um optional vazio.
+}
+
+int main() {
+    auto resultado = encontrarValor(42);
+    
+    // Verificação: std::optional converte para bool.
+    if (resultado) {
+        // Acesso seguro: o operador * retorna o valor contido.
+        std::cout << "Encontrado: " << *resultado << std::endl;
+    }
+
+    auto resultado2 = encontrarValor(10);
+    if (!resultado2) {
+        std::cout << "Valor para id 10 não encontrado." << std::endl;
+    }
+}
+std::optional comunica claramente na assinatura da função que a ausência de um valor é um resultado possível e esperado, forçando o chamador a lidar com essa possibilidade.
+
+37.4 std::expected (C++23): Representando Sucesso ou Erro
+Enquanto std::optional representa "valor ou nada", std::expected<T, E> vai um passo além: ele representa "um valor de sucesso T ou um objeto de erro E".
+
+Este é um tipo de vocabulário extremamente poderoso para funções que podem falhar de maneiras previsíveis e onde é útil comunicar a razão da falha.
+
+cpp
+Copy
+#include <expected>
+#include <string>
+#include <iostream>
+
+enum class ErroDeParse {
+    Vazio,
+    FormatoInvalido
+};
+
+// Tenta converter uma string para int. Pode falhar de duas maneiras esperadas.
+std::expected<int, ErroDeParse> parseInt(const std::string& s) {
+    if (s.empty()) {
+        return std::unexpected(ErroDeParse::Vazio); // Retorna um erro.
+    }
+    try {
+        return std::stoi(s); // Retorna um valor de sucesso.
+    } catch (const std::invalid_argument&) {
+        return std::unexpected(ErroDeParse::FormatoInvalido); // Retorna outro erro.
+    }
+}
+
+int main() {
+    auto res1 = parseInt("123");
+    if (res1) { // Verificação booleana para sucesso.
+        std::cout << "Sucesso: " << *res1 << std::endl;
+    }
+
+    auto res2 = parseInt("abc");
+    if (!res2) {
+        // Acesso ao objeto de erro.
+        switch (res2.error()) {
+            case ErroDeParse::Vazio: std::cout << "Erro: string vazia." << std::endl; break;
+            case ErroDeParse::FormatoInvalido: std::cout << "Erro: formato inválido." << std::endl; break;
+        }
+    }
+}
+std::expected torna o contrato da função explícito em seu tipo de retorno. Ele evita o custo e o fluxo não-local das exceções para falhas recuperáveis, ao mesmo tempo que fornece informações de erro ricas, superando as limitações de std::optional.
+
+Com este capítulo, concluímos nossa imersão profunda no tratamento de erros. A lição final é a do discernimento: use RAII sempre, use exceções para o que é verdadeiramente excepcional, e use os tipos de vocabulário modernos como std::optional e std::expected para comunicar os resultados esperados de suas funções de forma clara e segura.

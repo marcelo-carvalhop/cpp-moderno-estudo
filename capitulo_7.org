@@ -1,0 +1,147 @@
+* Capítulo 7: Definindo Dados e Constantes — Structs, Enums e o Escopo Global
+
+Até agora, nosso foco tem sido o fluxo de execução e a manipulação de dados dentro do escopo limitado de uma função. No entanto, para construir programas coerentes, precisamos de ferramentas para definir tipos de dados, conjuntos de constantes nomeadas e, ocasionalmente, dados que persistem durante toda a vida do programa.
+
+Este capítulo explora quatro mecanismos para atingir esses objetivos: struct, enum, variáveis globais e macros. Cada um tem um propósito, um mecanismo de funcionamento e um lugar no espectro que vai de "prática recomendada moderna" a "use com extrema cautela". Compreender as nuances de cada um é um passo importante para escrever código C++ que seja ao mesmo tempo robusto, legível e seguro.
+
+** 7.1 struct: Agregando Dados
+
+Como vimos brevemente, uma struct é a ferramenta primária do C++ para agregar múltiplos dados em uma única unidade lógica, criando um novo tipo definido pelo usuário.
+
+  - Mecanismo de Funcionamento: Uma struct define um layout de memória para um conjunto de variáveis membro. Quando você cria uma instância de uma struct, o compilador aloca um bloco contíguo de memória grande o suficiente para conter todos os seus membros, respeitando as regras de alinhamento que discutimos no Capítulo 4. O acesso via operador ponto (.) é traduzido pelo compilador em um cálculo de deslocamento (offset) a partir do endereço inicial da struct na memória.
+
+  - Melhores Práticas:
+    - Use para Agregação Simples: structs são ideais para tipos cujo propósito principal é agrupar dados, como um Ponto2D, uma CorRGB ou uma Configuracao.
+    - Prefira Inicializadores Designados (C++20): Ao criar uma instância, use a sintaxe .membro = valor para maior clareza e para evitar erros se a ordem dos membros for alterada.
+    - Passe por const&: Para evitar cópias desnecessárias e garantir que a função não modifique o original, passe structs para funções por referência para const.
+    - Mantenha os Dados Públicos: A convenção é usar struct quando não há necessidade de esconder os dados ou impor regras complexas (invariantes) sobre eles.
+
+#+begin_src cpp
+struct PlayerConfig {
+    std::string name;
+    double health;
+    int skill_level;
+};
+// Prática recomendada: inicialização designada e passagem por const&
+void printConfig(const PlayerConfig& config) {
+    // ...
+}
+
+int main() {
+    PlayerConfig p1 = {.name = "Alex", .health = 100.0, .skill_level = 5};
+    printConfig(p1);
+}
+#+end_src
+
+** 7.2 enum: Definindo Constantes Nomeadas
+
+Frequentemente, precisamos de um conjunto de constantes inteiras nomeadas para representar estados ou opções, como os dias da semana, cores ou tipos de erro. enum (enumeração) serve a este propósito.
+
+*** 7.2.1 enum class: A Abordagem Moderna e Segura
+
+Introduzido no C++11, o enum class (ou enum struct) é a forma preferencial de criar enumerações.
+
+  - Mecanismo de Funcionamento: Um enum class cria um novo tipo com um conjunto de enumeradores nomeados. Crucialmente, esses enumeradores são fortemente tipados e escopados.
+    - Fortemente Tipado: Um enum class não é convertido implicitamente para int. Isso previne erros como if (meuDiaDaSemana == minhaCor).
+    - Escopado: Os nomes dos enumeradores existem apenas dentro do escopo do enum. Você deve acessá-los com NomeDoEnum::Enumerador.
+
+  - Melhores Práticas:
+    - Sempre Prefira enum class: Use-o em vez do enum tradicional para evitar poluição de namespace e garantir a segurança de tipo.
+    - Especifique o Tipo Subjacente (Opcional): Você pode definir qual tipo inteiro será usado para armazenar o valor, o que é útil para controle de memória ou interoperabilidade.
+
+#+begin_src cpp
+// O tipo subjacente é uint8_t (1 byte sem sinal)
+enum class TrafficLight : std::uint8_t {
+    Red,
+    Yellow,
+    Green
+};
+
+void setLight(TrafficLight state) {
+    if (state == TrafficLight::Green) {
+        // ...
+    }
+    // int i = state; // ERRO DE COMPILAÇÃO: sem conversão implícita
+}
+#+end_src
+
+*** 7.2.2 enum Tradicional: A Versão Antiga
+
+  - Mecanismo de Funcionamento: O enum estilo C cria constantes que são, essencialmente, ints disfarçados. Os nomes dos enumeradores "vazam" para o escopo circundante e são convertidos implicitamente para int.
+
+  - Por que Evitar: A falta de escopo pode levar a conflitos de nomes, e a conversão implícita pode esconder bugs lógicos. Seu uso em código moderno é geralmente desaconselhado.
+
+** 7.3 Variáveis Globais: Estado Compartilhado
+
+Uma variável global é declarada fora de qualquer função.
+
+  - Mecanismo de Funcionamento: Uma variável global tem duração de armazenamento estática, o que significa que ela é criada antes de main() começar e destruída depois que main() termina. Por padrão, ela tem vinculação externa, sendo visível para todos os arquivos .cpp do projeto que a declarem (usando a palavra-chave extern).
+
+  - Melhores Práticas (ou, a Falta Delas): O uso de variáveis globais não-constantes é uma das práticas mais desaconselhadas em C++ moderno.
+    - Estado Oculto: Uma função que modifica um global tem um efeito colateral oculto. Sua assinatura não revela que ela depende ou altera um estado externo, tornando o código difícil de entender e raciocinar.
+    - Dificuldade de Teste: Testar uma função que depende de um estado global é complicado, pois você precisa configurar o estado global antes de cada teste.
+    - Problemas de Concorrência: Em ambientes multithread, o acesso desprotegido a uma variável global é uma causa clássica de condições de corrida e bugs complexos.
+
+  - Alternativas:
+    - Passe como Parâmetro: Se uma função precisa de um dado, passe-o como um parâmetro (por valor ou referência). Isso torna a dependência explícita.
+    - Agregue em uma Classe: Se múltiplos dados e funções estão relacionados, agrupe-os em uma classe.
+
+  - Uso Legítimo (e Raro): O único uso geralmente aceitável de globais é para constantes (const ou constexpr), onde seu valor não pode ser alterado, eliminando os perigos do estado mutável.
+
+#+begin_src cpp
+// RUIM: Estado global mutável
+int g_errorCount = 0;
+
+// BOM: Constante global
+constexpr double PI = 3.1415926535;
+
+void doSomething() {
+    // ...
+    // g_errorCount++; // Efeito colateral oculto
+}
+#+end_src
+
+** 7.4 Macros: Substituição de Texto pelo Preprocessador
+
+Macros, definidas com #define, não são uma construção da linguagem C++. Elas são instruções para o preprocessador, uma ferramenta que analisa seu código e realiza substituições de texto antes que o compilador comece seu trabalho.
+
+  - Mecanismo de Funcionamento: O preprocessador substitui cegamente cada ocorrência do nome da macro pelo seu conteúdo.
+  - Melhores Práticas: Evite Macros a Todo Custo, Exceto para...
+    - Constantes: Use const ou constexpr em vez de #define PI 3.14. A versão C++ é segura em tipo e respeita o escopo.
+    - Funções Simples: Use funções inline (ou apenas funções normais) em vez de macros com argumentos. Funções são seguras em tipo, respeitam o escopo e não têm problemas de avaliação múltipla.
+
+#+begin_src cpp
+#define SQUARE(x) x * x // PERIGOSO!
+int a = SQUARE(2 + 3);  // Expande para: int a = 2 + 3 * 2 + 3; // Resultado: 11, não 25!
+
+constexpr int square_func(int x) { return x * x; }
+int b = square_func(2 + 3); // Correto. A função é chamada com o valor 5.
+#+end_src
+
+  - *O Único Uso Moderno Essencial: Controle de Compilação*
+    - Header Guards: Macros são usadas para prevenir que um arquivo de cabeçalho seja incluído múltiplas vezes em um mesmo arquivo de tradução. Esta é a sua aplicação mais comum e correta.
+    - Compilação Condicional: Usar #ifdef, #if, #else para compilar diferentes trechos de código para diferentes plataformas (ex: Windows vs. Linux) ou configurações (ex: Debug vs. Release).
+
+#+begin_src cpp
+// Exemplo de Header Guard em um arquivo "meu_header.h"
+#ifndef MEU_HEADER_H
+#define MEU_HEADER_H
+
+// ... conteúdo do header ...
+
+#endif // MEU_HEADER_H
+#+end_src
+
+** 7.5 Resumo do Capítulo: Escolhendo a Ferramenta Certa
+
+Neste capítulo, exploramos um conjunto de ferramentas para definir dados e constantes. A lição principal é a preferência do C++ Moderno por construções que são seguras em tipo e respeitam o escopo.
+
+  - Use struct para agregar dados.
+  - Use enum class para conjuntos de constantes nomeadas.
+  - Evite variáveis globais não-constantes. Passe os dados explicitamente.
+  - Evite macros para constantes e funções. Use-as apenas para controle de compilação, como header guards.
+
+Com um entendimento claro de como estruturar e definir nossos próprios tipos e constantes, estamos agora bem equipados para enfrentar o próximo nível de controle: a manipulação direta da memória e dos objetos através de ponteiros e referências.
+
+
+|[[./capitulo_6.org][Anterior]]|[[./cpp_moderno_indice.org][Índice]]|[[./capitulo_8.org][Próximo]]|

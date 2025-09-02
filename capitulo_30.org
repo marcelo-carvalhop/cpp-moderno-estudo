@@ -1,0 +1,115 @@
+* Capítulo 30: Estado e Mutabilidade em Lambdas
+
+Uma lambda, como estabelecemos, é um objeto de função que pode possuir estado através de suas variáveis capturadas. Uma questão natural que surge é: o que acontece se tentarmos modificar esse estado? A resposta padrão da linguagem é priorizar a segurança e a previsibilidade, tratando o estado capturado por cópia como imutável.
+
+** 30.1 A Natureza const por Padrão
+
+Relembrando nosso modelo mental do Capítulo 28, uma lambda é açúcar sintático para um functor. Uma decisão de design crucial na linguagem C++ é que o operator() gerado para uma lambda é, por padrão, qualificado como const.
+
+#+begin_src cpp
+// Conceitualmente, o compilador gera:
+class FunctorDaLambda {
+private:
+    // ... membros capturados ...
+public:
+    // Note o qualificador 'const' no final da assinatura do operador.
+    auto operator() (/*...parâmetros...*/) const {
+        // ... corpo da lambda ...
+    }
+};
+#+end_src
+
+Um método de membro const em C++ faz uma promessa: ele não modificará nenhum dos membros de dados do objeto. Como as variáveis capturadas por cópia se tornam membros de dados do functor, essa regra implica que, por padrão, uma lambda não pode modificar as variáveis que capturou por cópia.
+
+Qualquer tentativa de fazê-lo resultará em um erro de compilação.
+
+*Exemplo de Falha:*
+#+begin_src cpp
+#include <iostream>
+
+void contador_que_falha() {
+    int contador = 0;
+
+    auto incrementar = [contador]() {
+        // ERRO DE COMPILAÇÃO!
+        // A expressão deve ser um l-value modificável.
+        // Estamos tentando modificar 'contador', que é um membro
+        // do functor da lambda, dentro de um método 'const'.
+        contador++; 
+        std::cout << "Contador: " << contador << std::endl;
+    };
+
+    // A linha abaixo nunca seria alcançada devido ao erro de compilação.
+    // incrementar(); 
+}
+#+end_src
+
+É importante notar que essa restrição não se aplica à captura por referência. Ao capturar [&contador], a lambda armazena uma referência. O ato de modificar contador através da referência não altera a referência em si (o membro de dados da lambda), mas sim o objeto original para o qual ela aponta. Portanto, a operação é permitida mesmo dentro de um operator() const.
+
+** 30.2 O Modificador mutable: Concedendo Permissão para Modificar
+
+Para situações em que a modificação do estado interno de uma lambda é desejada, a linguagem fornece uma palavra-chave explícita para remover a restrição padrão: mutable.
+
+A palavra-chave mutable é colocada após a lista de parâmetros e antes do tipo de retorno. Sua única função é remover o qualificador const do operator() gerado pelo compilador.
+
+#+begin_src cpp
+// Conceitualmente, com 'mutable', o compilador gera:
+class FunctorDaLambdaMutavel {
+private:
+    // ... membros capturados ...
+public:
+    // O qualificador 'const' foi removido.
+    auto operator() (/*...parâmetros...*/) {
+        // ... corpo da lambda ...
+    }
+};
+#+end_src
+
+Com essa mudança, a modificação dos membros capturados por cópia torna-se permitida.
+
+*Exemplo Corrigido com mutable:*
+#+begin_src cpp
+#include <iostream>
+
+void contador_funcional() {
+    int contador = 0;
+
+    // Adicionamos 'mutable' após a lista de parâmetros (que está vazia).
+    auto incrementar = [contador]() mutable {
+        // OK! Agora a modificação é permitida.
+        contador++; 
+        std::cout << "Contador interno da lambda: " << contador << std::endl;
+    };
+
+    incrementar(); // Imprime: Contador interno da lambda: 1
+    incrementar(); // Imprime: Contador interno da lambda: 2
+
+    // Ponto crucial: a variável original não foi afetada.
+    // A lambda está modificando sua própria cópia interna.
+    std::cout << "Contador original: " << contador << std::endl; // Imprime: Contador original: 0
+}
+#+end_src
+
+Como o exemplo demonstra, as modificações ocorrem na cópia do estado que pertence à lambda. A variável original, contador, permanece intocada. A lambda se torna um objeto com estado que evolui a cada chamada.
+
+** 30.3 Casos de Uso Práticos para Lambdas mutable
+
+A necessidade de lambdas mutable surge em padrões específicos onde um objeto de função precisa manter um estado que muda entre as chamadas.
+
+  1. Geradores e Contadores: O caso de uso mais direto. Uma lambda mutable é perfeita para criar geradores de números, IDs únicos ou qualquer função que precise "lembrar" o resultado de sua última execução.
+
+#+begin_Src cpp
+auto gerador_fibonacci = [a = 0, b = 1]() mutable {
+    int proximo = a + b;
+    a = b;
+    b = proximo;
+    return a;
+};
+// Cada chamada a gerador_fibonacci() retornará o próximo número da sequência.
+#+end_Src
+
+  2. Caching de Resultados (Memoização): Uma lambda mutable pode ser usada para implementar um cache simples. Na primeira chamada, ela realiza um cálculo caro e armazena o resultado em uma variável capturada. Nas chamadas subsequentes, ela simplesmente retorna o valor em cache.
+
+  3. Modificação de Recursos Capturados por Movimento: Ao usar a captura com inicialização para mover um recurso para dentro de uma lambda (ex: [ptr = std::move(meu_ptr)]), qualquer operação que modifique esse recurso (como chamar um método não-const ou movê-lo para fora novamente) exigirá que a lambda seja mutable.
+
+Em resumo, a imutabilidade padrão das lambdas é uma salvaguarda que promove um código mais seguro e funcional. A palavra-chave mutable é a ferramenta que nos permite, de forma explícita e deliberada, optar por um comportamento com estado quando o design do nosso programa assim o exige. A escolha entre uma lambda const e uma mutable é uma decisão de design consciente sobre a natureza do objeto de função que estamos criando.

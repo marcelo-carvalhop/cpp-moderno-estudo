@@ -1,0 +1,125 @@
+* Capítulo 10: Gerenciamento de Recursos como um Princípio — Ponteiros Inteligentes e a Semântica de Posse
+
+A alocação manual de memória, através de new e delete, introduz uma complexidade significativa no que tange à responsabilidade pela liberação de recursos. A questão de "quem é o dono deste ponteiro?" ou "quem é responsável por chamar delete?" é uma fonte persistente de bugs, como vazamentos de memória e ponteiros pendentes. O C++ moderno aborda este problema não com uma regra de estilo, mas com uma solução de linguagem baseada no princípio RAII: os ponteiros inteligentes.
+
+Essas ferramentas, localizadas no cabeçalho <memory>, não são meramente ponteiros com funcionalidades adicionais. Elas são abstrações que codificam a semântica de posse (ownership semantics) no próprio sistema de tipos. Ao utilizar um ponteiro inteligente, o programador declara explicitamente o modelo de ciclo de vida do recurso gerenciado, transferindo a responsabilidade da liberação do programador para o escopo e as regras da linguagem.
+
+** 10.1 std::unique_ptr: Posse Única e Exclusiva
+
+O std::unique_ptr é a implementação mais direta do princípio RAII para memória alocada dinamicamente. Ele encapsula um ponteiro bruto e garante que delete (ou delete[]) seja chamado no ponteiro encapsulado quando o unique_ptr for destruído. Sua característica definidora é a semântica de posse exclusiva: em qualquer momento, apenas um unique_ptr pode ser o "dono" do recurso.
+
+Essa exclusividade é imposta pelo sistema de tipos. std::unique_ptr tem seu construtor de cópia e seu operador de atribuição por cópia deletados. Isso significa que uma tentativa de copiar um unique_ptr resultará em um erro de compilação, prevenindo a criação acidental de múltiplos donos que poderiam levar a uma dupla liberação.
+
+#+begin_src cpp
+
+// std::unique_ptr<Widget> ptr1 = new Widget(); // Não compila em C++ moderno, propenso a vazamentos.
+// A maneira correta de criar um unique_ptr é com std::make_unique.
+// std::make_unique é seguro contra exceções e geralmente mais eficiente.
+auto ptr1 = std::make_unique<Widget>();
+
+// auto ptr2 = ptr1; // ERRO DE COMPILAÇÃO: unique_ptr não pode ser copiado.
+#+end_src
+
+A posse, no entanto, pode ser transferida. Esta transferência é realizada através da semântica de movimento (move semantics), utilizando std::move. Quando um unique_ptr é movido, ele cede a posse do ponteiro encapsulado para o novo unique_ptr, e o original se torna nulo.
+
+#+begin_src cpp
+auto ptr1 = std::make_unique<Widget>();
+// A posse do Widget é transferida de ptr1 para ptr2.
+// Após esta linha, ptr1 se torna nullptr.
+auto ptr2 = std::move(ptr1);
+
+if (!ptr1) {
+    // Este bloco será executado.
+    std::cout << "ptr1 agora é nulo." << std::endl;
+}
+#+end_src
+
+Este modelo de transferência explícita é poderoso. Ele é frequentemente usado em padrões de projeto como o Factory, onde uma função constrói e retorna um objeto polimórfico. O chamador recebe a posse única do objeto recém-criado, com uma garantia clara de que é sua responsabilidade gerenciá-lo, responsabilidade essa que o próprio unique_ptr cumpre.
+
+*Exemplo de Factory:*
+#+begin_src cpp
+struct Shape { virtual ~Shape() = default; /* ... */ };
+struct Circle : Shape { /* ... */ };
+struct Square : Shape { /* ... */ };
+
+// A fábrica cria um objeto no heap e transfere a posse para o chamador.
+std::unique_ptr<Shape> createShape(ShapeType type) {
+    switch (type) {
+        case ShapeType::Circle: return std::make_unique<Circle>();
+        case ShapeType::Square: return std::make_unique<Square>();
+    }
+    return nullptr;
+}
+
+void clientCode() {
+    // Recebemos a posse única da forma criada.
+    std::unique_ptr<Shape> myShape = createShape(ShapeType::Circle);
+    // Quando myShape sai de escopo, o destrutor correto (de Circle) é chamado
+    // e a memória é liberada, sem intervenção manual.
+}
+#+end_src
+
+** 10.2 std::shared_ptr: Posse Compartilhada e Contagem de Referências
+
+Existem cenários em que um único recurso precisa ser acessado e mantido vivo por múltiplas partes de um programa, sem que nenhuma delas seja a dona exclusiva. Um exemplo clássico é uma estrutura de dados de grafo, onde múltiplos nós podem apontar para um mesmo nó adjacente. Se a posse fosse única, a destruição do primeiro "dono" invalidaria o ponteiro para todos os outros.
+
+Para esses casos, std::shared_ptr implementa a semântica de posse compartilhada. Ele funciona mantendo um bloco de controle alocado dinamicamente, separado do objeto gerenciado. Este bloco de controle contém, entre outras coisas, uma contagem de referências: um contador que rastreia quantos shared_ptrs estão atualmente apontando para o mesmo objeto.
+
+Quando um shared_ptr é criado ou copiado, a contagem de referências é incrementada.
+Quando um shared_ptr é destruído ou reatribuído, a contagem é decrementada.
+Quando a contagem de referências chega a zero, significa que o último shared_ptr que apontava para o objeto foi destruído. Neste momento, o shared_ptr deleta tanto o objeto gerenciado quanto o bloco de controle.
+A função std::make_shared deve ser preferida a std::shared_ptr<T>(new T()). std::make_shared realiza uma única alocação de memória no heap, grande o suficiente para conter tanto o objeto T quanto o bloco de controle. A abordagem com new resulta em duas alocações separadas, o que é menos eficiente e menos seguro contra exceções.
+
+#+begin_src cpp
+// Uma única alocação no heap para o objeto e o bloco de controle.
+auto sptr1 = std::make_shared<Widget>();
+std::cout << "Contagem de uso: " << sptr1.use_count() << std::endl; // Saída: 1
+
+{
+    auto sptr2 = sptr1; // Copia. A contagem de referências é incrementada.
+    std::cout << "Contagem de uso: " << sptr1.use_count() << std::endl; // Saída: 2
+} // sptr2 sai de escopo e é destruído. A contagem é decrementada.
+#+end_src
+
+std::cout << "Contagem de uso: " << sptr1.use_count() << std::endl; // Saída: 1
+A flexibilidade da posse compartilhada tem um custo. shared_ptr é maior que um ponteiro bruto (ocupa o espaço de dois ponteiros) e as operações de cópia, atribuição e destruição envolvem manipulações atômicas na contagem de referências, o que acarreta uma pequena sobrecarga de performance em comparação com unique_ptr. Portanto, a escolha padrão deve ser unique_ptr, e shared_ptr deve ser usado apenas quando a semântica de posse compartilhada é genuinamente necessária.
+
+** 10.3 std::weak_ptr: Observação Não Proprietária e Quebra de Ciclos
+
+A posse compartilhada introduz um problema potencial: ciclos de referência. Considere dois objetos, A e B, onde A contém um shared_ptr para B, e B contém um shared_ptr para A.
+
+#+begin_src cpp
+struct Node {
+    std::shared_ptr<Node> neighbor;
+    ~Node() { std::cout << "Node destruído.\n"; }
+};
+
+auto a = std::make_shared<Node>(); // Contagem de 'a' é 1
+auto b = std::make_shared<Node>(); // Contagem de 'b' é 1
+
+a->neighbor = b; // Contagem de 'b' é 2
+b->neighbor = a; // Contagem de 'a' é 2
+#+end_src
+
+Quando a e b saem de escopo, seus contadores de referência são decrementados de 2 para 1. Nenhum deles chega a zero. O shared_ptr dentro de a mantém b vivo, e o shared_ptr dentro de b mantém a vivo. Ambos os objetos vazam, pois seus destrutores nunca são chamados.
+
+std::weak_ptr resolve este problema. Ele é um observador não proprietário de um objeto gerenciado por um shared_ptr. Ele não participa da contagem de referências e, portanto, não mantém o objeto vivo. Sua principal função é permitir o acesso seguro e temporário ao objeto.
+
+Para acessar o objeto, um weak_ptr deve ser convertido temporariamente em um shared_ptr através de seu método lock(). Se o objeto original ainda existir, lock() retorna um shared_ptr válido para ele. Se o objeto já foi destruído, lock() retorna um shared_ptr nulo. Isso previne o problema de ponteiros pendentes.
+
+*Solução para o ciclo de referência:*
+#+begin_src cpp
+struct Node {
+    // O vizinho é observado, não possuído.
+    std::weak_ptr<Node> neighbor;
+    ~Node() { std::cout << "Node destruído.\n"; }
+};
+
+auto a = std::make_shared<Node>();
+auto b = std::make_shared<Node>();
+
+a->neighbor = b; // 'b' é observado por 'a'. A contagem de 'b' permanece 1.
+b->neighbor = a; // 'a' é observado por 'b'. A contagem de 'a' permanece 1.
+#+end_src
+
+Agora, quando a e b saem de escopo, suas contagens de referência vão de 1 para 0, e ambos são destruídos corretamente. weak_ptr é a ferramenta para implementar caches, listas de observadores e qualquer estrutura de dados onde referências circulares ou opcionais são necessárias sem impor um requisito de posse.

@@ -1,0 +1,113 @@
+* Capítulo 36: O Especificador noexcept — Uma Análise Profunda
+
+O especificador noexcept é uma declaração explícita de que uma função não propagará uma exceção para fora de seu escopo. Ela pode até usar exceções internamente (por exemplo, dentro de um bloco try/catch interno), mas ela garante que nenhuma exceção escapará para o chamador.
+
+Esta palavra-chave serve a dois propósitos distintos, funcionando como um especificador na declaração de uma função e como um operador para verificar em tempo de compilação se uma expressão pode lançar uma exceção.
+
+** 36.1 noexcept como Especificador de Função
+
+Na sua forma mais simples, noexcept é adicionado ao final da declaração de uma função para marcá-la como não lançadora.
+
+#+begin_src cpp
+void minha_funcao() noexcept;
+int obter_valor() noexcept { return 42; }
+#+end_src
+
+Esta declaração é um contrato. A função promete não lançar.
+
+Existe também uma forma condicional, que é extremamente poderosa na programação genérica. noexcept(expressão_booleana) marca a função como noexcept somente se a expressão_booleana for true em tempo de compilação.
+
+*Exemplo: Um Construtor de Movimento Condicionalmente noexcept*
+
+#+begin_src cpp
+template <typename T>
+class MinhaWrapper {
+private:
+    T m_dado;
+public:
+    // O construtor de movimento do nosso wrapper só é noexcept
+    // se o construtor de movimento do tipo T que ele envolve
+    // também for noexcept.
+    MinhaWrapper(MinhaWrapper&& outro) noexcept(std::is_nothrow_move_constructible_v<T>)
+        : m_dado(std::move(outro.m_dado)) {}
+    // ...
+};
+#+end_src
+
+Isso permite que a segurança de exceção de nossas classes se adapte automaticamente às propriedades dos tipos com os quais elas são instanciadas.
+
+** 36.2 noexcept como Operador
+
+Para que o noexcept condicional funcione, precisamos de uma maneira de perguntar ao compilador se uma determinada expressão pode lançar uma exceção. É para isso que serve o operador noexcept.
+
+O operador noexcept(expressão) não executa a expressão. Em vez disso, ele realiza uma análise estática em tempo de compilação e retorna um valor booleano:
+
+  - true se a expressão é garantida para não lançar exceções.
+  - false se a expressão pode potencialmente lançar uma exceção.
+    
+#+begin_src cpp
+#include <utility>
+
+void pode_lancar() {}
+void nao_lanca() noexcept {}
+
+int main() {
+    // static_assert verifica uma condição em tempo de compilação.
+    static_assert(noexcept(nao_lanca()), "Erro: nao_lanca() deveria ser noexcept.");
+    static_assert(!noexcept(pode_lancar()), "Erro: pode_lancar() não deveria ser noexcept.");
+
+    int x;
+    // Expressões com tipos fundamentais são geralmente noexcept.
+    static_assert(noexcept(x = 5), "Atribuição de int deveria ser noexcept.");
+    static_assert(noexcept(std::move(x)), "std::move deveria ser noexcept.");
+}
+#+end_src
+
+O operador noexcept é a ferramenta que alimenta os traits de tipo como std::is_nothrow_move_constructible, permitindo a criação de código genérico robusto e seguro contra exceções.
+
+** 36.3 Consequências da Violação: std::terminate
+
+O que acontece se uma função marcada como noexcept de fato tenta propagar uma exceção?
+
+A resposta é drástica: o programa chama imediatamente std::terminate(). Por padrão, std::terminate chama std::abort, encerrando o programa de forma abrupta.
+
+Por que essa reação severa? É uma troca de otimização. Quando o compilador vê uma chamada para uma função noexcept, ele assume que não precisa gerar o código de "limpeza" para o desenrolamento da pilha em torno dessa chamada. Isso pode levar a um código menor e mais rápido. Se a função quebrar sua promessa e lançar uma exceção, a pilha pode estar em um estado inconsistente, e o único curso de ação seguro para o runtime é terminar o programa.
+
+#+begin_src cpp
+#include <iostream>
+
+void quebra_promessa() noexcept {
+    std::cout << "Prometi não lançar, mas..." << std::endl;
+    throw 1; // Lança uma exceção
+}
+
+int main() {
+    try {
+        quebra_promessa();
+    } catch(...) {
+        // Este bloco NUNCA será alcançado.
+        std::cout << "Exceção capturada." << std::endl;
+    }
+}
+#+end_src
+
+A execução deste programa imprimirá a primeira mensagem e então será terminada pelo sistema operacional.
+
+** 36.4 Otimizações do Compilador e o Impacto no Código
+
+A principal razão para usar noexcept não é apenas documentar a intenção, mas sim habilitar otimizações cruciais, especialmente em conjunto com a semântica de movimento e os contêineres da STL.
+
+*O Cenário do std::vector:*
+Considere um std::vector<MinhaClasse>. Quando o vetor precisa crescer (porque um push_back excede sua capacidade), ele deve:
+
+  1. Alocar um novo bloco de memória, maior.
+  2. Mover os elementos do bloco antigo para o novo.
+  3. Liberar o bloco antigo.
+
+Agora, vamos analisar a Etapa 2. Se o construtor de movimento de MinhaClasse não for noexcept, o que acontece se, ao mover o 10º de 20 elementos, o construtor de movimento lança uma exceção? O std::vector agora está em um estado terrivelmente corrompido: alguns elementos foram movidos, outros não. O estado original foi perdido. A garantia forte de exceção do push_back foi violada.
+
+Para evitar isso, se o construtor de movimento de MinhaClasse não for noexcept, o std::vector não se arriscará. Em vez de mover, ele copiará os elementos. A cópia pode ser mais lenta, mas é segura: se uma cópia falhar, o novo bloco de memória é descartado e o vetor original permanece intacto (cumprindo a garantia forte).
+
+No entanto, se o construtor de movimento de MinhaClasse for noexcept, o std::vector sabe que pode mover os elementos com segurança, sem risco de exceções. Isso resulta em uma realocação muito mais rápida.
+
+Conclusão Prática: Sempre que possível, marque seus construtores de movimento, atribuições por movimento, funções swap e destrutores como noexcept. Isso é essencial para que seus tipos se comportem de maneira ideal com a biblioteca padrão e o resto do ecossistema C++.

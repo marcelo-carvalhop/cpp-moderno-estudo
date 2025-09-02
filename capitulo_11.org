@@ -1,0 +1,174 @@
+* Capítulo 11: Posse Compartilhada e o Ciclo de Vida Colaborativo — std::shared_ptr
+
+Enquanto std::unique_ptr modela a posse de um recurso de forma transitória e exclusiva, existem cenários de design onde a posse de um recurso precisa ser compartilhada entre múltiplas entidades independentes. Nestes casos, o tempo de vida do recurso não está atrelado a um único dono, mas sim à existência do último de seus vários donos. std::shared_ptr é a ferramenta da biblioteca padrão do C++ projetada para gerenciar precisamente este modelo de ciclo de vida colaborativo. Ele implementa a semântica de posse compartilhada através de um mecanismo de contagem de referências, automatizando a liberação do recurso apenas quando o último observador proprietário deixa de existir.
+
+** 11.1 A Mecânica da Contagem de Referências e o Bloco de Controle
+
+A complexidade e o poder do std::shared_ptr residem em sua arquitetura interna. Diferente de um ponteiro bruto ou de um std::unique_ptr (que em sua forma mais comum tem o tamanho de um ponteiro bruto), uma instância de std::shared_ptr é um objeto maior, tipicamente com o dobro do tamanho de um ponteiro. Isso ocorre porque ele gerencia dois ponteiros internamente:
+
+  1. Um ponteiro para o recurso gerenciado.
+
+  2. Um ponteiro para um bloco de controle (control block).
+
+Este bloco de controle é a peça central do mecanismo. É uma estrutura de dados separada, alocada no heap, que contém informações vitais sobre o recurso compartilhado:
+
+  - A Contagem de Referências Fortes (Strong Reference Count): Um contador que rastreia quantos std::shared_ptrs estão atualmente compartilhando a posse do recurso. É esta contagem que determina o tempo de vida do objeto.
+
+  - A Contagem de Referências Fracas (Weak Reference Count): Um contador que rastreia quantos std::weak_ptrs (que veremos no próximo capítulo) estão observando o recurso.
+
+  - Opcionalmente, um Deletor Customizado: A lógica a ser executada para liberar o recurso.
+
+  - Opcionalmente, um Alocador Customizado: A lógica para gerenciar a memória do próprio bloco de controle.
+
+O ciclo de vida do recurso é governado pelas seguintes regras, orquestradas através do bloco de controle:
+
+  - Quando um std::shared_ptr é criado a partir de um ponteiro bruto ou copiado de outro std::shared_ptr, a contagem de referências fortes é incrementada.
+
+  - Quando um std::shared_ptr é destruído (por sair de escopo) ou reatribuído para apontar para outro recurso, a contagem de referências fortes é decrementada.
+
+  - Se a decrementação da contagem de referências fortes resultar em zero, o std::shared_ptr que está sendo destruído invoca o deletor no recurso gerenciado (por padrão, delete), liberando-o.
+
+  - Se a decrementação da contagem de referências fracas resultar em zero (e a contagem forte já for zero), o próprio bloco de controle é desalocado.
+
+Essas operações de incremento e decremento na contagem de referências são realizadas de forma atômica, garantindo que std::shared_ptr seja seguro para uso em ambientes multithread (embora o acesso ao objeto gerenciado em si ainda precise de sincronização explícita, se for compartilhado entre threads).
+
+** 11.2 Criação: std::make_shared e a Otimização de Alocação
+Assim como std::unique_ptr tem std::make_unique, a forma canônica e preferencial de criar um std::shared_ptr é com std::make_shared.
+#+begin_src cpp
+#include <iostream>
+#include <memory>
+#include <string>
+
+class NetworkConnection {
+private:
+    std::string server_ip;
+public:
+    NetworkConnection(const std::string& ip) : server_ip(ip) {
+        std::cout << "Estabelecendo conexão com " << server_ip << " (objeto em " << this << ")\n";
+    }
+    ~NetworkConnection() {
+        std::cout << "Fechando conexão com " << server_ip << " (objeto em " << this << ")\n";
+    }
+    void send_data(const std::string& data) {
+        std::cout << "Enviando '" << data << "' para " << server_ip << std::endl;
+    }
+};
+
+// Um logger que mantém uma referência à conexão
+class Logger {
+public:
+    std::shared_ptr<NetworkConnection> connection;
+    void log(const std::string& message) {
+        if (connection) {
+            connection->send_data("LOG: " + message);
+        }
+    }
+};
+
+// Um serviço de autenticação que também usa a mesma conexão
+class AuthService {
+public:
+    std::shared_ptr<NetworkConnection> connection;
+    void authenticate(const std::string& user) {
+        if (connection) {
+            connection->send_data("AUTH: " + user);
+        }
+    }
+};
+
+int main() {
+    // 1. Criação com std::make_shared
+    auto main_connection = std::make_shared<NetworkConnection>("192.168.1.1");
+    std::cout << "Contagem de referências inicial: " << main_connection.use_count() << std::endl;
+
+    Logger data_logger;
+    AuthService user_auth;
+
+    // 2. Compartilhando a posse
+    data_logger.connection = main_connection; // Cópia, contagem incrementa
+    std::cout << "Contagem após atribuir ao logger: " << main_connection.use_count() << std::endl;
+
+    user_auth.connection = main_connection; // Cópia, contagem incrementa
+    std::cout << "Contagem após atribuir ao auth_service: " << main_connection.use_count() << std::endl;
+
+    main_connection->send_data("Pacote inicial");
+    data_logger.log("Sistema iniciado.");
+    user_auth.authenticate("admin");
+
+    // 3. Liberação gradual da posse
+    std::cout << "\nResetando a conexão principal em main().\n";
+    main_connection.reset(); // 'main_connection' libera sua posse, contagem decrementa
+    std::cout << "Contagem após reset em main: " << user_auth.connection.use_count() << std::endl;
+
+    std::cout << "\nO objeto NetworkConnection ainda está vivo, pois logger e auth_service o possuem.\n";
+    user_auth.log("Usuário ainda autenticado.");
+
+    std::cout << "\nFim de main se aproximando. Logger e AuthService serão destruídos.\n";
+    return 0;
+    // 4. Quando 'data_logger' e 'user_auth' saem de escopo, seus membros 'connection' são destruídos.
+    // A última destruição de 'shared_ptr' fará a contagem chegar a zero,
+    // e o objeto NetworkConnection será finalmente destruído.
+}
+#+end_src
+
+A preferência por std::make_shared<T>(args...) sobre std::shared_ptr<T>(new T(args...)) é ainda mais forte do que no caso do unique_ptr. A razão principal é a performance. A forma com new resulta em, no mínimo, duas alocações de memória no heap: uma para o objeto T (feita pelo new) e outra para o bloco de controle (feita internamente pelo construtor do shared_ptr). std::make_shared, por outro lado, realiza uma única alocação de memória no heap, grande o suficiente para conter o objeto T e o bloco de controle de forma contígua. Isso reduz o overhead de alocação, melhora a localidade de cache e diminui a fragmentação da memória.
+
+** 11.3 Deletores Customizados e a Flexibilidade da Type Erasure
+
+Uma das diferenças mais significativas e poderosas em relação ao std::unique_ptr é como std::shared_ptr lida com deletores customizados. Em um unique_ptr, o tipo do deletor faz parte do tipo do próprio ponteiro (std::unique_ptr<T, DeleterType>). Em um shared_ptr, isso não acontece. O tipo é simplesmente std::shared_ptr<T>.
+
+O deletor customizado é armazenado dentro do bloco de controle usando uma técnica chamada type erasure. O shared_ptr armazena um ponteiro para uma função que sabe como invocar o deletor original, apagando a necessidade de conhecer o tipo exato do deletor no tipo do shared_ptr.
+
+Isso confere uma flexibilidade imensa. É possível armazenar shared_ptrs que gerenciam o mesmo tipo de handle (FILE*, por exemplo), mas que foram criados com lógicas de deleção diferentes (lambdas, objetos de função, etc.) no mesmo contêiner, como um std::vector<std::shared_ptr<FILE>>.
+
+*Exemplo Comparativo:*
+#+begin_src cpp
+#include <iostream>
+#include <memory>
+#include <vector>
+#include <cstdio>
+
+// Deletor como função lambda
+auto file_closer_lambda = [](FILE* f) {
+    if (f) {
+        std::cout << "Fechando arquivo via lambda.\n";
+        fclose(f);
+    }
+};
+
+// Deletor como objeto de função (functor)
+struct FileFunctorCloser {
+    void operator()(FILE* f) const {
+        if (f) {
+            std::cout << "Fechando arquivo via functor.\n";
+            fclose(f);
+        }
+    }
+};
+
+int main() {
+    // O tipo de todos os ponteiros é simplesmente std::shared_ptr<FILE>.
+    // O tipo do deletor não aparece no tipo do shared_ptr.
+    std::vector<std::shared_ptr<FILE>> file_handles;
+
+    // Criando com um deletor lambda
+    file_handles.push_back(
+        std::shared_ptr<FILE>(fopen("test1.txt", "w"), file_closer_lambda)
+    );
+
+    // Criando com um deletor functor
+    file_handles.push_back(
+        std::shared_ptr<FILE>(fopen("test2.txt", "w"), FileFunctorCloser())
+    );
+
+    if (file_handles[0]) { fprintf(file_handles[0].get(), "lambda"); }
+    if (file_handles[1]) { fprintf(file_handles[1].get(), "functor"); }
+
+    std::cout << "Fim de main. O vetor será destruído, liberando os handles.\n";
+    return 0;
+    // Quando o vetor é destruído, cada shared_ptr é destruído,
+    // e cada um invoca seu deletor customizado específico armazenado no bloco de controle.
+}
+#+end_src
+
+Esta capacidade de apagar o tipo do deletor é uma ferramenta de design poderosa, permitindo a criação de interfaces genéricas que gerenciam recursos heterogêneos de forma uniforme. A desvantagem é que o armazenamento do deletor no bloco de controle aumenta o tamanho deste último e adiciona um nível de indireção na chamada, mas na maioria dos casos, a flexibilidade obtida compensa esse custo.

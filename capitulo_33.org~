@@ -1,0 +1,89 @@
+* Capítulo 33: A Mecânica do Lançamento — throw e o Desenrolamento da Pilha
+
+O tratamento de exceções em C++ é um mecanismo de fluxo de controle não-local. Diferente de um return, que transfere o controle para o chamador imediato, uma exceção pode propagar-se para cima através de múltiplos níveis da pilha de chamadas até que um "manipulador" (um bloco catch) seja encontrado. O processo que o runtime do C++ executa para gerenciar essa propagação é conhecido como desenrolamento da pilha (stack unwinding), e compreendê-lo é a chave para entender por que o RAII é a pedra angular do C++ seguro.
+
+** 33.1 O Fluxo de Controle Excepcional
+
+Quando a instrução throw é executada, o fluxo normal do programa é interrompido abruptamente. A função atual não continua sua execução e não retorna um valor da maneira usual. Em vez disso, o controle é transferido para o sistema de runtime do C++, que inicia a busca por um manipulador de exceção.
+
+Considere a seguinte pilha de chamadas: main() chama funcaoA(), que por sua vez chama funcaoB().
+
+#+begin_src cpp
+#include <iostream>
+#include <stdexcept>
+
+void funcaoB() {
+    std::cout << "Entrando em funcaoB(). Lançando exceção..." << std::endl;
+    throw std::runtime_error("Algo deu errado em B!");
+    // Esta linha NUNCA é executada.
+    std::cout << "Saindo de funcaoB()." << std::endl; 
+}
+
+void funcaoA() {
+    std::cout << "Entrando em funcaoA()." << std::endl;
+    funcaoB();
+    // Esta linha NUNCA é executada se funcaoB() lançar.
+    std::cout << "Saindo de funcaoA()." << std::endl;
+}
+
+int main() {
+    try {
+        std::cout << "Entrando no bloco try de main()." << std::endl;
+        funcaoA();
+        std::cout << "Saindo do bloco try de main()." << std::endl;
+    } catch (const std::exception& e) {
+        std::cout << "Exceção capturada em main(): " << e.what() << std::endl;
+    }
+}
+#+end_src
+
+A execução deste código produzirá uma saída que ilustra claramente o fluxo não-local:
+
+Entrando no bloco try de main().
+Entrando em funcaoA().
+Entrando em funcaoB(). Lançando exceção...
+Exceção capturada em main(): Algo deu errado em B!
+Note que as mensagens "Saindo de..." de funcaoB e funcaoA nunca são impressas. A execução saltou diretamente do throw em funcaoB para o catch em main.
+
+33.2 O Desenrolamento da Pilha (Stack Unwinding) em Detalhe
+O que acontece nesse "salto"? O runtime executa um processo metódico e garantido:
+
+Início: A exceção é lançada em funcaoB. O runtime assume o controle.
+Inspeção de funcaoB: O runtime verifica se o ponto de lançamento está dentro de um bloco try dentro de funcaoB. Neste caso, não está.
+Limpeza de funcaoB: Antes de sair de funcaoB, o runtime executa uma etapa crítica: ele chama o destrutor de todos os objetos com armazenamento automático (variáveis locais na pilha) que foram completamente construídos no escopo de funcaoB.
+Propagação para funcaoA: O runtime "desenrola" a pilha para o quadro do chamador, funcaoA. Ele verifica se a chamada a funcaoB estava dentro de um bloco try em funcaoA. Não estava.
+Limpeza de funcaoA: Assim como antes, o runtime chama os destrutores de todos os objetos locais completamente construídos em funcaoA.
+Propagação para main: A pilha é desenrolada novamente para main. O runtime verifica se a chamada a funcaoA estava dentro de um bloco try. Sim, estava.
+Busca por um Manipulador: O runtime agora examina os blocos catch associados a esse try. Ele encontra catch (const std::exception& e), que é um manipulador compatível com o tipo std::runtime_error que foi lançado (devido à herança pública).
+Transferência de Controle: A busca termina. O controle é transferido para o início do bloco catch correspondente. A execução do programa continua a partir daí.
+Se o desenrolamento da pilha chegasse ao topo (main) sem encontrar um manipulador compatível, o programa chamaria std::terminate(), resultando em um encerramento abrupto.
+
+33.3 A Garantia de Destruição: O Fundamento do RAII
+A etapa mais importante do processo de desenrolamento é a garantia de que os destrutores dos objetos locais serão chamados. Esta é uma das garantias mais fortes da linguagem C++ e é o que torna o padrão RAII (Resource Acquisition Is Initialization) tão eficaz.
+
+RAII é a prática de vincular o tempo de vida de um recurso (memória, arquivo, lock de mutex, conexão de rede) ao tempo de vida de um objeto na pilha. A aquisição do recurso ocorre no construtor do objeto, e a liberação ocorre no destrutor.
+
+cpp
+Copy
+#include <memory> // Para std::unique_ptr
+
+void funcao_com_recurso() {
+    // Aquisição do recurso (memória) no construtor de unique_ptr.
+    auto ptr = std::make_unique<int>(100); 
+    
+    // ... algum trabalho é feito ...
+
+    if (/* alguma condição de erro */) {
+        throw std::runtime_error("Erro na função com recurso!");
+    }
+
+    // Liberação do recurso (delete) é feita no destrutor de unique_ptr.
+} // Se a função retornar normalmente, o destrutor de 'ptr' é chamado aqui.
+Graças ao desenrolamento da pilha, mesmo que a exceção seja lançada, temos a garantia absoluta de que o destrutor de ptr será chamado antes que o controle saia de funcao_com_recurso. Isso significa que a memória alocada nunca vazará. O código é seguro contra exceções sem a necessidade de blocos try/catch manuais para a limpeza de recursos.
+
+33.4 Implicações de Performance
+É um mito comum que o uso de exceções torna o código C++ lento. A realidade é mais sutil e depende do modelo de implementação do compilador, que na maioria das plataformas modernas é um modelo de custo zero.
+
+O Caminho Rápido (Happy Path): Se nenhuma exceção for lançada, o custo de ter código que poderia lançar uma exceção (como estar dentro de um bloco try) é zero ou muito próximo de zero. O compilador organiza tabelas de dados auxiliares para o desenrolamento, mas essas não afetam a velocidade de execução do caminho normal.
+O Caminho Lento: Quando uma exceção é lançada, o processo é significativamente mais lento do que um retorno de função. O runtime precisa consultar as tabelas de desenrolamento, percorrer a pilha e chamar destrutores.
+Esta característica de design reforça a filosofia de que exceções devem ser usadas para erros verdadeiramente excepcionais e não para o controle de fluxo rotineiro e esperado.

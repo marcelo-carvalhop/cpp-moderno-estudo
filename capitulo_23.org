@@ -1,0 +1,142 @@
+* Capítulo 23: A Meta-Programação do Build — Dominando o CMake
+
+Nós vimos que make é uma ferramenta poderosa para automatizar a compilação, mas ele opera em um nível baixo: ele se preocupa com arquivos e comandos. Isso o torna rígido. Um Makefile escrito para g++ no Linux não funcionará com o compilador da Microsoft (MSVC) no Windows. Além disso, descobrir dependências complexas, como as de módulos C++20 ou as fornecidas por um gerenciador de pacotes, requer truques avançados e frágeis.
+
+O CMake resolve esses problemas operando em um nível de abstração mais alto. Ele não é um sistema de build; é um gerador de sistemas de build.
+
+** 23.1 A Filosofia do CMake: O Arquiteto, não o Construtor
+
+Esta é a distinção mais importante a ser compreendida. O CMake não compila seu código. Em vez disso, ele lê arquivos de texto que você escreve, chamados CMakeLists.txt, que descrevem seu projeto em termos abstratos:
+
+  - "Este projeto se chama 'MeuProjeto'."
+  - "Ele produz uma biblioteca chamada 'core' a partir destes arquivos fonte."
+  - "Ele também produz um executável chamado 'app' a partir deste outro arquivo fonte."
+  - "O executável 'app' precisa ser linkado com a biblioteca 'core'."
+  - "Todos os alvos precisam ter acesso aos headers no diretório 'include'."
+
+Com base nessa descrição de alto nível, o CMake gera os arquivos de build nativos para a plataforma em que está sendo executado.
+
+  - No Linux, por padrão, ele gerará Makefiles. Você então executa make para construir.
+  - No Windows com Visual Studio instalado, ele gerará arquivos de projeto e solução (.sln, .vcxproj). Você pode então construir na linha de comando com msbuild ou abrir a solução no IDE.
+  - Ele também pode gerar arquivos para outros sistemas de build como Ninja, que é frequentemente mais rápido que o make para projetos grandes.
+
+Este processo de duas etapas é o que dá ao CMake seu poder e portabilidade. Você escreve uma descrição do seu projeto, e o CMake cuida dos detalhes de como traduzir isso para qualquer ambiente de build.
+
+*O Fluxo de Trabalho Canônico:*
+#+begin_src bash
+# Na raiz do projeto, onde está o CMakeLists.txt principal
+mkdir -p build
+cd build
+
+# 1. Fase de Configuração: CMake lê CMakeLists.txt e gera o sistema de build (ex: Makefiles)
+# O '..' aponta para o diretório pai, onde está o CMakeLists.txt
+cmake ..
+
+# 2. Fase de Construção: Use a ferramenta de build nativa para compilar o código
+# CMake é inteligente o suficiente para invocar a ferramenta correta com 'cmake --build .'
+cmake --build . 
+# Ou, no Linux, você pode chamar 'make' diretamente
+# make
+#+end_src
+
+** 23.2 A Linguagem do CMake: Comandos Fundamentais
+
+Um CMakeLists.txt é um script. Vamos aprender seus verbos e substantivos essenciais.
+
+  - cmake_minimum_required(VERSION 3.15): A primeira linha de qualquer CMakeLists.txt. Define a versão mínima do CMake necessária, garantindo que você possa usar as funcionalidades esperadas.
+
+  - project(MeuProjeto VERSION 1.0 LANGUAGES CXX): Dá um nome ao seu projeto, opcionalmente define uma versão e especifica as linguagens usadas (aqui, C++).
+
+  - add_library(nome_da_biblioteca [STATIC | SHARED] fonte1.cpp ...): Cria um alvo de biblioteca. STATIC (.a) a compila dentro dos executáveis que a usam; SHARED (.so) a mantém como um arquivo separado.
+
+  - add_executable(nome_do_executavel fonte1.cpp ...): Cria um alvo de executável.
+
+  - target_include_directories(nome_do_alvo [PUBLIC | PRIVATE] dir1 ...): Especifica onde um alvo deve procurar por arquivos de cabeçalho. Esta é a maneira correta de configurar o "include path".
+    - PUBLIC: Tanto o nome_do_alvo quanto qualquer coisa que se linke a ele terão acesso a dir1. Perfeito para o diretório include de uma biblioteca.
+    - PRIVATE: Apenas o nome_do_alvo pode ver dir1. Perfeito para headers internos.
+
+  - target_link_libraries(nome_do_alvo [PUBLIC | PRIVATE] outra_biblioteca ...): Linka um alvo contra outra biblioteca.
+
+** 23.3 Variáveis e Controle de Fluxo
+
+O CMake é uma linguagem de script completa.
+
+  - set(MINHA_VARIAVEL "valor"): Cria ou modifica uma variável. Para usá-la: ${MINHA_VARIAVEL}.
+
+  - if(CONDIÇÃO) ... else() ... endif(): Permite lógica condicional. Por exemplo, você pode adicionar flags de compilador específicas para o Windows com if(WIN32).
+
+  - message(STATUS "Minha mensagem"): Imprime uma mensagem durante a fase de configuração. Extremamente útil para depuração.
+
+** 23.4 Encontrando Dependências: find_package
+
+Este é o elo com o capítulo anterior. find_package é o mecanismo padrão do CMake para localizar dependências que foram instaladas no sistema ou por um gerenciador de pacotes.
+
+#+begin_src cmake
+find_package(fmt 9.1.0 REQUIRED)
+#+end_src
+
+Isso instrui o CMake a procurar pela biblioteca fmt, versão 9.1.0. Se encontrada, ele cria alvos de biblioteca importados (ex: fmt::fmt) que você pode simplesmente usar em target_link_libraries. Se REQUIRED for especificado e o pacote não for encontrado, o CMake para com um erro.
+
+** 23.5 Estudo de Caso: Um CMakeLists.txt Completo
+
+Vamos aplicar tudo isso à nossa estrutura de projeto canônica.
+
+*Estrutura:*
+meu_projeto/
+├── CMakeLists.txt         <-- (1) Raiz
+├── include/
+│   └── meu_projeto/
+│       └── core.hpp
+├── src/
+│   ├── CMakeLists.txt     <-- (2) Biblioteca
+│   └── core.cpp
+└── examples/
+    ├── CMakeLists.txt     <-- (3) Exemplo
+    └── uso_basico.cpp
+
+*(1) CMakeLists.txt (Raiz)*
+#+begin_src cmake
+# Versão mínima do CMake e definição do projeto
+cmake_minimum_required(VERSION 3.15)
+project(MeuProjeto VERSION 1.0 LANGUAGES CXX)
+
+# Define o padrão C++ para todo o projeto
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Adiciona os subdiretórios. CMake irá procurar por um CMakeLists.txt em cada um.
+add_subdirectory(src)
+add_subdirectory(examples)
+#+end_src
+
+*(2) src/CMakeLists.txt (Biblioteca)*
+#+begin_src cmake
+# Cria a biblioteca 'core' a partir de core.cpp
+add_library(core core.cpp)
+
+# Qualquer um que se linke à biblioteca 'core' precisa ter acesso
+# ao diretório de headers públicos. O caminho ${PROJECT_SOURCE_DIR}
+# aponta para a raiz do projeto (onde está o CMakeLists.txt principal).
+target_include_directories(core
+    PUBLIC
+        ${PROJECT_SOURCE_DIR}/include
+)
+#+end_src
+
+*(3) examples/CMakeLists.txt (Exemplo)*
+#+begin_src cmake
+# Cria o executável 'exemplo_uso'
+add_executable(exemplo_uso uso_basico.cpp)
+
+# Linka nosso executável contra a biblioteca 'core'.
+# Como 'core' expôs seu diretório de include como PUBLIC,
+# o CMake automaticamente configura o include path para nosso executável.
+target_link_libraries(exemplo_uso PRIVATE core)
+#+end_src
+
+Com esta estrutura, o CMake entende perfeitamente as dependências entre seus componentes. Ele sabe que precisa construir a biblioteca core antes de poder construir o executável exemplo_uso. Ele sabe que, se um header em include/ mudar, tanto a biblioteca quanto o executável precisam ser recompilados.
+
+Você acabou de aprender a linguagem para descrever a arquitetura de qualquer projeto C++, de forma portátil e poderosa. Este é o ápice do gerenciamento de projetos e a ferramenta que lhe dará controle absoluto sobre o processo de build, independentemente da plataforma, do compilador ou da IDE.
+
+
+|[[./capitulo_22.org][Anterior]]|[[./cpp_moderno_indice.org][Índice]]|[[./capitulo_24.org][Próximo]]|

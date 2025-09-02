@@ -1,0 +1,73 @@
+* Capítulo 25: Contêineres Sequenciais — Gerenciando Coleções Ordenadas
+
+Os contêineres sequenciais são estruturas de dados que armazenam uma coleção de elementos em uma ordem linear e estrita. Cada elemento, exceto o primeiro e o último, possui um antecessor e um sucessor. A STL oferece diversas implementações, cada uma com um perfil de performance distinto, otimizado para diferentes padrões de acesso e modificação.
+
+** 25.1 std::vector — O Padrão Absoluto
+
+O std::vector é, e deve ser, o contêiner sequencial padrão em C++. A menos que exista uma razão clara e mensurável para escolher outro, o std::vector é a opção inicial.
+
+  - Mecânica Interna: Um std::vector gerencia um único bloco de memória contíguo, como um array C-style dinâmico. Ele mantém o controle de dois valores principais:
+    - size(): O número de elementos atualmente armazenados no vetor.
+    - capacity(): O número de elementos que o bloco de memória atualmente alocado pode conter. capacity() é sempre maior ou igual a size().
+
+Quando um elemento é adicionado com push_back() e size() < capacity(), a operação é extremamente rápida (complexidade O(1)). Contudo, se size() == capacity(), o vetor precisa crescer. Isso desencadeia uma realocação:
+  1. Um novo bloco de memória, maior que o anterior (geralmente 1.5x ou 2x o tamanho), é alocado.
+  2. Todos os elementos do bloco antigo são movidos (ou copiados) para o novo bloco.
+  3. O bloco de memória antigo é liberado.
+Esta operação de realocação é cara, mas como o vetor cresce exponencialmente, ela ocorre com uma frequência cada vez menor. O custo é, portanto, amortizado, resultando em uma complexidade média de O(1) para push_back().
+
+  - Perfil de Performance:
+    - Acesso Aleatório (operator[]): O(1). A memória contígua permite aritmética de ponteiros, tornando o acesso a qualquer elemento instantâneo.
+    - Adição/Remoção no Final (push_back, pop_back): O(1) amortizado.
+    - Adição/Remoção no Início ou no Meio: O(n). Inserir um elemento no início exige que todos os outros elementos sejam deslocados uma posição para a direita, uma operação linearmente proporcional ao tamanho do vetor.
+
+  - Caso de Uso Ideal: É a escolha perfeita quando o acesso aleatório rápido é a prioridade e a maioria das modificações (inserções e remoções) ocorre no final da sequência.
+
+** 25.2 std::list — O Especialista em Modificação
+
+O std::list representa uma abordagem completamente diferente para o armazenamento sequencial.
+
+  - Mecânica Interna: É uma lista duplamente encadeada. Cada elemento é armazenado em um nó alocado separadamente na memória. Cada nó contém o dado em si, um ponteiro para o nó seguinte e um ponteiro para o nó anterior. A memória, portanto, não é contígua.
+
+  - Perfil de Performance:
+    - Acesso Aleatório (operator[]): Não disponível. Para acessar o n-ésimo elemento, é necessário percorrer a lista a partir do início ou do fim, resultando em uma complexidade O(n). Esta é sua principal desvantagem.
+    - Adição/Remoção em Qualquer Posição (com um iterador): O(1). Uma vez que se tem um iterador apontando para a posição desejada, a inserção ou remoção envolve apenas a atualização de alguns ponteiros nos nós adjacentes, uma operação de tempo constante.
+
+  - Caso de Uso Ideal: Deve ser usado quando ocorrem inserções e remoções frequentes no meio da sequência e o acesso aleatório não é necessário. Outra vantagem crucial é a estabilidade dos iteradores: uma inserção ou remoção em uma std::list nunca invalida os ponteiros ou iteradores para outros elementos da lista, ao contrário do std::vector, onde uma realocação invalida todos os iteradores.
+
+** 25.3 std::deque — O Híbrido Flexível
+
+O std::deque (pronuncia-se "deck", de double-ended queue) oferece um meio-termo entre std::vector e std::list.
+
+  - Mecânica Interna: A implementação é mais complexa. Em vez de um único bloco contíguo, um std::deque gerencia uma coleção de múltiplos blocos de memória menores e de tamanho fixo (chamados "chunks"). Ele mantém uma estrutura de dados central (um mapa de ponteiros) que aponta para esses blocos. Isso permite que a estrutura cresça eficientemente em ambas as extremidades, alocando novos blocos no início ou no fim, conforme necessário.
+
+  - Perfil de Performance:
+    - Acesso Aleatório (operator[]): O(1). Embora seja de tempo constante, é ligeiramente mais lento que o de um std::vector porque requer uma dupla indireção (primeiro, encontrar o ponteiro para o bloco correto; segundo, acessar o elemento dentro do bloco).
+    - Adição/Remoção em Ambas as Extremidades (push_back, pop_back, push_front, pop_front): O(1) amortizado. Esta é sua principal vantagem.
+    - Adição/Remoção no Meio: O(n). Ainda é uma operação linear, pois pode exigir o deslocamento de muitos elementos dentro de um ou mais blocos.
+
+  - Caso de Uso Ideal: É a escolha certa para implementar uma fila ou pilha que precisa crescer de forma eficiente em ambas as direções.
+
+** 25.4 std::array — A Segurança de Tamanho Fixo
+
+O std::array preenche uma lacuna importante: a necessidade de um contêiner de tamanho fixo com a semântica da STL.
+
+  - Mecânica Interna: É um invólucro de sobrecarga zero (zero-overhead wrapper) em torno de um array C-style nativo. Seu tamanho deve ser conhecido em tempo de compilação e não pode ser alterado. A alocação de memória é idêntica à de um array C-style (na pilha para variáveis locais, no segmento de dados para globais/estáticas).
+
+  - Perfil de Performance: Idêntico ao de um array C-style. Acesso O(1).
+
+  - Caso de Uso Ideal: Deve ser usado sempre que o tamanho da coleção for fixo e conhecido em tempo de compilação. Ele oferece a mesma performance de um array C-style, mas com os benefícios de um contêiner da STL: ele conhece seu próprio tamanho (.size()), fornece iteradores (.begin(), .end()) e pode ser passado por valor de forma segura, evitando a decadência para um ponteiro (array-to-pointer decay).
+
+*Resumo Comparativo*
+
+| Características           | std::vecotr     | std::list          | std::deque        | std::array        |
+| Memória                   | Contígua        | Não-contígua (nós) | Pedaços contíguos | Contígua          |
+| Tamanho                   | Dinâmico        | Dinâmico           | Dinâmico          | Fixo (compilação) |
+| Acesso Aleatório          | O(1)            | O(n)               | O(1)              | O(1)              |
+| Inserção/Remoção (Final)  | O(1) amortizado | O(1)               | O(1) amortizado   | N/A               |
+| Inserção/Remoção (Início) | O(1)            | O(1)               | O(1) amortizado   | N/A               |
+| Inserção/Remoção (Meio)   | O(n)            | O(1)               | O(n)              | N/A               |
+| Invalidação de Iterador   | Frequente       | Mínima             | Complexa          | Nunca             |
+
+
+|[[./capitulo_24.org][Anterior]]|[[./cpp_moderno_indice.org][Índice]]|[[./capitulo_26.org][Próximo]]|

@@ -1,0 +1,116 @@
+* Capítulo 27: O Poder do <algorithm> e a Programação Expressiva
+
+A biblioteca <algorithm> é, talvez, a parte mais transformadora da STL. Ela representa uma mudança fundamental na forma de pensar sobre o processamento de dados, incentivando um estilo de programação mais declarativo em oposição ao imperativo. Em vez de descrever minuciosamente como executar uma tarefa passo a passo, nós declaramos o que queremos realizar, delegando a implementação otimizada para a biblioteca padrão.
+
+** 27.1 A Mudança de Paradigma: Do "Como" para o "Quê"
+
+Considere uma tarefa simples: encontrar o primeiro número par em um vetor de inteiros.
+
+*A Abordagem Imperativa (O Laço Manual):*
+#+begin_src cpp
+std::vector<int> v = {1, 3, 5, 8, 10, 12};
+auto it_encontrado = v.end(); // Inicializa com o estado "não encontrado"
+
+for (auto it = v.begin(); it != v.end(); ++it) {
+    if (*it % 2 == 0) {
+        it_encontrado = it;
+        break; // Encontrou, pode parar o laço
+    }
+}
+// Agora, 'it_encontrado' aponta para o 8 ou para v.end()
+#+end_src
+
+Este código funciona, mas é verboso. Ele nos força a gerenciar a inicialização do iterador, a lógica do laço, a condição de parada e a atribuição do resultado. Há múltiplas oportunidades para pequenos erros.
+
+*A Abordagem Declarativa (O Algoritmo):*
+#+begin_src cpp
+#include <algorithm> // Necessário para os algoritmos
+#include <vector>
+
+std::vector<int> v = {1, 3, 5, 8, 10, 12};
+
+auto it_encontrado = std::find_if(v.begin(), v.end(), 
+                                  [](int n) { return n % 2 == 0; });
+#+end_src
+
+Este código é conciso, legível e expressa diretamente a intenção: "encontre, se houver (find_if), no intervalo de v.begin() a v.end(), um elemento que satisfaça a condição 'ser par'". Os benefícios são imediatos:
+
+  - Clareza: O código se torna auto-documentado. std::find_if é inequivocamente mais claro que um laço for genérico.
+  - Segurança: A lógica complexa de iteração é encapsulada dentro de uma implementação padrão, exaustivamente testada. Isso elimina classes inteiras de erros comuns, como os de "off-by-one".
+  - Eficiência: Os fornecedores da biblioteca padrão podem aplicar otimizações avançadas (como paralelismo ou vetorização SIMD) à implementação dos algoritmos, algo que seria complexo de replicar manualmente.
+
+** 27.2 O Papel Central das Funções Lambda
+
+O exemplo anterior introduziu uma sintaxe nova e poderosa: [](int n) { return n % 2 == 0; }. Esta é uma função lambda, um dos recursos mais importantes do C++ moderno. Uma lambda é uma função anônima, definida no local onde é usada, que pode ser passada como argumento para outras funções. É o que nos permite fornecer lógica customizada aos algoritmos.
+
+A sintaxe básica de uma lambda é:
+[capturas](parâmetros) -> tipo_de_retorno { corpo_da_função }
+
+  - [capturas]: Permite que a lambda acesse variáveis do escopo em que foi criada. [] não captura nada; [=] captura por cópia; [&] captura por referência.
+  - (parâmetros): Os argumentos que a função recebe. Para a maioria dos algoritmos, será um único parâmetro representando um elemento do contêiner.
+  - -> tipo_de_retorno: Frequentemente omitido, pois o compilador pode deduzi-lo a partir da instrução return no corpo.
+  - { corpo_da_função }: A lógica a ser executada.
+
+As lambdas são a cola que une a programação genérica dos algoritmos com a lógica específica do nosso problema.
+
+** 27.3 Um Tour pelos Algoritmos Essenciais
+
+Vamos explorar alguns dos algoritmos mais úteis, todos operando sobre intervalos definidos por iteradores.
+
+std::for_each: Aplica uma função a cada elemento de um intervalo.
+#+begin_src cpp
+std::vector<int> v = {1, 2, 3};
+std::for_each(v.begin(), v.end(), [](int n) {
+    std::cout << n << " "; 
+}); // Imprime: 1 2 3
+#+end_src 
+
+std::transform: Cria uma nova sequência aplicando uma função a cada elemento de uma sequência de entrada.
+#+begin_src cpp
+std::vector<int> entrada = {1, 2, 3, 4};
+std::vector<int> resultado(entrada.size()); // O contêiner de destino deve ter espaço
+
+std::transform(entrada.begin(), entrada.end(), resultado.begin(),
+               [](int n) { return n * n; });
+// 'resultado' agora contém: {1, 4, 9, 16}
+#+end_src
+
+std::sort: Ordena os elementos de um intervalo. Requer iteradores de acesso aleatório.
+#+begin_src cpp
+std::vector<int> v = {5, 2, 8, 1, 9};
+std::sort(v.begin(), v.end()); // 'v' agora é {1, 2, 5, 8, 9}
+
+// Ordenação customizada (decrescente)
+std::sort(v.begin(), v.end(), [](int a, int b) { return a > b; });
+// 'v' agora é {9, 8, 5, 2, 1}
+#+end_src
+
+** 27.4 O Idioma "Erase-Remove"
+
+Uma das tarefas mais comuns é remover elementos de um contêiner com base em uma condição. A maneira de fazer isso na STL é um idioma de duas etapas que, a princípio, pode parecer contraintuitivo, mas é extremamente eficiente.
+
+Considere que queremos remover todos os números ímpares de um vetor.
+
+  1. *Passo 1: std::remove_if*
+O algoritmo std::remove_if não remove elementos do contêiner. Em vez disso, ele percorre o intervalo e move todos os elementos que não devem ser removidos para o início, mantendo sua ordem relativa. Ele retorna um iterador que aponta para o novo "fim lógico" da sequência. Os elementos após este novo fim estão em um estado válido, mas não especificado.
+
+#+begin_src cpp
+std::vector<int> v = {1, 2, 3, 4, 5, 6};
+// Queremos remover os ímpares. O predicado retorna 'true' para os elementos a serem "removidos".
+auto novo_fim = std::remove_if(v.begin(), v.end(), 
+                               [](int n) { return n % 2 != 0; });
+// Após esta chamada, 'v' pode se parecer com: {2, 4, 6, ?, ?, ?}
+// 'novo_fim' aponta para a posição onde estava o primeiro '?'
+#+end_src
+
+  2. *Passo 2: container.erase()*
+Agora que todos os elementos "removidos" estão no final, usamos o método erase do próprio contêiner para efetivamente apagar o intervalo de elementos indesejados, do novo_fim até o final real do contêiner.
+
+#+begin_src cpp
+v.erase(novo_fim, v.end());
+// 'v' agora contém: {2, 4, 6}
+#+end_src
+
+Este idioma é projetado para performance. std::remove_if apenas copia ou move elementos, evitando as operações caras de remoção e deslocamento individuais dentro do laço. A operação de erase (para std::vector) é então realizada uma única vez.
+
+Dominar o uso de algoritmos em conjunto com funções lambda é o que eleva o código C++ de funcional para profissional. Ele permite expressar lógicas complexas de forma segura, clara e eficiente, aproveitando ao máximo o poder e a filosofia de design da Standard Template Library.

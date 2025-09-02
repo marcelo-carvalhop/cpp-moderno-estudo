@@ -1,0 +1,77 @@
+* Capítulo 21: A Anatomia de um Projeto C++ Canônico — Estrutura de Diretórios e Filosofia
+
+A maneira como os arquivos de um projeto são organizados em diretórios não é uma questão de preferência estética; é um pilar da arquitetura do software. Uma estrutura bem definida comunica a intenção, separa as preocupações, simplifica o processo de build e facilita a vida de qualquer pessoa (incluindo o seu "eu" futuro) que precise navegar ou contribuir para o projeto.
+
+Embora não exista um padrão único e obrigatório, uma estrutura canônica emergiu na comunidade C++, inspirada por décadas de experiência. Vamos dissecar essa estrutura e a lógica por trás de cada componente.
+
+** 21.1 A Estrutura de Diretórios de Alto Nível
+
+Um projeto C++ robusto e escalável geralmente se parece com isto:
+
+meu_projeto/
+├── include/
+│   └── meu_projeto/
+│       └── minha_biblioteca.hpp
+├── src/
+│   └── minha_biblioteca.cpp
+├── tests/
+│   └── teste_biblioteca.cpp
+├── examples/
+│   └── uso_basico.cpp
+├── external/
+│   └── (dependências de terceiros)
+├── docs/
+│   └── (documentação)
+├── build/
+│   └── (arquivos gerados pelo build - ignorado pelo Git)
+├── .gitignore
+├── CMakeLists.txt  (ou Makefile)
+└── README.md
+
+Vamos analisar cada diretório e seu propósito.
+
+** 21.2 src — O Coração da Implementação
+
+O diretório src (de "source", fonte) contém todos os arquivos de implementação (.cpp). Este é o código que define como sua biblioteca ou aplicação funciona.
+
+  - Filosofia: O conteúdo de src é considerado um detalhe de implementação do seu projeto. Ninguém de fora do seu projeto deveria precisar olhar ou incluir arquivos diretamente de src. A compilação transforma o conteúdo de src em uma biblioteca (.a, .so, .lib, .dll) ou um executável.
+
+  - Estrutura Interna: Para projetos grandes, o src pode ser subdividido em subdiretórios que espelham os componentes do software (ex: src/core/, src/networking/, src/ui/).
+
+** 21.3 include — A Interface Pública
+
+O diretório include contém os arquivos de cabeçalho (.hpp) que definem a interface pública do seu projeto. Estes são os únicos arquivos que um "cliente" (seja outro projeto seu ou um usuário externo) deveria precisar para usar sua biblioteca.
+
+  - Filosofia: O include é o seu contrato com o mundo. Ele contém as declarações de classes e funções que você promete manter estáveis. A separação clara entre include (o "quê") e src (o "como") é a manifestação física do encapsulamento em nível de projeto.
+
+  - O Subdiretório meu_projeto/: Por que include/meu_projeto/minha_biblioteca.hpp e não apenas include/minha_biblioteca.hpp? Isso evita colisões de nomes. Se um cliente do seu projeto também tem um arquivo utils.hpp, ter o seu em meu_projeto/utils.hpp permite que o cliente faça #include <meu_projeto/utils.hpp> sem ambiguidade. O sistema de build é configurado para adicionar o diretório include/ à lista de caminhos de busca, permitindo que o cliente encontre meu_projeto/.
+
+** 21.4 build — Onde a Magia Acontece
+
+Este diretório é estritamente para arquivos gerados. O código-fonte nunca deve ser modificado aqui.
+
+- Filosofia: Manter os artefatos de build (arquivos objeto .o, executáveis, bibliotecas geradas, arquivos de Makefile gerados pelo CMake, etc.) completamente separados do código-fonte é crucial. Isso é chamado de "out-of-source build".
+
+- Vantagens:
+  1. Limpeza: O diretório do código-fonte permanece intocado. Para uma reconstrução limpa, basta apagar todo o diretório build (rm -rf build).
+  2. Múltiplas Configurações: Você pode ter múltiplos diretórios de build lado a lado (ex: build-debug/, build-release/) com diferentes configurações de compilação, todos usando a mesma base de código.
+
+- .gitignore: O diretório build/ é a primeira coisa que deve entrar no seu arquivo .gitignore para garantir que nenhum arquivo gerado seja acidentalmente versionado.
+
+** 21.5 tests e examples — Garantindo Qualidade e Usabilidade
+
+  - tests/: Contém o código para testes unitários e de integração. Cada componente em src deveria ter um arquivo de teste correspondente aqui. Os testes compilam para um executável separado que linka com a sua biblioteca e a executa para verificar seu comportamento.
+
+  - examples/: Fornece exemplos curtos e completos de como usar a sua biblioteca. Eles servem como uma forma de documentação executável e são inestimáveis para novos usuários.
+
+** 21.6 external, docs e Arquivos de Raiz
+
+  - external/ (ou third_party/, vendor/): Onde o código-fonte de dependências de terceiros é colocado (veremos mais sobre isso no próximo capítulo).
+
+  - docs/: Documentação gerada (ex: por Doxygen) ou escrita manualmente.
+
+  - README.md: Descreve o que o projeto é, para que serve, como construí-lo e como contribuir. É o ponto de entrada para qualquer pessoa que encontre seu projeto.
+
+  - CMakeLists.txt / Makefile: A receita de build, localizada na raiz para orquestrar a compilação de todos os outros diretórios.
+
+Adotar essa estrutura desde o início, mesmo para um projeto pequeno, instila disciplina e cria um esqueleto robusto que pode crescer para qualquer nível de complexidade sem se tornar um caos. É o primeiro passo para pensar como um arquiteto de software, não apenas como um programador.

@@ -1,0 +1,80 @@
+* Análise de virtual e override
+
+Essas duas palavras-chave são o coração do polimorfismo em tempo de execução em C++, que é a capacidade de um programa tratar objetos de diferentes tipos derivados através de uma interface comum (a classe base).
+
+** 1. virtual: Habilitando o Comportamento Dinâmico
+
+A palavra-chave virtual na declaração de um método de uma classe base, como em virtual void print_type() const, é uma instrução para o compilador. Ela altera fundamentalmente como as chamadas a esse método são resolvidas.
+
+  - Sem virtual (Comportamento Padrão - Ligação Estática): Se um método não é virtual, a decisão de qual versão do método chamar é tomada em tempo de compilação, baseada no tipo do ponteiro ou da referência que está sendo usado para chamar o método.
+
+#+begin_src cpp
+
+// Exemplo SEM virtual
+std::shared_ptr<MediaAsset> asset = std::make_shared<VideoAsset>(...);
+asset->print_type(); // O tipo do ponteiro é MediaAsset.
+                     // O compilador gera uma chamada direta para MediaAsset::print_type().
+                     // O fato de o objeto ser na verdade um VideoAsset é ignorado.
+#+end_src
+
+  - Com virtual (Comportamento Polimórfico - Ligação Dinâmica): Quando um método é declarado virtual, o compilador gera um código diferente. Em vez de uma chamada direta, ele gera uma instrução que, em tempo de execução, realiza os seguintes passos:
+    1. Verifica o tipo real do objeto para o qual o ponteiro aponta.
+    2. Consulta uma tabela especial associada a esse tipo, chamada vtable (virtual table), que mapeia funções virtuais para suas implementações corretas.
+    3. Chama a versão do método que está na vtable do tipo real do objeto.
+#+begin_src cpp
+// Exemplo COM virtual
+std::shared_ptr<MediaAsset> asset = std::make_shared<VideoAsset>(...);
+asset->print_type(); // O tipo do ponteiro é MediaAsset, mas print_type é virtual.
+                     // Em tempo de execução, o programa vê que o objeto é um VideoAsset.
+                     // Ele consulta a vtable de VideoAsset e chama VideoAsset::print_type().
+#+end_src
+
+Em resumo, virtual é o que permite que o código for (const auto& asset : all_assets) do capítulo anterior funcione corretamente, chamando a versão print_type específica de VideoAsset ou AudioAsset para cada objeto, mesmo que todos sejam tratados através de um ponteiro MediaAsset.
+
+** 2. override: Garantindo a Correção da Sobrescrita
+
+A palavra-chave override é uma adição mais moderna ao C++ (C++11) que funciona como uma salvaguarda. Ela é usada na declaração de um método em uma classe derivada para indicar explicitamente a intenção do programador.
+
+Ela faz uma promessa ao compilador: "Eu pretendo que este método sobrescreva um método virtual da classe base."
+
+O compilador, então, verifica se essa promessa é verdadeira. Ele garante que existe um método na classe base com:
+
+  - Exatamente o mesmo nome.
+  - Exatamente a mesma lista de parâmetros.
+  - A mesma qualificação const.
+
+Se qualquer uma dessas condições não for atendida, o compilador gera um erro de compilação. Isso previne uma classe inteira de bugs sutis e difíceis de encontrar.
+
+*Exemplo do problema que override resolve:*
+#+begin_src cpp
+struct Base {
+    virtual void do_work() const;
+};
+
+struct Derived : public Base {
+    // Erro sutil: esquecemos o 'const'.
+    // Sem 'override', isso compila! Mas não sobrescreve Base::do_work.
+    // Em vez disso, cria um método completamente novo.
+    virtual void do_work() { /* ... */ }
+};
+
+struct DerivedSafe : public Base {
+    // Com 'override', o compilador nos salva.
+    // Ele vê que 'void do_work()' não corresponde a 'void do_work() const'
+    // e gera um erro claro.
+    virtual void do_work() override; // ERRO DE COMPILAÇÃO!
+};
+#+end_src
+
+Portanto, a regra de ouro moderna é: sempre use override ao sobrescrever um método virtual. É uma ferramenta de segurança que não tem custo em tempo de execução e torna a intenção do código explícita.
+
+** Outras Características de Métodos
+
+Sim, existem outras palavras-chave que podem ser aplicadas a métodos para controlar seu comportamento. As mais importantes, além de const, virtual e override, são:
+
+  - final: Usada em um método virtual, ela impede que classes derivadas o sobrescrevam ainda mais. Usada em uma classe (struct MinhaClasse final { ... }), ela impede que qualquer outra classe herde dela. É o oposto de virtual em espírito.
+
+  - = 0 (Função Virtual Pura): Usada em um método virtual (virtual void fazer_algo() = 0;), ela o torna uma "função virtual pura". Isso significa que a classe base não fornece uma implementação, e qualquer classe derivada deve fornecer uma. Uma classe com pelo menos uma função virtual pura se torna uma Classe Base Abstrata, que não pode ser instanciada diretamente.
+
+  - = default e = delete: Usadas principalmente para os métodos especiais (construtores, destrutores, operadores de atribuição), elas instruem o compilador a gerar a implementação padrão ou a proibir o uso daquele método, respectivamente.
+

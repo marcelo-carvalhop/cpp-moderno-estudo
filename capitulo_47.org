@@ -1,0 +1,87 @@
+* Capítulo 47: O Perigo — Condições de Corrida e Dados Compartilhados
+
+Imagine dois funcionários em uma sala, ambos com a tarefa de atualizar um número em um quadro branco. A instrução é simples: "Leia o número, adicione 1 e escreva o novo número de volta". Se o número inicial for 0 e cada funcionário fizer isso uma vez, o resultado final deveria ser 2.
+
+Mas e se o processo acontecer assim?
+
+  1. Funcionário A lê o número 0 do quadro.
+  2. Antes que A possa escrever o novo valor, o Funcionário B também lê o número do quadro. Ele também vê 0.
+  3. Funcionário A calcula 0 + 1 = 1 e escreve "1" no quadro.
+  4. Funcionário B, que já tinha lido 0, calcula 0 + 1 = 1 e escreve "1" no quadro, apagando o "1" que já estava lá.
+     
+O resultado final é 1. Uma das atualizações foi completamente perdida. Isso, em essência, é uma condição de corrida (race condition).
+
+** 47.1 O Problema em Código
+
+Vamos traduzir a analogia do quadro branco para um programa C++. Teremos um contador global e duas threads que o incrementarão um milhão de vezes cada. O resultado esperado é dois milhões.
+
+#+begin_src cpp
+#include <iostream>
+#include <thread>
+#include <vector>
+
+// Nosso "quadro branco": um contador global compartilhado.
+long long g_contador = 0;
+
+void incrementar_um_milhao_de_vezes() {
+    for (int i = 0; i < 1000000; ++i) {
+        // A operação aparentemente simples que esconde o perigo.
+        g_contador++;
+    }
+}
+
+int main() {
+    std::thread t1(incrementar_um_milhao_de_vezes);
+    std::thread t2(incrementar_um_milhao_de_vezes);
+
+    t1.join();
+    t2.join();
+
+    std::cout << "Resultado final esperado: 2000000\n";
+    std::cout << "Resultado final obtido:   " << g_contador << std::endl;
+}
+#+end_src
+
+Se você compilar e rodar este código, quase certamente não obterá o resultado de 2.000.000. Pior ainda, cada vez que você rodar, provavelmente obterá um resultado diferente.
+
+*Exemplo de Saída:*
+#+begin_src sh
+Resultado final esperado: 2000000
+Resultado final obtido:   1109214
+#+end_src
+
+** 47.2 A Anatomia de uma Condição de Corrida
+
+Por que o código falha? A razão é que a operação g_contador++, que parece ser uma única instrução, na verdade não é atômica. Em nível de hardware, o processador a decompõe em (pelo menos) três passos distintos:
+
+  1. Ler (Read): Carregar o valor atual de g_contador da memória principal para um registrador do processador.
+  2. Modificar (Modify): Incrementar o valor no registrador.
+  3. Escrever (Write): Salvar o novo valor do registrador de volta na memória principal.
+
+O sistema operacional pode pausar uma thread e dar a vez a outra a qualquer momento, inclusive entre esses três passos. Isso cria a "janela de oportunidade" para a nossa condição de corrida, exatamente como na analogia dos funcionários:
+
+  1. Thread 1 lê g_contador (valor: 500).
+  2. Context Switch! O SO pausa a Thread 1 e executa a Thread 2.
+  3. Thread 2 lê g_contador (valor: ainda 500).
+  4. Thread 2 modifica seu registrador para 501.
+  5. Thread 2 escreve 501 de volta em g_contador.
+  6. Context Switch! O SO pausa a Thread 2 e volta para a Thread 1.
+  7. Thread 1, que não sabe de nada do que aconteceu, ainda tem o valor 500 em seu registrador. Ela o modifica para 501.
+  8. Thread 1 escreve 501 de volta em g_contador.
+
+O resultado: duas operações de incremento, mas o valor só aumentou em um. A atualização da Thread 2 foi perdida.
+
+** 47.3 Seções Críticas e a Natureza do Bug
+
+  - Condição de Corrida: Uma falha em um sistema ou programa cujo resultado depende da sequência ou do tempo de outros eventos incontroláveis. Ela ocorre quando múltiplas threads acessam dados compartilhados e tentam modificá-los ao mesmo tempo.
+  - Seção Crítica (Critical Section): O trecho de código que acessa o recurso compartilhado. No nosso exemplo, a seção crítica é a linha g_contador++;.
+
+O que torna os bugs de condição de corrida tão terríveis é sua não-determinismo. Eles dependem do escalonamento exato das threads pelo sistema operacional, que pode variar com a carga do sistema, o hardware e inúmeros outros fatores. Um código pode passar em 100 testes em sua máquina e falhar catastroficamente em produção sob carga pesada.
+
+O resultado não é um crash limpo, mas sim uma corrupção silenciosa de dados. O programa continua rodando, mas seus resultados estão errados, o que pode ser muito pior do que um crash.
+
+Agora que entendemos a natureza do perigo, a questão é: como protegemos nossa seção crítica? Como garantimos que a sequência "ler-modificar-escrever" seja executada como uma operação única e indivisível, impedindo que outras threads interfiram no meio do caminho? A resposta está em mecanismos de sincronização, que começaremos a explorar no próximo capítulo com o std::mutex.
+
+
+
+|[[./capitulo_46.org][Anterior]]|[[./cpp_moderno_indice.org][Índice]]|[[./capitulo_48.org][Próximo]]|

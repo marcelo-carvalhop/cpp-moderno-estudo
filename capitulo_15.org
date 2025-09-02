@@ -1,0 +1,192 @@
+* Capítulo 15: Mecânica Avançada de I/O — Estado, Acesso Aleatório e Performance
+
+O capítulo anterior introduziu a interface de streams para manipulação de arquivos, focando em operações sequenciais de leitura e escrita. Contudo, para construir aplicações robustas e eficientes, é necessário um controle mais granular sobre o estado do stream, a capacidade de navegar livremente pelo conteúdo de um arquivo e uma compreensão da mecânica de buffering que governa a performance.
+
+Este capítulo disseca esses tópicos avançados, fornecendo as ferramentas para um tratamento de erros rigoroso, acesso a dados não-sequenciais e otimização de operações de I/O.
+
+** 15.1 O Estado do Stream: Diagnóstico e Tratamento de Erros
+
+Toda operação de I/O é suscetível a falhas. Um arquivo pode não existir, as permissões podem ser insuficientes, o disco pode ficar cheio, ou os dados podem ter um formato inesperado. Os streams de C++ não geram exceções por padrão; em vez disso, eles registram essas falhas em um conjunto interno de bits de estado. A consulta desses bits é fundamental para a programação defensiva.
+
+Um objeto stream possui um estado interno que pode ser inspecionado através de quatro funções membro principais:
+
+  - good(): Retorna true se e somente se nenhum dos bits de erro (eofbit, failbit, badbit) estiver definido. Indica que o stream está totalmente operacional.
+  - eof(): Retorna true se o eofbit estiver definido, o que significa que a última operação de leitura falhou porque tentou ler além do final do arquivo.
+  - fail(): Retorna true se o failbit ou o badbit estiverem definidos. O failbit geralmente indica um erro de formatação lógico (ex: tentar ler um int de "hello"), que pode ser recuperável.
+  - bad(): Retorna true se o badbit estiver definido, indicando um erro de I/O grave e potencialmente irrecuperável (ex: falha de hardware do disco) que pode ter corrompido o stream.
+
+Para se recuperar de um erro não-fatal (tipicamente um failbit), o método clear() deve ser chamado para resetar os bits de estado.
+
+*Exemplo de Leitura Robusta de Inteiros:*
+#+begin_src cpp
+#include <iostream>
+#include <fstream>
+#include <limits>
+
+void read_numbers_safely(const std::string& filepath) {
+    std::ifstream in_file(filepath);
+    if (!in_file) {
+        std::cerr << "Erro ao abrir o arquivo.\n";
+        return;
+    }
+
+    int number;
+    // O loop continua enquanto a extração for bem-sucedida.
+    while (in_file >> number) {
+        std::cout << "Número lido com sucesso: " << number << std::endl;
+    }
+
+    // Após o loop, verificamos o estado para saber por que ele terminou.
+    if (in_file.eof()) {
+        std::cout << "Fim do arquivo alcançado. Todos os números foram lidos.\n";
+    } else if (in_file.fail()) {
+        std::cout << "Erro de formatação encontrado. O stream entrou em estado de falha.\n";
+        
+        // Tentativa de recuperação
+        std::cout << "Limpando o estado de erro...\n";
+        in_file.clear(); // Reseta o failbit
+
+        // Ignora o resto da linha inválida para tentar continuar a leitura
+        in_file.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+
+        // Tenta ler mais um número
+        if (in_file >> number) {
+            std::cout << "Leitura recuperada. Próximo número: " << number << std::endl;
+        } else {
+            std::cout << "Não foi possível recuperar a leitura.\n";
+        }
+    }
+}
+
+int main() {
+    const std::string filename = "data.txt";
+    {
+        std::ofstream out_file(filename);
+        out_file << "100 200 300\n";
+        out_file << "abc 400\n"; // Linha com erro de formatação
+        out_file << "500\n";
+    }
+    
+    read_numbers_safely(filename);
+    return 0;
+}
+#+end_src
+
+Para um modelo de erro mais moderno, pode-se instruir o stream a lançar uma exceção std::ios_base::failure quando failbit ou badbit forem definidos.
+
+#+begin_src cpp
+std::ifstream in_file;
+// Configura o stream para lançar exceções em caso de falha.
+in_file.exceptions(std::ifstream::failbit | std::ifstream::badbit);
+
+try {
+    in_file.open("non_existent_file.txt");
+    // ...
+} catch (const std::ios_base::failure& e) {
+    std::cerr << "Exceção de I/O capturada: " << e.what() << std::endl;
+}
+#+end_src
+
+** 15.2 Acesso Aleatório: seekg e seekp
+
+Arquivos não são apenas fitas que devem ser lidas do início ao fim. Para aplicações como bancos de dados, editores de arquivos ou visualizadores de grandes conjuntos de dados, é essencial poder mover-se diretamente para uma posição específica. Os streams de arquivo mantêm dois ponteiros de posição: o "get pointer" para operações de leitura e o "put pointer" para operações de escrita.
+
+  - seekg(offset, direction) e seekp(offset, direction): Movem os ponteiros de leitura e escrita, respectivamente.
+    - offset: Um deslocamento em bytes.
+    - direction: O ponto de referência para o deslocamento:
+    - std::ios::beg: A partir do início do arquivo.
+    - std::ios::cur: A partir da posição atual.
+    - std::ios::end: A partir do final do arquivo.
+  - tellg() e tellp(): Retornam a posição atual (em bytes) dos ponteiros de leitura e escrita.
+
+*Exemplo de Leitura e Modificação de um Registro Específico:*
+#+begin_src cpp
+#include <iostream>
+#include <fstream>
+
+struct Record {
+    int id;
+    char name[32];
+    double value;
+};
+
+void print_record(const Record& r) {
+    std::cout << "ID: " << r.id << ", Nome: " << r.name << ", Valor: " << r.value << std::endl;
+}
+
+int main() {
+    const std::string filename = "records.db";
+    // Usando fstream para leitura e escrita no mesmo arquivo binário.
+    std::fstream db_file(filename, std::ios::in | std::ios::out | std::ios::binary | std::ios::trunc);
+
+    if (!db_file) { return 1; }
+
+    // Escreve alguns registros iniciais
+    for (int i = 0; i < 5; ++i) {
+        Record r = {i, "Registro ", 100.0 * i};
+        snprintf(r.name, sizeof(r.name), "Registro %d", i);
+        db_file.write(reinterpret_cast<const char*>(&r), sizeof(Record));
+    }
+
+    // --- Acesso Aleatório ---
+    // Queremos ler e modificar o terceiro registro (índice 2)
+    int record_index_to_modify = 2;
+    std::streampos pos = record_index_to_modify * sizeof(Record);
+
+    // 1. Mover o ponteiro de leitura para a posição do registro
+    db_file.seekg(pos);
+
+    // 2. Ler o registro
+    Record target_record;
+    db_file.read(reinterpret_cast<char*>(&target_record), sizeof(Record));
+    std::cout << "Registro original na posição " << db_file.tellg() << ":\n  ";
+    print_record(target_record);
+
+    // 3. Modificar o registro
+    target_record.value = 999.99;
+    snprintf(target_record.name, sizeof(target_record.name), "Registro Modificado");
+
+    // 4. Mover o ponteiro de escrita para a mesma posição
+    db_file.seekp(pos);
+
+    // 5. Sobrescrever o registro com os novos dados
+    db_file.write(reinterpret_cast<const char*>(&target_record), sizeof(Record));
+
+    // 6. Verificação: voltar e ler novamente para confirmar a modificação
+    db_file.seekg(pos);
+    Record modified_record;
+    db_file.read(reinterpret_cast<char*>(&modified_record), sizeof(Record));
+    std::cout << "Registro modificado:\n  ";
+    print_record(modified_record);
+
+    return 0;
+}
+#+end_src
+
+** 15.3 Performance: Buffering e Sincronização
+
+Operações de I/O de disco são inerentemente lentas. Para mascarar essa latência, os streams de C++ são bufferizados. A escrita não vai diretamente para o disco; ela vai para um buffer na memória. A escrita física no disco (flush) ocorre apenas quando o buffer está cheio, o arquivo é fechado, ou um flush é solicitado explicitamente.
+
+  - std::endl vs. '\n': O manipulador std::endl faz duas coisas: insere um caractere de nova linha ('\n') e força um flush do buffer. Em um loop que escreve milhões de linhas, usar std::endl pode ser desastroso para a performance, pois força milhões de operações de escrita no disco. Usar '\n' apenas insere a nova linha no buffer, permitindo que o sistema de I/O decida o momento ideal para a escrita física. A regra geral é: use std::endl apenas quando você precisa garantir que a saída seja visível imediatamente (ex: em um prompt interativo ou log de erro crítico). Para escrita de arquivos em massa, prefira '\n'.
+
+  - std::flush: Este manipulador força a descarga do buffer sem inserir uma nova linha.
+
+  - std::ios_base::sync_with_stdio(false): Por padrão, para garantir a interoperabilidade, os streams de C++ (cin, cout) são sincronizados com os streams de C (stdin, stdout). Essa sincronização impõe um overhead significativo. Para aplicações de alta performance que não misturam I/O de C e C++ (como em programação competitiva), desligar essa sincronização pode acelerar drasticamente as operações de console.
+
+#+begin_src cpp
+int main() {
+    // Desliga a sincronização. Deve ser feito no início do programa.
+    std::ios_base::sync_with_stdio(false);
+    // Desvincula cin de cout.
+    std::cin.tie(nullptr);
+
+    // Agora, as operações com std::cin e std::cout serão muito mais rápidas.
+    // ...
+    return 0;
+}
+#+end_src
+
+Compreender e controlar esses três aspectos — estado, posicionamento e buffering — eleva o programador de um mero usuário da biblioteca de I/O para um arquiteto capaz de construir sistemas de manipulação de dados eficientes, robustos e confiáveis.
+
+
+|[[./capitulo_14.org][Anterior]]|[[./cpp_moderno_indice.org][Índice]]|[[./capitulo_16.org][Próximo]]|

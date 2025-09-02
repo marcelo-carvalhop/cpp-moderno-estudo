@@ -1,0 +1,39 @@
+* Análise da Palavra-chave const em Métodos de Membro
+
+A sua pergunta sobre o const em void greet_partner() const é excelente e toca em um dos conceitos mais importantes para escrever código C++ seguro e expressivo.
+
+A palavra-chave const no final da declaração de um método de membro é uma promessa que o método faz ao compilador e a quem o utiliza. A promessa é: "Chamar este método não alterará o estado observável do objeto."
+
+Vamos dissecar isso:
+
+  1. *O que é o "estado do objeto"?* São os valores de suas variáveis membro. No caso da struct Person, o estado é composto por std::string name e std::weak_ptr<Person> partner.
+
+  2. *O que a promessa significa na prática?* Dentro de um método marcado como const, como greet_partner() const, o compilador impõe uma regra estrita: você não pode realizar nenhuma ação que modifique as variáveis membro do objeto. O ponteiro this, que implicitamente aponta para o objeto em que o método foi chamado, é tratado como um const Person* em vez de um Person*. Por exemplo, o seguinte código não compilaria dentro de greet_partner() const:
+
+#+begin_src cpp
+void greet_partner() const {
+    this->name = "Outro Nome"; // ERRO DE COMPILAÇÃO!
+                               // 'this' aponta para um objeto const.
+}
+#+end_src
+
+  3. *Por que isso é tão importante?* A principal razão é que isso permite que o método seja chamado em objetos constantes. Considere uma função que recebe uma referência constante para uma pessoa, garantindo que a função não irá modificá-la:
+
+#+begin_src cpp
+// Esta função promete não modificar a pessoa que recebe.
+void print_relationship_status(const Person& p) {
+    // Como 'p' é const, só podemos chamar métodos que também são const.
+    // Se greet_partner() não fosse const, esta linha seria um erro de compilação.
+    p.greet_partner();
+}
+
+int main() {
+    auto lucy = std::make_shared<Person>("Lucy");
+    const auto ricky = std::make_shared<Person>("Ricky"); // 'ricky' é um ponteiro para um Person constante
+
+    print_relationship_status(*lucy);
+    print_relationship_status(*ricky); // Totalmente válido
+}
+#+end_src
+
+Marcar um método como const sempre que ele não modifica o estado do objeto é uma prática fundamental de design em C++. Isso expande a utilidade do seu tipo, permitindo que ele seja usado em contextos onde a imutabilidade é necessária, e torna a intenção do seu código muito mais clara para outros programadores.

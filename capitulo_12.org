@@ -1,0 +1,151 @@
+* Capítulo 12: Observação Não-Proprietária e a Quebra de Ciclos de Referência — std::weak_ptr
+
+A introdução da posse compartilhada com std::shared_ptr resolve o problema de gerenciar o tempo de vida de recursos com múltiplos donos, mas simultaneamente introduz um padrão de falha sutil e perigoso: o ciclo de referência. Um ciclo ocorre quando dois ou mais objetos gerenciados por shared_ptr mantêm referências fortes uns aos outros, formando um laço fechado de posse. Neste cenário, mesmo que todas as referências externas a esses objetos sejam destruídas, a contagem de referências de cada objeto no ciclo nunca chegará a zero, pois eles se mantêm mutuamente vivos. O resultado é um vazamento de memória, onde os objetos se tornam inacessíveis, mas nunca são desalocados.
+
+std::weak_ptr é a solução da biblioteca padrão para este problema. Ele é um mecanismo de observação não-proprietário, um "ponteiro fraco" que permite referenciar um objeto gerenciado por um shared_ptr sem contribuir para sua contagem de referências fortes e, portanto, sem afetar seu tempo de vida.
+
+** 12.1 O Problema Demonstrado: Um Ciclo de Referência em Ação
+
+Para compreender a necessidade do weak_ptr, é fundamental primeiro visualizar o vazamento de memória que um ciclo de shared_ptr provoca. Considere uma estrutura de dados onde uma pessoa pode ter um parceiro, e essa relação é mútua.
+
+#+begin_src cpp
+#include <iostream>
+#include <memory>
+#include <string>
+
+struct Person {
+    std::string name;
+    std::shared_ptr<Person> partner;
+
+    Person(const std::string& n) : name(n) {
+        std::cout << "Pessoa '" << name << "' criada.\n";
+    }
+    ~Person() {
+        std::cout << "Pessoa '" << name << "' destruída. Adeus!\n";
+    }
+};
+
+void run_simulation() {
+    std::cout << "--- Iniciando simulação de ciclo de referência ---\n";
+    auto lucy = std::make_shared<Person>("Lucy");   // Contagem de lucy: 1
+    auto ricky = std::make_shared<Person>("Ricky"); // Contagem de ricky: 1
+
+    // Estabelecendo a relação mútua
+    lucy->partner = ricky; // Contagem de ricky incrementa para 2
+    ricky->partner = lucy; // Contagem de lucy incrementa para 2
+
+    std::cout << "Contagem de Lucy: " << lucy.use_count() << std::endl;
+    std::cout << "Contagem de Ricky: " << ricky.use_count() << std::endl;
+    std::cout << "--- Fim da simulação. 'lucy' e 'ricky' sairão de escopo. ---\n";
+}
+
+int main() {
+    run_simulation();
+    std::cout << "--- Programa principal terminado. ---\n";
+    // OBSERVE A SAÍDA: Os destrutores NUNCA são chamados.
+    return 0;
+}
+#+end_src
+
+Ao executar este código, a saída revelará que as mensagens de destruição nunca são impressas. Quando a função run_simulation termina, a variável lucy sai de escopo, e a contagem de referências do objeto "Lucy" é decrementada de 2 para 1. Ela não chega a zero porque o partner de "Ricky" ainda a mantém viva. O mesmo ocorre com "Ricky". O resultado é que ambos os objetos Person permanecem alocados no heap indefinidamente.
+
+** 12.2 A Mecânica de std::weak_ptr: Observação e lock()
+
+Um std::weak_ptr é criado a partir de um std::shared_ptr. Ele aponta para o mesmo bloco de controle, mas apenas incrementa a contagem de referências fracas. Esta contagem serve apenas para manter o bloco de controle vivo, não o objeto gerenciado.
+
+A característica central do weak_ptr é que ele não pode ser dereferenciado diretamente. Tentar acessar o objeto que ele observa seria inseguro, pois o objeto poderia ter sido destruído a qualquer momento por seus donos shared_ptr. Em vez disso, para acessar o objeto, um weak_ptr deve ser temporariamente "promovido" a um shared_ptr através do seu método lock().
+
+A operação lock() é atômica e segura:
+
+  - Se o objeto original ainda existe (sua contagem de referências fortes é maior que zero), lock() cria e retorna um novo std::shared_ptr que compartilha a posse do objeto.
+
+  - Se o objeto original já foi destruído (sua contagem de referências fortes chegou a zero), lock() retorna um std::shared_ptr nulo.
+
+O idioma canônico para usar um weak_ptr é verificar o resultado de lock() em uma instrução if:
+#+begin_src cpp
+std::weak_ptr<MyObject> weak_observer = ...;
+
+if (auto shared_owner = weak_observer.lock()) {
+    // Dentro deste bloco, 'shared_owner' é um shared_ptr válido.
+    // O objeto está garantidamente vivo enquanto 'shared_owner' existir.
+    shared_owner->do_something();
+} else {
+    // O objeto não existe mais.
+}
+#+end_src
+
+** 12.3 A Solução Aplicada: Quebrando o Ciclo
+
+Para corrigir o vazamento de memória no exemplo anterior, basta designar uma das referências no ciclo como não-proprietária, alterando seu tipo para std::weak_ptr. Isso quebra a dependência circular de posse.
+
+#+begin_src cpp
+#include <iostream>
+#include <memory>
+#include <string>
+
+struct Person {
+    std::string name;
+    // A referência ao parceiro agora é fraca, não-proprietária.
+    std::weak_ptr<Person> partner;
+
+    Person(const std::string& n) : name(n) {
+        std::cout << "Pessoa '" << name << "' criada.\n";
+    }
+    ~Person() {
+        std::cout << "Pessoa '" << name << "' destruída. Adeus!\n";
+    }
+
+    void greet_partner() const {
+        std::cout << "Olá de " << name << ". Meu parceiro é ";
+        // Devemos usar lock() para acessar o parceiro de forma segura.
+        if (auto locked_partner = partner.lock()) {
+            std::cout << locked_partner->name << ".\n";
+        } else {
+            std::cout << "ninguém no momento.\n";
+        }
+    }
+};
+
+void run_fixed_simulation() {
+    std::cout << "--- Iniciando simulação CORRIGIDA ---\n";
+    auto lucy = std::make_shared<Person>("Lucy");   // Contagem forte de lucy: 1
+    auto ricky = std::make_shared<Person>("Ricky"); // Contagem forte de ricky: 1
+
+    // A atribuição de um shared_ptr a um weak_ptr é permitida.
+    lucy->partner = ricky; // Contagem forte de ricky permanece 1. Contagem fraca incrementa.
+    ricky->partner = lucy; // Contagem forte de lucy permanece 1. Contagem fraca incrementa.
+
+    std::cout << "Contagem de Lucy: " << lucy.use_count() << std::endl;
+    std::cout << "Contagem de Ricky: " << ricky.use_count() << std::endl;
+
+    lucy->greet_partner();
+    ricky->greet_partner();
+    std::cout << "--- Fim da simulação. 'lucy' e 'ricky' sairão de escopo. ---\n";
+}
+
+int main() {
+    run_fixed_simulation();
+    std::cout << "--- Programa principal terminado. ---\n";
+    // OBSERVE A SAÍDA: Agora os destrutores SÃO chamados.
+    return 0;
+}
+#+end_src
+
+Nesta versão corrigida, quando a variável lucy sai de escopo, a contagem de referências fortes do objeto "Lucy" vai de 1 para 0. O objeto é imediatamente destruído. O destrutor do weak_ptr dentro de "Ricky" é chamado, o que não tem efeito na contagem de "Lucy". Em seguida, o mesmo acontece com "Ricky". O ciclo de posse foi quebrado, e o gerenciamento de memória funciona como esperado.
+
+** 12.4 Outros Casos de Uso: Caches e Listas de Observadores
+
+Embora a quebra de ciclos seja o caso de uso mais proeminente, weak_ptr é também a ferramenta ideal para implementar sistemas de cache ou padrões de observador.
+
+Considere um AssetManager que carrega texturas pesadas do disco. O gerenciador pode manter um cache de std::weak_ptr para as texturas. Se uma parte do código do jogo solicita uma textura, o gerenciador primeiro verifica o cache:
+
+  1. Tenta chamar lock() no weak_ptr correspondente.
+
+  2. Se lock() retornar um shared_ptr válido, significa que a textura ainda está em uso em algum outro lugar do programa. O gerenciador retorna este shared_ptr (cache hit).
+
+  3. Se lock() retornar nullptr, significa que a textura não está mais em uso e foi desalocada. O gerenciador então a recarrega do disco, cria um novo shared_ptr para ela, atualiza o cache com um weak_ptr para a nova textura e retorna o shared_ptr ao solicitante (cache miss).
+
+Neste design, o cache observa os recursos sem possuí-los, permitindo que a memória seja liberada assim que o recurso não for mais ativamente utilizado pelo resto da aplicação. Isso evita que o cache mantenha indefinidamente em memória recursos que não são mais necessários.
+
+
+|[[./capitulo_11.org][Anterior]]|[[./cpp_moderno_indice.org][Índice]]|[[./capitulo_13.org][Próximo]]|

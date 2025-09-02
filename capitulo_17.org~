@@ -1,0 +1,167 @@
+* Capítulo 17: Hierarquias e Comportamento Dinâmico — Herança e Polimorfismo
+
+O encapsulamento nos permite criar tipos de dados robustos e autocontidos. A herança é o mecanismo que nos permite criar novos tipos a partir de tipos existentes, estabelecendo uma relação "é um(a)". Uma nova classe, chamada de classe derivada (ou filha), pode herdar os membros (dados e métodos) de uma classe existente, chamada de classe base (ou mãe).
+
+Isso promove a reutilização de código e a criação de hierarquias lógicas. Por exemplo, um VideoAsset é um MediaAsset. Um Cachorro é um Animal. A classe derivada herda a funcionalidade comum da classe base e pode, então, adicionar suas próprias funcionalidades específicas ou modificar o comportamento herdado.
+
+A capacidade de modificar o comportamento herdado de forma dinâmica é o que chamamos de polimorfismo, e é uma das ferramentas mais poderosas do C++.
+
+** 17.1 Herança: Sintaxe e Mecânica
+
+A herança é especificada na declaração da classe derivada usando dois pontos (:) seguidos por um especificador de acesso e o nome da classe base.
+
+#+begin_src cpp
+class Derivada : public Base {
+    // ... membros da classe derivada ...
+};
+#+end_src
+
+O especificador de acesso (public, protected, ou private) determina como os membros herdados da classe base serão acessíveis na classe derivada e para o mundo exterior. A herança pública (public) é, de longe, a mais comum e a única que modela uma verdadeira relação "é um(a)". Com a herança pública:
+
+  - Membros public da base permanecem public na derivada.
+  - Membros protected da base permanecem protected na derivada.
+  - Membros private da base são herdados, mas permanecem inacessíveis para a derivada.
+
+*Exemplo de Herança:*
+Vamos construir uma hierarquia de Formas geométricas.
+
+#+begin_src cpp
+#include <iostream>
+#include <string>
+
+// Classe Base
+class Shape {
+protected:
+    // 'protected' permite que classes derivadas acessem 'm_name',
+    // mas o mundo exterior não.
+    std::string m_name;
+
+public:
+    Shape(std::string name) : m_name(std::move(name)) {}
+
+    // Um método comum a todas as formas
+    void print_name() const {
+        std::cout << "Nome da forma: " << m_name << std::endl;
+    }
+};
+
+// Classe Derivada
+class Circle : public Shape {
+private:
+    double m_radius;
+
+public:
+    // O construtor da derivada DEVE chamar o construtor da base.
+    Circle(std::string name, double radius)
+        : Shape(std::move(name)), m_radius(radius) {} // Chama Shape::Shape()
+
+    // Método específico do Círculo
+    double get_area() const {
+        return 3.14159 * m_radius * m_radius;
+    }
+};
+
+int main() {
+    Circle my_circle("Meu Círculo", 10.0);
+    
+    // Chamando um método da classe derivada
+    std::cout << "Área: " << my_circle.get_area() << std::endl;
+
+    // Chamando um método herdado da classe base
+    my_circle.print_name();
+
+    return 0;
+}
+#+end_Src
+Neste exemplo, Circle herda a capacidade de ter um nome e de imprimi-lo de Shape, e adiciona sua própria lógica para calcular a área.
+
+17.2 Polimorfismo: virtual, override e final
+O verdadeiro poder da herança se manifesta quando queremos tratar uma coleção de objetos derivados através de um ponteiro ou referência para a classe base. Considere adicionar um método get_area() à classe Shape. Um círculo, um retângulo e um triângulo calculam suas áreas de maneiras completamente diferentes.
+
+É aqui que o polimorfismo em tempo de execução entra em jogo, habilitado pela palavra-chave virtual.
+
+virtual: Na classe base, virtual sinaliza que um método pode ser sobrescrito (overridden) por classes derivadas. Quando chamado através de um ponteiro da base, a versão do método a ser executada será a da classe derivada (o tipo real do objeto), um processo chamado de ligação dinâmica.
+override: Na classe derivada, override é uma salvaguarda que declara a intenção de sobrescrever um método virtual da base. O compilador verificará se a assinatura corresponde e emitirá um erro se não corresponder, prevenindo bugs sutis.
+final: Usado em um método virtual, impede que ele seja sobrescrito por classes que herdem da classe atual. Usado em uma classe, impede que ela seja usada como base para qualquer outra classe.
+Exemplo de Polimorfismo:
+
+cpp
+Copy
+#include <iostream>
+#include <string>
+#include <vector>
+#include <memory>
+
+class Shape {
+public:
+    // O destrutor DEVE ser virtual em uma classe base polimórfica.
+    // Isso garante que o destrutor correto (da classe derivada) seja chamado
+    // ao deletar um objeto através de um ponteiro da base.
+    virtual ~Shape() = default;
+
+    // Função virtual pura. A '= 0' torna a classe Shape "abstrata".
+    // Não podemos criar objetos do tipo Shape diretamente.
+    // Força todas as classes derivadas a implementarem get_area().
+    virtual double get_area() const = 0;
+
+    virtual std::string get_name() const = 0;
+};
+
+class Rectangle : public Shape {
+private:
+    double m_width, m_height;
+public:
+    Rectangle(double width, double height) : m_width(width), m_height(height) {}
+
+    // 'override' garante que estamos sobrescrevendo um método virtual da base.
+    double get_area() const override {
+        return m_width * m_height;
+    }
+    std::string get_name() const override {
+        return "Retângulo";
+    }
+};
+
+class Circle : public Shape {
+private:
+    double m_radius;
+public:
+    Circle(double radius) : m_radius(radius) {}
+
+    double get_area() const override {
+        return 3.14159 * m_radius * m_radius;
+    }
+    std::string get_name() const override {
+        return "Círculo";
+    }
+};
+
+// Esta função opera em QUALQUER tipo derivado de Shape, sem conhecê-los.
+void print_shape_info(const Shape& shape) {
+    std::cout << "Informações da Forma:\n";
+    // A chamada a get_name() e get_area() é resolvida dinamicamente
+    // para a versão de Rectangle ou Circle em tempo de execução.
+    std::cout << "  Tipo: " << shape.get_name() << std::endl;
+    std::cout << "  Área: " << shape.get_area() << std::endl;
+}
+
+int main() {
+    // Usamos ponteiros inteligentes para gerenciar a memória dos objetos polimórficos.
+    std::vector<std::unique_ptr<Shape>> shapes;
+    shapes.push_back(std::make_unique<Rectangle>(10, 5));
+    shapes.push_back(std::make_unique<Circle>(7));
+
+    for (const auto& shape_ptr : shapes) {
+        print_shape_info(*shape_ptr);
+    }
+
+    return 0;
+} // Os unique_ptrs garantem que os objetos sejam destruídos corretamente.
+17.3 Classes Abstratas e Destrutores Virtuais
+Duas peças finais são cruciais para o polimorfismo correto:
+
+Função Virtual Pura (= 0): Ao declarar um método virtual com = 0, como em virtual double get_area() const = 0;, estamos dizendo que a classe base não fornece uma implementação. Isso tem duas consequências:
+A classe se torna uma Classe Base Abstrata (CBA). Não é possível criar uma instância direta dela (ex: Shape my_shape; seria um erro de compilação).
+Qualquer classe derivada deve fornecer uma implementação (um override) para essa função, ou ela também se tornará abstrata. Isso é usado para definir interfaces — um contrato que as classes derivadas se comprometem a cumprir.
+Destrutor Virtual: Esta é uma das regras mais importantes da POO em C++. Se uma classe tem qualquer função virtual, seu destrutor também deve ser virtual. Se não for, ao deletar um objeto derivado através de um ponteiro da base (como o unique_ptr<Shape> faz ao sair de escopo), apenas o destrutor da classe base seria chamado. O destrutor da classe derivada nunca seria executado, levando a vazamentos de recursos. Declarar virtual ~Shape() = default; resolve isso, garantindo que a cadeia de destrutores correta seja chamada.
+Com a herança e o polimorfismo, podemos agora escrever código genérico que opera em uma família de tipos, permitindo uma flexibilidade e extensibilidade imensas em nossos programas. Isso completa a base da Programação Orientada a Objetos em C++.

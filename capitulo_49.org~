@@ -1,0 +1,91 @@
+* Capítulo 49: Operações Atômicas (std::atomic)
+
+Uma operação atômica é uma operação que o hardware garante que será executada como uma única unidade indivisível. Quando uma thread executa uma instrução atômica em uma variável, nenhuma outra thread pode observar a operação pela metade. Ela ou vê o valor da variável antes da operação ou depois dela, mas nunca um estado intermediário.
+
+Isso elimina a necessidade de um mutex para a sequência "ler-modificar-escrever" de operações simples, pois o próprio hardware garante que essa sequência aconteça sem interrupções.
+
+A biblioteca padrão do C++ fornece um conjunto de ferramentas para operações atômicas através do template de classe std::atomic, localizado no header <atomic>.
+
+** 49.1 std::atomic em Ação: O Contador Seguro e Rápido
+
+Podemos instanciar std::atomic com a maioria dos tipos triviais (inteiros, ponteiros, booleanos, etc.). Vamos refatorar nosso exemplo de contador, substituindo o par long long e std::mutex por um único std::atomic<long long>.
+
+#+begin_src cpp
+#include <iostream>
+#include <thread>
+#include <vector>
+#include <atomic>
+
+// O contador agora é um tipo atômico.
+// Sua inicialização é garantida como atômica.
+std::atomic<long long> g_contador(0);
+
+void incrementar_um_milhao_de_vezes() {
+    for (int i = 0; i < 1000000; ++i) {
+        // A operação de incremento (fetch-and-add) é atômica.
+        // O hardware garante que nenhuma outra thread pode interferir.
+        g_contador++; 
+    }
+}
+
+int main() {
+    std::thread t1(incrementar_um_milhao_de_vezes);
+    std::thread t2(incrementar_um_milhao_de_vezes);
+
+    t1.join();
+    t2.join();
+
+    // Para ler o valor de uma variável atômica, usamos o método load()
+    // ou simplesmente contamos com a conversão implícita.
+    std::cout << "Resultado final obtido: " << g_contador.load() << std::endl;
+}
+#+end_src
+
+Este código é correto, seguro contra condições de corrida e, na maioria das arquiteturas modernas, significativamente mais rápido que a versão com mutex. Não há bloqueio; as threads não são colocadas para dormir pelo sistema operacional. Em vez disso, o hardware utiliza instruções especiais (como LOCK INC em x86) para garantir a atomicidade.
+
+49.2 A Interface de std::atomic
+A classe std::atomic<T> fornece uma interface que espelha as operações comuns, mas garante que elas sejam atômicas:
+
+load(): Lê atomicamente o valor (leitura atômica).
+store(valor): Escreve atomicamente um novo valor (escrita atômica).
+exchange(valor): Atomicamente substitui o valor atual pelo novo e retorna o valor antigo.
+fetch_add(valor) / fetch_sub(valor): Atomicamente adiciona/subtrai um valor e retorna o valor antigo. Os operadores ++ e -- são atalhos para fetch_add(1) e fetch_sub(1).
+compare_exchange_weak() / compare_exchange_strong(): A operação "Compare-and-Swap" (CAS), o bloco de construção mais fundamental da programação lock-free. Ela atomicamente compara o valor atual com um valor esperado; se forem iguais, substitui pelo novo valor.
+Exemplo: Usando std::atomic_flag para um Spinlock Simples
+
+O tipo mais simples, std::atomic_flag, é essencialmente um booleano atômico com um conjunto restrito de operações. Ele pode ser usado para implementar um spinlock, uma alternativa ao mutex onde a thread, em vez de dormir, fica em um loop ativo ("spinning") esperando a trava ser liberada.
+
+cpp
+Copy
+std::atomic_flag spinlock = ATOMIC_FLAG_INIT;
+
+void minha_funcao_critica() {
+    // Espera ativa (spinning) até que a flag possa ser setada para 'true'.
+    // test_and_set atomicamente seta a flag para true e retorna seu valor anterior.
+    // O loop continua enquanto o valor anterior era 'true' (ou seja, travado).
+    while (spinlock.test_and_set(std::memory_order_acquire)) {
+        // Fica em loop, consumindo CPU.
+    }
+
+    // --- Seção Crítica ---
+
+    // Libera a trava.
+    spinlock.clear(std::memory_order_release);
+}
+Aviso: Spinlocks só são eficientes se a contenção for baixa e a seção crítica for extremamente curta, caso contrário, eles desperdiçam ciclos de CPU massivamente.
+
+49.3 O Modelo de Memória e std::memory_order
+Aqui entramos em um dos tópicos mais complexos do C++: o modelo de memória. As operações atômicas não apenas garantem a indivisibilidade, mas também impõem restrições de ordenação nas leituras e escritas da memória, tanto para o compilador quanto para o processador.
+
+Compiladores e processadores modernos rotineiramente reordenam as instruções para otimizar a performance. Em um programa de thread única, isso é imperceptível. Em um programa multithreaded, uma reordenação pode quebrar a lógica do programa.
+
+O argumento std::memory_order (como memory_order_acquire e memory_order_release no exemplo do spinlock) permite que o programador especifique exatamente o quão forte deve ser a barreira de ordenação de memória.
+
+std::memory_order_relaxed: A mais fraca. Garante apenas a atomicidade da operação, mas não impõe nenhuma ordem. Permite máxima performance, mas requer raciocínio extremamente cuidadoso.
+std::memory_order_acquire: Usado em uma operação de leitura. Cria uma "barreira de aquisição". Nenhuma leitura ou escrita de memória subsequente no código pode ser reordenada para antes desta operação.
+std::memory_order_release: Usado em uma operação de escrita. Cria uma "barreira de liberação". Nenhuma leitura ou escrita de memória anterior no código pode ser reordenada para depois desta operação.
+std::memory_order_acq_rel: Combina as duas anteriores para operações de leitura-modificação-escrita.
+std::memory_order_seq_cst: A mais forte e a padrão para todas as operações atômicas. Garante a consistência sequencial. Todas as threads concordam com uma única ordem global de todas as operações seq_cst. É a mais fácil de raciocinar, mas pode ser a mais lenta.
+Regra de ouro: A menos que você esteja escrevendo código de baixíssimo nível e tenha um profundo entendimento do modelo de memória do seu hardware, mantenha o padrão std::memory_order_seq_cst. O ganho de performance de ordens mais relaxadas raramente justifica a complexidade e o risco de bugs sutis.
+
+As operações atômicas são uma ferramenta poderosa para a sincronização de grão fino. Elas são a base para a construção de estruturas de dados lock-free e algoritmos de alta performance. No entanto, para a lógica de aplicação de mais alto nível, muitas vezes queremos pensar não em termos de travas e átomos, mas em termos de tarefas e seus resultados. Isso nos leva à próxima camada de abstração da biblioteca de concorrência.
