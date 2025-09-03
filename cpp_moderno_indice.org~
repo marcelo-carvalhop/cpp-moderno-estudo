@@ -74,3 +74,5 @@
 [[./capitulo_46.org][Capítulo 46: Introdução às Threads (std::thread)]]
 [[./capitulo_47.org][Capítulo 47: O Perigo — Condições de Corrida e Dados Compartilhados]]
 [[./capitulo_48.org][Capítulo 48: A Solução — Mutexes e Locks para Exclusão Mútua]]
+[[./capitulo_49.org][Capítulo 49: Operações Atômicas (std::atomic)]]
+[[./capitulo_50.org][Capítulo 50: Tarefas e o Futuro (std::async, std::future, std::promise)]]

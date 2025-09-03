@@ -1,0 +1,173 @@
+* Capítulo 52: Forjando Ferramentas — Construindo um Micro-Framework de Testes
+
+Nosso objetivo não é replicar o Catch2. Isso seria reinventar uma roda complexa e otimizada ao longo de anos. Nosso objetivo é destilar a essência de um framework de testes em sua forma mais pura, usando apenas a biblioteca padrão do C++. Ao final deste capítulo, teremos uma ferramenta funcional, compreensível e totalmente nossa.
+
+** 52.1 Princípios de Design
+
+Todo bom projeto começa com princípios claros. O nosso terá os seguintes:
+
+  1. Zero Dependências Externas: Usaremos apenas C++ padrão e a STL.
+
+  2. Simplicidade de Uso: Escrever e registrar um novo teste deve ser trivial.
+
+  3. Isolamento de Testes: A falha em um teste não deve impedir a execução dos outros.
+
+  4. Feedback Claro: A saída deve indicar inequivocamente quais testes passaram e quais falharam.
+
+** 52.2 A Anatomia do Nosso Framework
+
+Um framework de testes, em sua essência, consiste em três componentes principais:
+
+  1. O Caso de Teste (TestCase): Uma representação de um único teste. No mínimo, ele precisa de um nome e de uma função para executar.
+
+  2. O Registro de Testes (TestRegistry): Um repositório central e único (um Singleton) onde todos os casos de teste se "anunciam" para que possam ser encontrados e executados.
+
+  4. O Executor de Testes (TestRunner): A função main() do nosso executável de teste. Sua responsabilidade é buscar os testes no registro, executá-los um por um, capturar os resultados e apresentar um relatório final.
+
+Vamos construir cada um desses componentes.
+
+** 52.3 Implementação Passo a Passo
+
+Criaremos um único arquivo de cabeçalho, micro_test.h, que conterá todo o nosso framework.
+
+*1. O Caso de Teste (TestCase)*
+
+Esta é a nossa estrutura de dados. Usaremos std::string para o nome e std::function<void()> para encapsular a função de teste, o que nos dá a flexibilidade de registrar qualquer "chamável" sem argumentos que não retorne nada.
+
+#+begin_src cpp
+// Em micro_test.h
+#pragma once
+#include <string>
+#include <functional>
+#include <vector>
+#include <iostream>
+
+struct TestCase {
+    std::string nome;
+    std::function<void()> funcao_teste;
+};
+#+end_src
+
+*2. O Registro de Testes (TestRegistry)*
+
+Este é o coração do nosso framework. Ele precisa ser um Singleton para que haja apenas uma lista de testes em todo o programa. A maneira mais simples e moderna de implementar um Singleton em C++ é com uma variável estática local dentro de uma função.
+
+#+begin_src cpp
+// Continuação de micro_test.h
+
+class TestRegistry {
+public:
+    // O padrão Singleton de Meyer: thread-safe a partir do C++11
+    static TestRegistry& getInstance() {
+        static TestRegistry instance;
+        return instance;
+    }
+
+    void registrarTeste(const TestCase& testCase) {
+        m_testes.push_back(testCase);
+    }
+
+    const std::vector<TestCase>& getTestes() const {
+        return m_testes;
+    }
+
+private:
+    // Construtores privados para garantir que apenas getInstance() possa criar
+    TestRegistry() = default;
+    TestRegistry(const TestRegistry&) = delete;
+    void operator=(const TestRegistry&) = delete;
+
+    std::vector<TestCase> m_testes;
+};
+#+end_src
+
+*3. A "Mágica" da Auto-Registro: A Macro*
+
+Como um teste se registra? Não queremos que o usuário tenha que escrever TestRegistry::getInstance().registrarTeste(...) manualmente. Queremos uma sintaxe declarativa, como TEST_CASE(...) do Catch2. Podemos alcançar isso com uma macro inteligente que se aproveita da ordem de inicialização estática.
+
+A ideia é que a macro crie uma variável estática global. O construtor dessa variável será executado antes da função main(), e é dentro desse construtor que faremos o registro.
+
+#+begin_src cpp
+// Continuação de micro_test.h
+
+// Classe auxiliar cujo único propósito é registrar um teste em sua construção
+struct TestRegistrar {
+    TestRegistrar(const std::string& nome, const std::function<void()>& funcao) {
+        TestRegistry::getInstance().registrarTeste({nome, funcao});
+    }
+};
+
+// A macro que o usuário irá usar
+#define TEST_CASE(nome) \
+    void nome(); \
+    static TestRegistrar registrar_##nome(#nome, nome); \
+    void nome()
+#+end_src
+
+Vamos dissecar a macro TEST_CASE(nome):
+
+  1. void nome();: Declaração antecipada da nossa função de teste.
+
+  2. static TestRegistrar registrar_##nome(#nome, nome);: Esta é a parte genial.
+    - static TestRegistrar registrar_##nome: Cria uma variável estática com um nome único (ex: registrar_MeuTesteDeSoma).
+    - #nome: O operador # do pré-processador transforma o token nome em uma string literal (ex: "MeuTesteDeSoma").
+    - nome: Passa a própria função de teste para o construtor do TestRegistrar.
+    - O construtor do TestRegistrar é chamado antes do main, registrando o teste.
+
+  3. void nome(): Inicia a definição da função de teste, onde o usuário escreverá seu código.
+
+*4. O Executor de Testes (TestRunner)*
+
+Finalmente, precisamos de uma função que execute os testes. Esta função será a main() do nosso executável de teste.
+
+#+begin_src cpp
+// Continuação de micro_test.h
+
+inline int run_all_tests() {
+    const auto& testes = TestRegistry::getInstance().getTestes();
+    std::cout << "Rodando " << testes.size() << " testes...\n";
+    
+    int falhas = 0;
+    for (const auto& teste : testes) {
+        std::cout << "----------------------------------------\n";
+        std::cout << "[ RUN    ] " << teste.nome << "\n";
+        try {
+            teste.funcao_teste();
+            std::cout << "[   OK   ] " << teste.nome << "\n";
+        } catch (const std::exception& e) {
+            std::cout << "[ FAILED ] " << teste.nome << "\n";
+            std::cout << "   Erro: " << e.what() << "\n";
+            falhas++;
+        } catch (...) {
+            std::cout << "[ FAILED ] " << teste.nome << "\n";
+            std::cout << "   Erro: Exceção desconhecida capturada.\n";
+            falhas++;
+        }
+    }
+
+    std::cout << "----------------------------------------\n";
+    if (falhas == 0) {
+        std::cout << "[ PASSED ] Todos os " << testes.size() << " testes passaram.\n";
+    } else {
+        std::cout << "[ FAILED ] " << falhas << " de " << testes.size() << " testes falharam.\n";
+    }
+
+    return falhas;
+}
+#+end_src
+
+** 52.4 O Ponto Fraco: A Falta de Asserções
+
+Nosso framework está quase completo. Ele pode registrar e executar testes, isolando falhas baseadas em exceções. Mas como um teste sinaliza uma falha? No momento, a única maneira seria lançar uma exceção manualmente (throw std::runtime_error("Falhou!")), o que não é ideal.
+
+Falta-nos o componente mais visível de um framework de testes: as macros de asserção (ASSERT_EQUALS, ASSERT_TRUE, etc.).
+
+Uma asserção é, em essência, uma macro que:
+
+  1. Avalia uma condição.
+
+  2. Se a condição for falsa, lança uma exceção especial.
+
+  3. Essa exceção deve conter informações contextuais ricas: a expressão que falhou, o nome do arquivo, o número da linha e, idealmente, os valores dos operandos.
+
+A criação dessas macros de asserção é um exercício fascinante por si só e será o tópico do nosso próximo capítulo. Com elas, nosso micro-framework passará de um protótipo funcional para uma ferramenta de desenvolvimento genuinamente útil. Por enquanto, temos a espinha dorsal robusta sobre a qual construiremos.

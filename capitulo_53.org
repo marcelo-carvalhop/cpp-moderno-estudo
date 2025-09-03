@@ -1,0 +1,176 @@
+* Capítulo 53: Forjando Ferramentas — A Arte da Asserção
+
+Uma boa asserção é a alma de um teste unitário. Ela não apenas verifica uma condição, mas, em caso de falha, atua como um detetive, coletando e apresentando todas as evidências relevantes para que o desenvolvedor possa diagnosticar o problema rapidamente.
+
+** 53.1 A Anatomia de uma Falha de Asserção
+
+Para que uma falha de asserção seja útil, ela precisa nos dizer mais do que apenas "algo deu errado". Ela precisa responder a quatro perguntas cruciais:
+
+  1. O quê? Qual era a expectativa que falhou? (ex: a == b)
+
+  2. Onde? Em qual arquivo e em qual linha do código de teste a falha ocorreu?
+
+  3. Por quê? Quais eram os valores reais que causaram a falha? (ex: a era 5, mas b era 7)
+
+  4. Como? Como a falha interrompe o fluxo do teste? (No nosso caso, lançando uma exceção).
+
+Para atender a esses requisitos, precisaremos de três coisas: um tipo de exceção personalizado, o poder do pré-processador C++ e um pouco de std::stringstream para construir nossas mensagens.
+
+** 53.2 Passo 1: A Exceção Personalizada (AssertionFailure)
+
+Primeiro, vamos definir uma exceção específica para nossas falhas de asserção. Isso nos permitirá, no futuro, distinguir entre uma falha de teste e um erro inesperado no código (como uma violação de acesso). Ela herdará de std::runtime_error para simplicidade.
+
+#+begin_src cpp
+// Adicionar ao topo de micro_test.h
+#include <stdexcept>
+#include <sstream>
+
+class AssertionFailure : public std::runtime_error {
+public:
+    AssertionFailure(const std::string& message) : std::runtime_error(message) {}
+};
+#+end_src
+
+** 53.3 Passo 2: Forjando as Macros de Asserção
+
+Agora, a parte central. Usaremos macros para capturar o contexto da chamada. O pré-processador nos dá ferramentas mágicas para isso:
+
+  - __FILE__: Expande para o nome do arquivo atual como uma string literal.
+
+  - __LINE__: Expande para o número da linha atual como um inteiro.
+
+  - #expressao: O operador de "stringificação" transforma o código da expressao em uma string literal.
+
+*A Asserção Fundamental: ASSERT_TRUE* 
+Esta será a nossa asserção mais básica. Ela verifica se uma expressão booleana é verdadeira.
+
+#+begin_src cpp
+// Adicionar em micro_test.h, após a definição de AssertionFailure
+
+#define ASSERT_TRUE(condition) \
+    do { \
+        if (!(condition)) { \
+            std::stringstream ss; \
+            ss << "ASSERT_TRUE falhou em " << __FILE__ << ":" << __LINE__ << "\n" \
+               << "   Condição: " << #condition; \
+            throw AssertionFailure(ss.str()); \
+        } \
+    } while (false)
+#+end_src
+
+*Dissecando a macro:*
+
+  - do { ... } while (false): Este é um idioma C++ padrão para envolver múltiplas instruções em uma macro, garantindo que ela se comporte como uma única instrução (por exemplo, dentro de um if sem chaves) e permitindo o uso de um ponto e vírgula no final sem problemas sintáticos.
+
+  - if (!(condition)): Se a condição for falsa, entramos no bloco de falha.
+
+  - std::stringstream ss;: Usamos um stream de string para construir nossa mensagem de erro de forma eficiente.
+
+  - ss << ...: Montamos a mensagem com o nome do arquivo, linha e a condição stringificada.
+
+  - throw AssertionFailure(ss.str());: Lançamos nossa exceção personalizada com a mensagem detalhada.
+
+*A Asserção Mais Útil: ASSERT_EQUALS*
+Verificar a igualdade é a operação mais comum em testes. Nossa macro ASSERT_EQUALS deve não apenas dizer que a comparação falhou, mas também mostrar os valores que foram comparados.
+
+#+begin_src cpp
+// Adicionar em micro_test.h
+
+#define ASSERT_EQUALS(lhs, rhs) \
+    do { \
+        if (!((lhs) == (rhs))) { \
+            std::stringstream ss; \
+            ss << "ASSERT_EQUALS falhou em " << __FILE__ << ":" << __LINE__ << "\n" \
+               << "   Condição: " << #lhs << " == " << #rhs << "\n" \
+               << "   LHS: " << (lhs) << "\n" \
+               << "   RHS: " << (rhs); \
+            throw AssertionFailure(ss.str()); \
+        } \
+    } while (false)
+#+end_src
+
+Esta macro é semelhante, mas a mensagem de erro é ainda mais rica. Ela mostra a expressão exata e, crucialmente, os valores de lhs (Left-Hand Side) and rhs (Right-Hand Side) no momento da falha.
+
+** 53.4 O Framework Completo em Ação
+
+Agora, vamos ver nosso framework completo, com as asserções, testando um código real.
+
+*Nosso micro_test.h finalizado:*
+#+begin_src cpp
+#pragma once
+#include <string>
+#include <functional>
+#include <vector>
+#include <iostream>
+#include <stdexcept>
+#include <sstream>
+
+// ... (Definições de AssertionFailure, TestCase, TestRegistry, TestRegistrar) ...
+
+// ... (Definição da macro TEST_CASE) ...
+
+// ... (Definições das macros ASSERT_TRUE e ASSERT_EQUALS) ...
+
+// ... (Definição da função run_all_tests) ...
+#+end_src
+(O código completo para as outras partes permanece o mesmo do capítulo anterior)
+
+*Código a ser testado (matematica.h):*
+#+begin_src cpp
+#pragma once
+int soma(int a, int b) {
+    return a + b;
+}
+#+end_src
+
+*Escrevendo os testes (test_matematica.cpp):*
+#+begin_src cpp
+#include "micro_test.h"
+#include "matematica.h"
+
+TEST_CASE(TesteSomaPositiva) {
+    ASSERT_EQUALS(soma(2, 2), 4);
+    ASSERT_TRUE(soma(5, 5) == 10);
+}
+
+TEST_CASE(TesteSomaComZero) {
+    ASSERT_EQUALS(soma(10, 0), 10);
+    ASSERT_EQUALS(soma(0, -5), -5);
+}
+
+TEST_CASE(TesteSomaComFalhaProposital) {
+    // Este teste irá falhar e mostrará a saída detalhada.
+    ASSERT_EQUALS(soma(3, 3), 7); 
+}
+#+end_src
+
+*O main do nosso executável de teste (test_main.cpp):*
+#+begin_src cpp
+#include "micro_test.h"
+
+int main() {
+    // run_all_tests retorna o número de falhas,
+    // que pode ser usado como o código de saída do programa.
+    return run_all_tests();
+}
+#+end_src
+
+*Saída Esperada:*
+Rodando 3 testes...
+----------------------------------------
+[ RUN    ] TesteSomaPositiva
+[   OK   ] TesteSomaPositiva
+----------------------------------------
+[ RUN    ] TesteSomaComZero
+[   OK   ] TesteSomaComZero
+----------------------------------------
+[ RUN    ] TesteSomaComFalhaProposital
+[ FAILED ] TesteSomaComFalhaProposital
+   Erro: ASSERT_EQUALS falhou em /path/to/test_matematica.cpp:16
+   Condição: soma(3, 3) == 7
+   LHS: 6
+   RHS: 7
+----------------------------------------
+[ FAILED ] 1 de 3 testes falharam.
+
+Conseguimos! Forjamos um micro-framework de testes completo. Ele é minimalista, mas funcional. Ele registra, executa, isola e, o mais importante, relata falhas com a precisão necessária para ser uma ferramenta de desenvolvimento genuína. Construímos não apenas um programa, mas uma ferramenta para construir programas melhores.
