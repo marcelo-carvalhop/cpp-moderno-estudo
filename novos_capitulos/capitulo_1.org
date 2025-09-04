@@ -1,0 +1,23 @@
+* Capítulo 01: O C++ Além do Básico
+
+Para muitos, a jornada com C++ começa e, infelizmente, termina com a percepção de que se trata de "C com Classes". É uma linguagem vista através de um prisma de herança, polimorfismo e, talvez, um uso superficial da Standard Template Library (STL). Outros, vindos de domínios de sistemas, podem vê-la como um C mais seguro, com namespaces e um sistema de tipos um pouco mais rigoroso. Ambas as visões, embora não inteiramente falsas, são retratos anacrônicos e perigosamente incompletos da entidade que é o C++ moderno. Elas são como descrever um oceano observando apenas a rebentação na praia.
+
+O C++ de hoje, moldado por mais de uma década de evolução consciente e pragmática desde o marco do C++11, é uma linguagem fundamentalmente diferente. Dominá-la não é mais uma questão de memorizar a sintaxe de um novo for loop ou a assinatura de uma nova função na STL. É um exercício de compreensão filosófica. É entender que C++ não é uma linguagem com um único caminho, mas uma metrópole de múltiplos paradigmas, projetada com um princípio norteador inabalável: a abstração de custo zero (zero-overhead abstraction).
+
+Como Bjarne Stroustrup articula em "The Design and Evolution of C++", a linguagem foi concebida para ser uma ferramenta para construir ferramentas; uma linguagem para resolver problemas complexos de forma eficiente, tanto em tempo de execução quanto no esforço do desenvolvedor. Esta sessão, "A Profundidade da Linguagem", é a nossa expedição ao coração dessa filosofia. Não vamos apenas aprender o que as features fazem, mas por que elas existem, quais problemas de design elas resolvem e quais trade-offs seus criadores, o comitê WG21, ponderaram.
+
+O C++ moderno é uma síntese de quatro paradigmas principais, e o desenvolvedor de alto impacto é aquele que transita fluidamente entre eles, escolhendo a ferramenta certa para o trabalho em questão:
+
+  1. *Programação Procedural*: O legado do C, que nos dá o poder de interagir diretamente com a memória e o hardware. É o paradigma da eficiência bruta, dos algoritmos sequenciais e do controle explícito. Em C++, este não é um legado a ser evitado, mas uma fundação poderosa sobre a qual abstrações mais seguras são construídas.
+
+  2. *Programação Orientada a Objetos (POO)*: A visão clássica de "C com Classes", mas repensada. O foco moderno da POO em C++ não está em hierarquias de herança profundas e complexas, mas no encapsulamento robusto e na gestão de recursos através do idioma central da linguagem: RAII (Resource Acquisition Is Initialization). Polimorfismo ainda é crucial, mas é usado com propósito, não como um dogma.
+
+  3. *Programação Genérica*: Este é talvez o pilar mais distintivo do C++ moderno. Através dos templates, escrevemos código que opera sobre tipos, não sobre valores. A STL é a manifestação mais visível deste paradigma, onde um std::sort pode ordenar qualquer contêiner de qualquer tipo que satisfaça um conjunto de requisitos. É o paradigma da reutilização de código com performance máxima, pois a "mágica" acontece em tempo de compilação, não em tempo de execução.
+
+  4. *Programação Funcional*: Desde o C++11, a linguagem tem abraçado cada vez mais os conceitos do paradigma funcional. Funções lambda, std::function, std::bind, e a proliferação de algoritmos que operam sobre intervalos (ranges) nos permitem escrever código mais expressivo, declarativo e, muitas vezes, mais fácil de paralelizar. É o paradigma de tratar a computação como a avaliação de funções matemáticas, evitando estados mutáveis e efeitos colaterais.
+
+Entender como essas quatro forças interagem é o primeiro passo para ir além do básico. O segundo é internalizar o princípio da abstração de custo zero. Significa que as abstrações elegantes que a linguagem oferece — desde um std::unique_ptr que gerencia a memória automaticamente até um std::async que lança uma tarefa concorrente — são projetadas para não impor nenhuma sobrecarga de performance em comparação com o código manual e propenso a erros que elas substituem. Como Scott Meyers enfatiza em "Effective Modern C++", você não paga pelo que não usa, e o que você usa é implementado da forma mais eficiente possível.
+
+Nesta primeira parte do nosso estudo, vamos dissecar as decisões de design que permitem essa coexistência de paradigmas e essa eficiência implacável. Vamos explorar por que auto é mais do que açúcar sintático, por que a semântica de movimento revolucionou a performance, e como constexpr está borrando a linha entre o tempo de compilação e o tempo de execução.
+
+Esta não é uma jornada para aprender C++. É uma jornada para aprender a pensar em C++. É o caminho para transformar código funcional em software robusto, eficiente e expressivo. É o C++ além do básico.
