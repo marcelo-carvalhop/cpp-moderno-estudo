@@ -1,0 +1,26 @@
+* Biblioteca Boost
+
+Boost é uma coleção de bibliotecas de código aberto para C++, criada em 1999 por uma comunidade de desenvolvedores altamente experientes (muitos deles membros do comitê de padronização da linguagem). A ideia central sempre foi dupla:
+
+  1. *Explorar os limites da linguagem* – Boost serviu como um laboratório de experimentação, onde ideias ousadas eram testadas na prática antes de se pensar em levá-las ao padrão ISO.
+
+  2. *Oferecer soluções de qualidade industrial* – Todas as bibliotecas do Boost passam por revisões rigorosas e seguem os mesmos princípios de design do C++: eficiência, genericidade e segurança.
+
+Muitas funcionalidades que hoje parecem “naturais” na linguagem nasceram primeiro no Boost. Exemplos concretos:
+
+  - *Boost.SmartPtr* → inspirou os smart pointers do C++11 ('std::shared_ptr', 'std::unique_ptr').
+  - *Boost.Thread* → base para a biblioteca de threads padrão em C++11.
+  - *Boost.Regex* → tornou-se 'std::regex'.
+  - *Boost.Filesystem* → evoluiu até se transformar em 'std::filesystem' (C++17).
+  - *Boost.Any/Variant/Optional* → deram origem a 'std::any', 'std::variant' e 'std::optional' (C++17).
+  - *Boost.Range* → precursor do que se tornou a biblioteca Ranges no C++20.
+
+Por isso, muitos chamam Boost de um “viveiro do C++”: um espaço onde novas ideias amadurecem, são usadas em projetos reais, e quando se provam sólidas e amplamente úteis, acabam migrando para o padrão.
+
+Além disso, Boost mantém um papel importante até hoje:
+
+Ele cobre áreas que ainda não foram padronizadas (por exemplo, grafos com Boost.Graph, matemática avançada com Boost.Multiprecision, etc.).
+
+É referência de qualidade: o processo de revisão de uma biblioteca no Boost é comparável ao de uma revista científica — rigor técnico e forte escrutínio por pares.
+
+Em resumo: sem Boost, o C++ moderno não teria evoluído como evoluiu. Ele funcionou como um campo de provas e acelerador de inovações, garantindo que a linguagem se mantivesse viva e competitiva diante das mudanças da indústria de software.

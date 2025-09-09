@@ -1,0 +1,7 @@
+* Lambdas: a expressão da função como objeto
+
+/As lambdas expressions/, introduzidas em C++11, representam a integração gradual do paradigma funcional à linguagem. Em essência, uma /lambda/ é uma função anônima, definida no próprio local em que é usada, capaz de capturar variáveis do escopo circundante. Essa possibilidade corrige uma lacuna histórica: antes, era necessário escrever funções globais ou functors dedicados apenas para passar comportamento a algoritmos genéricos.
+
+O impacto conceitual das lambdas vai além da sintaxe conveniente. Elas concretizam o princípio de *função como valor*, permitindo que algoritmos se tornem parametrizados por comportamento de maneira natural. No contexto da STL e, mais recentemente, da biblioteca /ranges/, isso significa que é possível compor operações como filtros, transformações e reduções de forma declarativa, clara e eficiente.
+
+O que em linguagens funcionais puras é dogma, em C++ é pragmatismo: lambdas não foram adicionadas como ornamento, mas como mecanismo de abstração *sem custo adicional*. O compilador é capaz de inlining agressivo e otimização, gerando código equivalente ao de um functor escrito à mão. Elas trazem expressividade sem trair a promessa de eficiência.

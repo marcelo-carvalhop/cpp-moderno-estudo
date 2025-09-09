@@ -1,0 +1,412 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<!-- 2025-09-09 Tue 12:08 -->
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>&lrm;</title>
+<meta name="generator" content="Org Mode" />
+<style type="text/css">
+  #content { max-width: 60em; margin: auto; }
+  .title  { text-align: center;
+             margin-bottom: .2em; }
+  .subtitle { text-align: center;
+              font-size: medium;
+              font-weight: bold;
+              margin-top:0; }
+  .todo   { font-family: monospace; color: red; }
+  .done   { font-family: monospace; color: green; }
+  .priority { font-family: monospace; color: orange; }
+  .tag    { background-color: #eee; font-family: monospace;
+            padding: 2px; font-size: 80%; font-weight: normal; }
+  .timestamp { color: #bebebe; }
+  .timestamp-kwd { color: #5f9ea0; }
+  .org-right  { margin-left: auto; margin-right: 0px;  text-align: right; }
+  .org-left   { margin-left: 0px;  margin-right: auto; text-align: left; }
+  .org-center { margin-left: auto; margin-right: auto; text-align: center; }
+  .underline { text-decoration: underline; }
+  #postamble p, #preamble p { font-size: 90%; margin: .2em; }
+  p.verse { margin-left: 3%; }
+  pre {
+    border: 1px solid #e6e6e6;
+    border-radius: 3px;
+    background-color: #f2f2f2;
+    padding: 8pt;
+    font-family: monospace;
+    overflow: auto;
+    margin: 1.2em;
+  }
+  pre.src {
+    position: relative;
+    overflow: auto;
+  }
+  pre.src:before {
+    display: none;
+    position: absolute;
+    top: -8px;
+    right: 12px;
+    padding: 3px;
+    color: #555;
+    background-color: #f2f2f299;
+  }
+  pre.src:hover:before { display: inline; margin-top: 14px;}
+  /* Languages per Org manual */
+  pre.src-asymptote:before { content: 'Asymptote'; }
+  pre.src-awk:before { content: 'Awk'; }
+  pre.src-authinfo::before { content: 'Authinfo'; }
+  pre.src-C:before { content: 'C'; }
+  /* pre.src-C++ doesn't work in CSS */
+  pre.src-clojure:before { content: 'Clojure'; }
+  pre.src-css:before { content: 'CSS'; }
+  pre.src-D:before { content: 'D'; }
+  pre.src-ditaa:before { content: 'ditaa'; }
+  pre.src-dot:before { content: 'Graphviz'; }
+  pre.src-calc:before { content: 'Emacs Calc'; }
+  pre.src-emacs-lisp:before { content: 'Emacs Lisp'; }
+  pre.src-fortran:before { content: 'Fortran'; }
+  pre.src-gnuplot:before { content: 'gnuplot'; }
+  pre.src-haskell:before { content: 'Haskell'; }
+  pre.src-hledger:before { content: 'hledger'; }
+  pre.src-java:before { content: 'Java'; }
+  pre.src-js:before { content: 'Javascript'; }
+  pre.src-latex:before { content: 'LaTeX'; }
+  pre.src-ledger:before { content: 'Ledger'; }
+  pre.src-lisp:before { content: 'Lisp'; }
+  pre.src-lilypond:before { content: 'Lilypond'; }
+  pre.src-lua:before { content: 'Lua'; }
+  pre.src-matlab:before { content: 'MATLAB'; }
+  pre.src-mscgen:before { content: 'Mscgen'; }
+  pre.src-ocaml:before { content: 'Objective Caml'; }
+  pre.src-octave:before { content: 'Octave'; }
+  pre.src-org:before { content: 'Org mode'; }
+  pre.src-oz:before { content: 'OZ'; }
+  pre.src-plantuml:before { content: 'Plantuml'; }
+  pre.src-processing:before { content: 'Processing.js'; }
+  pre.src-python:before { content: 'Python'; }
+  pre.src-R:before { content: 'R'; }
+  pre.src-ruby:before { content: 'Ruby'; }
+  pre.src-sass:before { content: 'Sass'; }
+  pre.src-scheme:before { content: 'Scheme'; }
+  pre.src-screen:before { content: 'Gnu Screen'; }
+  pre.src-sed:before { content: 'Sed'; }
+  pre.src-sh:before { content: 'shell'; }
+  pre.src-sql:before { content: 'SQL'; }
+  pre.src-sqlite:before { content: 'SQLite'; }
+  /* additional languages in org.el's org-babel-load-languages alist */
+  pre.src-forth:before { content: 'Forth'; }
+  pre.src-io:before { content: 'IO'; }
+  pre.src-J:before { content: 'J'; }
+  pre.src-makefile:before { content: 'Makefile'; }
+  pre.src-maxima:before { content: 'Maxima'; }
+  pre.src-perl:before { content: 'Perl'; }
+  pre.src-picolisp:before { content: 'Pico Lisp'; }
+  pre.src-scala:before { content: 'Scala'; }
+  pre.src-shell:before { content: 'Shell Script'; }
+  pre.src-ebnf2ps:before { content: 'ebfn2ps'; }
+  /* additional language identifiers per "defun org-babel-execute"
+       in ob-*.el */
+  pre.src-cpp:before  { content: 'C++'; }
+  pre.src-abc:before  { content: 'ABC'; }
+  pre.src-coq:before  { content: 'Coq'; }
+  pre.src-groovy:before  { content: 'Groovy'; }
+  /* additional language identifiers from org-babel-shell-names in
+     ob-shell.el: ob-shell is the only babel language using a lambda to put
+     the execution function name together. */
+  pre.src-bash:before  { content: 'bash'; }
+  pre.src-csh:before  { content: 'csh'; }
+  pre.src-ash:before  { content: 'ash'; }
+  pre.src-dash:before  { content: 'dash'; }
+  pre.src-ksh:before  { content: 'ksh'; }
+  pre.src-mksh:before  { content: 'mksh'; }
+  pre.src-posh:before  { content: 'posh'; }
+  /* Additional Emacs modes also supported by the LaTeX listings package */
+  pre.src-ada:before { content: 'Ada'; }
+  pre.src-asm:before { content: 'Assembler'; }
+  pre.src-caml:before { content: 'Caml'; }
+  pre.src-delphi:before { content: 'Delphi'; }
+  pre.src-html:before { content: 'HTML'; }
+  pre.src-idl:before { content: 'IDL'; }
+  pre.src-mercury:before { content: 'Mercury'; }
+  pre.src-metapost:before { content: 'MetaPost'; }
+  pre.src-modula-2:before { content: 'Modula-2'; }
+  pre.src-pascal:before { content: 'Pascal'; }
+  pre.src-ps:before { content: 'PostScript'; }
+  pre.src-prolog:before { content: 'Prolog'; }
+  pre.src-simula:before { content: 'Simula'; }
+  pre.src-tcl:before { content: 'tcl'; }
+  pre.src-tex:before { content: 'TeX'; }
+  pre.src-plain-tex:before { content: 'Plain TeX'; }
+  pre.src-verilog:before { content: 'Verilog'; }
+  pre.src-vhdl:before { content: 'VHDL'; }
+  pre.src-xml:before { content: 'XML'; }
+  pre.src-nxml:before { content: 'XML'; }
+  /* add a generic configuration mode; LaTeX export needs an additional
+     (add-to-list 'org-latex-listings-langs '(conf " ")) in .emacs */
+  pre.src-conf:before { content: 'Configuration File'; }
+
+  table { border-collapse:collapse; }
+  caption.t-above { caption-side: top; }
+  caption.t-bottom { caption-side: bottom; }
+  td, th { vertical-align:top;  }
+  th.org-right  { text-align: center;  }
+  th.org-left   { text-align: center;   }
+  th.org-center { text-align: center; }
+  td.org-right  { text-align: right;  }
+  td.org-left   { text-align: left;   }
+  td.org-center { text-align: center; }
+  dt { font-weight: bold; }
+  .footpara { display: inline; }
+  .footdef  { margin-bottom: 1em; }
+  .figure { padding: 1em; }
+  .figure p { text-align: center; }
+  .equation-container {
+    display: table;
+    text-align: center;
+    width: 100%;
+  }
+  .equation {
+    vertical-align: middle;
+  }
+  .equation-label {
+    display: table-cell;
+    text-align: right;
+    vertical-align: middle;
+  }
+  .inlinetask {
+    padding: 10px;
+    border: 2px solid gray;
+    margin: 10px;
+    background: #ffffcc;
+  }
+  #org-div-home-and-up
+   { text-align: right; font-size: 70%; white-space: nowrap; }
+  textarea { overflow-x: auto; }
+  .linenr { font-size: smaller }
+  .code-highlighted { background-color: #ffff00; }
+  .org-info-js_info-navigation { border-style: none; }
+  #org-info-js_console-label
+    { font-size: 10px; font-weight: bold; white-space: nowrap; }
+  .org-info-js_search-highlight
+    { background-color: #ffff00; color: #000000; font-weight: bold; }
+  .org-svg { }
+</style>
+</head>
+<body>
+<div id="content" class="content">
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org3ac8bb3">1. Capítulo 1: Mergulhando no C++ Moderno: Fundamentos e Filosofia</a>
+<ul>
+<li><a href="#orgc4d5469">1.1. 1.1 O que é C++, Afinal?</a></li>
+<li><a href="#org9bd8510">1.2. 1.2 Por que C++ Moderno? A Revolução Silenciosa</a></li>
+<li><a href="#org568851c">1.3. 1.3 Preparando seu Ambiente de Desenvolvimento</a></li>
+<li><a href="#org714aebb">1.4. 1.4 Seu Primeiro Programa: O "Olá, Mundo!" Moderno</a></li>
+<li><a href="#org2ba8697">1.5. 1.5 Compilando e Executando: Dando Vida ao Código</a></li>
+<li><a href="#org86f6dc5">1.6. 1.6 Filosofia e Boas Práticas Iniciais</a></li>
+<li><a href="#org083d40b">1.7. 1.7 O Caminho à Frente</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org3ac8bb3" class="outline-2">
+<h2 id="org3ac8bb3"><span class="section-number-2">1.</span> Capítulo 1: Mergulhando no C++ Moderno: Fundamentos e Filosofia</h2>
+<div class="outline-text-2" id="text-1">
+<p>
+Bem-vindo ao fascinante universo do C++ Moderno. Se você está com este livro em mãos, provavelmente já ouviu falar da reputação do C++: uma linguagem poderosa, performática, mas também complexa e, por vezes, implacável. Embora parte dessa reputação seja merecida, o C++ que vamos explorar a partir de agora — o C++ de 2020 em diante — é uma linguagem drasticamente mais segura, expressiva e agradável de se trabalhar do que suas versões mais antigas.
+</p>
+
+<p>
+Este capítulo é a sua porta de entrada. Não vamos apenas escrever nosso primeiro programa, mas também construir a base filosófica e conceitual para que você entenda por que o C++ Moderno é do jeito que é.
+</p>
+</div>
+<div id="outline-container-orgc4d5469" class="outline-3">
+<h3 id="orgc4d5469"><span class="section-number-3">1.1.</span> 1.1 O que é C++, Afinal?</h3>
+<div class="outline-text-3" id="text-1-1">
+<p>
+C++ é uma linguagem de programação de propósito geral, multiparadigma e compilada. Vamos quebrar isso:
+</p>
+
+<ul class="org-ul">
+<li>Propósito Geral: Você pode usá-la para criar praticamente qualquer coisa: sistemas operacionais, motores de jogos de alta performance (como a Unreal Engine), softwares de negociação financeira de baixa latência, sistemas embarcados para carros ou foguetes, aplicações de desktop e até mesmo back-ends de serviços web.</li>
+<li>Multiparadigma: C++ não força você a seguir um único estilo de programação. Ela suporta programação procedural (como em C), orientada a objetos (com classes e herança), genérica (através de templates) e funcional (com lambdas e funções de alta ordem). O C++ Moderno incentiva a combinação inteligente desses paradigmas para resolver problemas da forma mais eficaz.</li>
+<li>Compilada: Seu código-fonte em C++ não é executado diretamente. Ele passa por um programa chamado compilador, que o traduz para código de máquina nativo, otimizado para a arquitetura do seu processador. É por isso que C++ é sinônimo de alta performance: o programa final "fala a língua" do hardware.</li>
+</ul>
+
+<p>
+A filosofia central do C++ é: "não pague pelo que você não usa". Isso significa que os recursos da linguagem são projetados para ter o mínimo de sobrecarga (overhead) possível. Você tem controle total sobre a memória e os recursos do sistema, um poder que vem com grande responsabilidade.
+</p>
+</div>
+</div>
+<div id="outline-container-org9bd8510" class="outline-3">
+<h3 id="org9bd8510"><span class="section-number-3">1.2.</span> 1.2 Por que C++ Moderno? A Revolução Silenciosa</h3>
+<div class="outline-text-3" id="text-1-2">
+<p>
+Por muitos anos, programar em C++ envolvia gerenciamento manual de memória, ponteiros brutos e uma série de armadilhas que poderiam levar a bugs difíceis de rastrear. A partir do padrão C++11, uma verdadeira renascença começou. Os padrões C++11, 14, 17, 20 e 23 introduziram recursos que transformaram a linguagem.
+</p>
+
+<p>
+O "C++ Moderno" não é apenas uma nova versão; é uma nova maneira de pensar e escrever código. Os pilares dessa modernização são:
+</p>
+
+<ol class="org-ol">
+<li>Segurança: Recursos como smart pointers (ponteiros inteligentes) gerenciam a memória automaticamente, quase eliminando vazamentos de memória (memory leaks) e acessos indevidos.</li>
+<li>Expressividade: Escrever código complexo de forma concisa e legível se tornou mais fácil com lambdas, laços for baseados em intervalo (range-based for) e inferência de tipo com auto.</li>
+<li>Eficiência: A semântica de movimento (move semantics) permite a transferência eficiente de recursos sem cópias desnecessárias, um ganho de performance crucial para objetos grandes.</li>
+<li>Abstração Poderosa: Com conceitos (concepts, em C++20), podemos escrever código genérico mais claro e com mensagens de erro muito mais amigáveis. Com ranges (C++20), manipular coleções de dados se tornou tão elegante quanto em linguagens de mais alto nível.</li>
+</ol>
+
+<p>
+Neste livro, você aprenderá a escrever C++ que parece e se comporta de forma muito diferente do "C++ legado".
+</p>
+</div>
+</div>
+<div id="outline-container-org568851c" class="outline-3">
+<h3 id="org568851c"><span class="section-number-3">1.3.</span> 1.3 Preparando seu Ambiente de Desenvolvimento</h3>
+<div class="outline-text-3" id="text-1-3">
+<p>
+Para começar, você precisa de três ferramentas essenciais:
+</p>
+
+<ol class="org-ol">
+<li>Um Compilador C++20 (ou mais recente):
+<ul class="org-ul">
+<li>GCC (GNU Compiler Collection): Padrão em sistemas Linux. Use a versão 10 ou superior.</li>
+<li>Clang: Outro excelente compilador de código aberto, frequentemente usado com o ecossistema LLVM. Use a versão 10 ou superior.</li>
+<li>MSVC (Microsoft Visual C++): Integrado ao Visual Studio no Windows. Use a versão do Visual Studio 2019 (v16.10) ou, preferencialmente, Visual Studio 2022.</li>
+</ul></li>
+
+<li>Um Editor de Código ou IDE (Ambiente de Desenvolvimento Integrado):
+<ul class="org-ul">
+<li>Visual Studio Code (VS Code): Leve, gratuito e altamente extensível. Ótima opção com as extensões corretas (C/C++, CMake Tools).</li>
+<li>CLion (da JetBrains): Uma IDE paga, poderosa e focada em C++, com excelente integração com CMake e ferramentas de refatoração.</li>
+<li>Visual Studio (da Microsoft): Uma IDE completa e robusta para desenvolvimento no Windows.</li>
+</ul></li>
+
+<li>Um Sistema de Build (Build System):
+<ul class="org-ul">
+<li>CMake: É o padrão de fato da indústria para gerenciar projetos C++. Ele não compila o código, mas gera os arquivos de projeto para o seu compilador (Makefiles para GCC/Clang, soluções do Visual Studio para MSVC). Aprender o básico de CMake é uma habilidade indispensável.</li>
+</ul></li>
+</ol>
+</div>
+</div>
+<div id="outline-container-org714aebb" class="outline-3">
+<h3 id="org714aebb"><span class="section-number-3">1.4.</span> 1.4 Seu Primeiro Programa: O "Olá, Mundo!" Moderno</h3>
+<div class="outline-text-3" id="text-1-4">
+<p>
+Vamos à tradição. Crie um arquivo chamado main.cpp e digite o seguinte código:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-cpp">#include &lt;iostream&gt; // Para entrada e saída (Input/Output)
+#include &lt;string&gt;   // Para usar o tipo de dado 'string'
+#include &lt;vector&gt;   // Para usar o tipo de dado 'vector' (uma lista dinâmica)
+
+int main() {
+    // Usa um inicializador de lista para criar um vetor de strings
+    std::vector&lt;std::string&gt; palavras = {"Olá,", "mundo", "do", "C++20!"};
+
+    // Laço 'for' moderno (range-based for) para iterar sobre o vetor
+    for (const std::string&amp; palavra : palavras) {
+        // Imprime cada palavra seguida de um espaço
+        std::cout &lt;&lt; palavra &lt;&lt; " ";
+    }
+
+    // Imprime uma nova linha no final
+    std::cout &lt;&lt; std::endl;
+
+    return 0; // Indica que o programa terminou com sucesso
+}
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org2ba8697" class="outline-3">
+<h3 id="org2ba8697"><span class="section-number-3">1.5.</span> 1.5 Compilando e Executando: Dando Vida ao Código</h3>
+<div class="outline-text-3" id="text-1-5">
+<p>
+Abra um terminal ou prompt de comando, navegue até a pasta onde você salvou o main.cpp e execute o comando de compilação.
+</p>
+
+<p>
+Com GCC ou Clang:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"># O comando g++ invoca o compilador GCC. Para Clang, use clang++
+# -std=c++20: Especifica que queremos usar o padrão C++20. Essencial!
+# -o ola_mundo: Define o nome do arquivo executável de saída.
+# main.cpp: Nosso arquivo de código-fonte.
+g++ -std=c++20 -o ola_mundo main.cpp
+</pre>
+</div>
+
+<p>
+Se tudo ocorrer bem, nenhum erro será exibido. Agora, execute o programa:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"># No Linux ou macOS
+./ola_mundo
+
+# No Windows
+.\ola_mundo.exe
+A saída no seu terminal será:
+Olá, mundo do C++20!
+</pre>
+</div>
+
+<p>
+Parabéns, você acabou de compilar e executar seu primeiro programa em C++ Moderno! Note como usamos recursos como std::vector, std::string e um laço for limpo e expressivo, que são a base do estilo de programação que adotaremos.
+</p>
+</div>
+</div>
+<div id="outline-container-org86f6dc5" class="outline-3">
+<h3 id="org86f6dc5"><span class="section-number-3">1.6.</span> 1.6 Filosofia e Boas Práticas Iniciais</h3>
+<div class="outline-text-3" id="text-1-6">
+<p>
+Desde o início, vamos adotar alguns hábitos fundamentais:
+</p>
+
+<ul class="org-ul">
+<li>Prefira std::: Você notou o std:: antes de cout, vector, etc. Isso se chama namespace (espaço de nomes). Ele evita que os nomes da Biblioteca Padrão (Standard Library) colidam com os seus. Evite a prática antiga de using namespace std;, que pode causar ambiguidades em projetos maiores.</li>
+
+<li>RAII é Rei: Resource Acquisition Is Initialization (Aquisição de Recurso é Inicialização) é talvez o conceito mais importante do C++ Moderno. A ideia é que um recurso (como memória, um arquivo, uma trava de rede) deve ser associado ao tempo de vida de um objeto. Quando o objeto é criado, ele adquire o recurso. Quando é destruído (por exemplo, ao sair de um escopo), ele libera o recurso. std::vector e std::string já fazem isso por você com a memória. Veremos isso em detalhes com smart pointers.</li>
+
+<li>Const por Padrão: Use const sempre que uma variável ou objeto não precisar ser modificado após sua inicialização. Isso torna o código mais seguro e fácil de entender, comunicando suas intenções ao compilador e a outros desenvolvedores. No nosso exemplo, const std::string&amp; palavra indica que não pretendemos modificar a palavra dentro do laço.</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org083d40b" class="outline-3">
+<h3 id="org083d40b"><span class="section-number-3">1.7.</span> 1.7 O Caminho à Frente</h3>
+<div class="outline-text-3" id="text-1-7">
+<p>
+Este capítulo arranhou a superfície. Nos próximos, vamos mergulhar fundo em:
+</p>
+
+<ul class="org-ul">
+<li>Tipos Fundamentais, Variáveis e Controle de Fluxo: A base de qualquer linguagem.</li>
+<li>Funções e a Arte da Abstração: Como organizar seu código de forma limpa.</li>
+<li>Classes e Objetos: O coração da programação orientada a objetos.</li>
+<li>Templates e Programação Genérica: Escrevendo código que funciona com qualquer tipo.</li>
+<li>A Biblioteca Padrão (STL): Contêineres, iteradores e algoritmos que serão seus melhores amigos.</li>
+<li>Os "Quatro Grandes" do C++20: Módulos, Ranges, Conceitos e Corrotinas.</li>
+</ul>
+
+<p>
+Gerenciamento de Memória Moderno: Smart Pointers e a filosofia RAII em profundidade.
+</p>
+</div>
+</div>
+</div>
+</div>
+<div id="postamble" class="status">
+<p class="date">Created: 2025-09-09 Tue 12:08</p>
+<p class="validation"><a href="https://validator.w3.org/check?uri=referer">Validate</a></p>
+</div>
+</body>
+</html>

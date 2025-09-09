@@ -21,3 +21,15 @@ Entender como essas quatro forças interagem é o primeiro passo para ir além d
 Nesta primeira parte do nosso estudo, vamos dissecar as decisões de design que permitem essa coexistência de paradigmas e essa eficiência implacável. Vamos explorar por que auto é mais do que açúcar sintático, por que a semântica de movimento revolucionou a performance, e como constexpr está borrando a linha entre o tempo de compilação e o tempo de execução.
 
 Esta não é uma jornada para aprender C++. É uma jornada para aprender a pensar em C++. É o caminho para transformar código funcional em software robusto, eficiente e expressivo. É o C++ além do básico.
+
+[[../complementos/capítulo_1_complemento.org][Capítulo 01 — O C++ Além do Básico (versão enriquecida)]]
+
+Glossário:
+
+[[../complementos/capítulo_1_lambdas.org][Lambdas: a expressão da função como objeto]]
+[[../complementos/capitulo_1_semantica_movimento.org][Semântica de Movimento: a segunda vida dos objetos]]
+[[../complementos/capitulo_1_inicializacao_uniforme.org][Inicialização Uniforme: o ponto final na fragmentação]]
+[[../complementos/capitulo_1_custo_zero.org][Abstração de Custo Zero: a filosofia inabalável]]
+[[../complementos/capitulo_1_reflexao.org][Reflexão em Tempo de Compilação: conhecer-se para transformar-se]]
+[[../complementos/capitulo_1_metaprogramacao.org][Metaprogramação: quando o código escreve o código]]
+[[../complementos/capitulo_1_functors.org][Functors: o objeto que se comporta como função]]

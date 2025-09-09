@@ -1,0 +1,9 @@
+* Semântica de Movimento: a segunda vida dos objetos
+
+Poucas inovações do C++11 foram tão transformadoras quanto a introdução da *semântica de movimento*. Até então, a cópia era a operação fundamental: ao passar ou retornar objetos, cópias profundas podiam ser caras, e evitá-las exigia contornos como ponteiros, 'swap' manuais ou padrões complexos.
+
+A semântica de movimento introduziu a ideia de que objetos possuem não apenas um construtor de cópia, mas também um *construtor e operador de movimento*, capazes de transferir os recursos internos de um objeto “fonte” para um objeto “destino”. Após a movimentação, o objeto fonte permanece em estado válido, porém esvaziado.
+
+O ganho conceitual é enorme: o programador pode retornar objetos por valor, compor estruturas temporárias ou manipular contêineres sem receio do custo de cópias desnecessárias. O 'std::vector', por exemplo, ao crescer além de sua capacidade, pode mover seus elementos para uma nova área de memória, em vez de copiá-los, tornando operações antes custosas em algo trivial.
+
+Essa inovação não é apenas técnica, mas filosófica: pela primeira vez, o C++ passou a tratar a *posse de recursos* como um valor semântico formalizado. O ato de mover não é um truque, mas uma noção de primeira classe na linguagem. É o reconhecimento explícito de que recursos computacionais (memória, arquivos, sockets) podem ser transferidos de modo seguro e eficiente, refletindo diretamente a realidade do sistema.

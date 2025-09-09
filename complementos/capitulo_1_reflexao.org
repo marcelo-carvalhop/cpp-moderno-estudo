@@ -1,0 +1,9 @@
+* Reflexão em Tempo de Compilação: conhecer-se para transformar-se
+
+Refletir, no domínio da programação, significa a capacidade de uma linguagem examinar e manipular sua própria estrutura. Em muitas linguagens dinâmicas, como Python ou Java, reflexão é realizada em tempo de execução: classes, métodos e atributos podem ser inspecionados e modificados durante a execução do programa.
+
+O C++, contudo, trilha um caminho distinto. Por sua filosofia de eficiência e previsibilidade, a reflexão que a linguagem abraça é em *tempo de compilação*. Isso significa que o programa é capaz de consultar suas próprias propriedades estruturais — tipos, membros, atributos — durante a tradução, e não em execução.
+
+Essa abordagem transforma radicalmente a prática de metaprogramação em C++. Em vez de recorrer a técnicas indiretas, como template /metaprogramming/ ou SFINAE, o programador poderá interrogar o compilador diretamente: “quais membros este tipo possui?”, “qual o nome desta entidade?”, “este tipo satisfaz determinado conceito?”. As respostas não são meras informações: são *valores em tempo de compilação*, utilizáveis em geração automática de código, serialização, bindings com outras linguagens ou verificação estática de invariantes.
+
+Herb Sutter, em seu relatório da reunião do WG21 em Sófia (2025), descreveu a reflexão como “capaz de transformar fundamentalmente a forma como escrevemos código em C++ — quase como uma nova linguagem” ([[https://herbsutter.com/2025/06/21/trip-report-june-2025-iso-c-standards-meeting-sofia-bulgaria/?utm_source=chatgpt.com][fonte]]). Essa afirmação não é hipérbole: reflexão em tempo de compilação não apenas amplia o arsenal do programador, mas altera a própria estética do C++, trazendo a metaprogramação para o primeiro plano da sintaxe e da semântica.

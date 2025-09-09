@@ -1,0 +1,9 @@
+* Abstração de Custo Zero: a filosofia inabalável
+
+A *abstração de custo zero* é, sem dúvida, o princípio filosófico que mais distingue o C++ de outras linguagens modernas. Enquanto muitas linguagens aceitam penalidades de desempenho em nome da simplicidade ou segurança, o C++ insiste em um pacto diferente: as abstrações fornecidas devem ser tão eficientes quanto o código manual equivalente.
+
+Essa filosofia tem duas consequências diretas. Primeiro, ela autoriza a criação de ferramentas de altíssimo nível, como 'std::vector', 'std::thread' ou 'std::unique_ptr', que oferecem conveniência e segurança, mas sem custo adicional em tempo de execução. Segundo, ela delimita o território da linguagem: quando uma abstração não pode ser implementada sem overhead intrínseco, geralmente é rejeitada ou redesenhada.
+
+Stroustrup formulou essa ideia desde os primeiros dias da linguagem: “What you don’t use, you don’t pay for…” — um lembrete de que o C++ não impõe custos invisíveis. Esse compromisso molda tanto a confiança dos programadores quanto a aceitação da linguagem em domínios críticos, como sistemas embarcados, jogos e motores financeiros.
+
+A abstração de custo zero, mais do que uma diretriz técnica, é uma filosofia de design que atravessa décadas. É a linha que conecta os templates da STL, as lambdas inlináveis, a semântica de movimento otimizada e as promessas de 'constexpr'. É, em suma, o eixo em torno do qual o C++ moderno se organiza.

@@ -1,0 +1,9 @@
+* Functors: o objeto que se comporta como função
+
+Antes que lambdas existissem, o C++ já oferecia uma maneira de tratar comportamento como entidade de primeira classe: os *functors*, ou /function objects/. Um functor é, essencialmente, uma classe que sobrecarrega o operador 'operator()', permitindo que suas instâncias sejam chamadas como se fossem funções.
+
+O poder dos functors está na fusão de duas ideias: eles são objetos, logo podem ter estado interno, e ao mesmo tempo são funções, capazes de encapsular comportamento. Isso os torna extraordinariamente flexíveis. A STL foi projetada, desde o início, com base nessa noção: algoritmos como 'std::sort' ou 'std::for_each' não recebem ponteiros para funções simples, mas functors, que podem manter contexto, otimizar chamadas e até serem parametrizados por templates.
+
+Embora hoje as lambdas tenham assumido o protagonismo, os functors continuam a ser fundamentais para entender a filosofia do C++ moderno. Eles representam a *ponte histórica* entre o paradigma orientado a objetos e a emergência do funcional dentro da linguagem. Mais do que isso, eles materializam o princípio da abstração de custo zero: um functor bem escrito é inlinável, tão eficiente quanto uma função estática, mas com a vantagem de carregar consigo informação contextual.
+
+Assim, lambdas não substituem os functors: elas os generalizam e os tornam mais acessíveis. Todo /closure/ gerado por uma lambda é, na verdade, um functor sintetizado pelo compilador. Essa continuidade histórica reforça uma das marcas do C++: evoluir sem abandonar as fundações.

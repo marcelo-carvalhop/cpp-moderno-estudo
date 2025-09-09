@@ -1,0 +1,9 @@
+* Metaprogramação: quando o código escreve o código
+
+Metaprogramação, em sentido amplo, é a prática de escrever programas que produzem ou transformam outros programas. Em C++, esse paradigma ganhou expressão peculiar através do *template metaprogramming*, uma técnica explorada desde a década de 1990 em bibliotecas como a Boost MPL e, mais recentemente, no /standard/ com recursos como 'std::integral_constant' ou 'std::conditional'.
+
+A grande descoberta foi que o sistema de templates, concebido inicialmente como mecanismo de geração de código genérico, podia ser usado como *linguagem Turing-completa em tempo de compilação*. Assim, algoritmos inteiros — como cálculo de fatoriais, sequências de Fibonacci ou seleção de tipos — podiam ser executados antes mesmo da geração do código final.
+
+Por muito tempo, essa metaprogramação foi associada a uma estética hermética, quase esotérica, que poucos compreendiam. A evolução do C++ moderno buscou suavizar esse terreno: /constexpr functions/ (C++11), /if constexpr/ (C++17) e /concepts/ (C++20) foram passos decisivos para tornar a metaprogramação mais legível e acessível. Hoje, em vez de truques com SFINAE, o programador pode escrever condições claras e algoritmos inteiros avaliados em tempo de compilação, reduzindo o abismo entre a intenção e a implementação.
+
+Com a chegada da reflexão em tempo de compilação no C++26, a metaprogramação deixa de ser um “idioma marginal” e se torna parte central da linguagem. O que antes era um exercício para especialistas agora é projetado como prática cotidiana, legitimada pelo próprio comitê de padronização.
