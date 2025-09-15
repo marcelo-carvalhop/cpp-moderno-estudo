@@ -1,0 +1,3 @@
+* Tipos Proxy
+
+Um /proxy type/ é um tipo intermediário que age como representante ou substituto de outro objeto, permitindo comportamento especializado ou otimizado. No C++ moderno, um exemplo clássico é o 'std::vector<bool>', que não armazena valores 'bool' diretamente, mas usa uma representação compacta, retornando objetos proxy ao acessar elementos. Esses proxies se comportam "como bool", mas não são 'bool' de fato — e isso pode surpreender ou introduzir sutis bugs se o tipo for manipulado manualmente. Ao usar 'auto', a dedução correta evita esse tipo de armadilha.

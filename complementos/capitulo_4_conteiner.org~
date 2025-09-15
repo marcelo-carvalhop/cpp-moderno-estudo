@@ -1,0 +1,3 @@
+* Contêiner
+
+Na biblioteca padrão do C++, um contêiner é uma estrutura de dados genérica que armazena coleções de objetos de forma organizada, oferecendo operações padronizadas de inserção, acesso e iteração. Exemplos incluem 'std::vector', 'std::list', 'std::map' e 'std::set'. Eles são projetados de acordo com princípios de eficiência e abstração de custo zero, permitindo que os algoritmos da STL funcionem de maneira uniforme sobre diferentes tipos de coleções.

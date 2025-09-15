@@ -1,0 +1,3 @@
+* Ponteiro (Pointer)
+
+Um ponteiro é um objeto que armazena o endereço de outro objeto, permitindo acesso indireto a ele. No C++, ponteiros podem ser nulos, podem ser reassentados para apontar para diferentes objetos ao longo de sua vida útil e exigem sintaxe explícita de desreferência (* ou ->) para acessar o objeto subjacente. Do ponto de vista de design, um ponteiro comunica opcionalidade (“pode não haver objeto”) ou mutabilidade da associação (“este vínculo pode mudar”). Em código moderno, ponteiros brutos (T*) são frequentemente substituídos por ponteiros inteligentes (std::unique_ptr, std::shared_ptr) ou std::optional, que expressam intenções de forma mais clara e segura.

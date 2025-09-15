@@ -1,0 +1,9 @@
+* Semântica de Cópia
+
+A semântica de cópia é o modelo tradicional de manipulação de objetos em C++, no qual um objeto é duplicado integralmente quando passado por valor, retornado de uma função ou atribuído a outro objeto. Esse processo exige a alocação de novos recursos e a reprodução fiel do estado do objeto original. Embora garanta segurança e previsibilidade, a cópia pode se tornar extremamente cara em termos de desempenho, sobretudo em estruturas complexas ou de grande volume. Foi justamente para mitigar esses custos que a semântica de movimento foi concebida, oferecendo uma alternativa eficiente nos cenários em que a duplicação não é necessária.
+
+* Semântica de Cópia
+
+Antes do C++11, toda a comunicação por valor entre funções dependia exclusivamente da semântica de cópia. Esse modelo garante que o objeto destino seja uma réplica fiel do objeto fonte, com seus próprios recursos de memória e estado. É um paradigma seguro e intuitivo: depois da cópia, os dois objetos existem de forma independente e podem ser modificados sem interferir um no outro. Contudo, essa independência tem um preço elevado em termos de desempenho, principalmente em coleções ou classes que encapsulam recursos externos.
+
+A cópia, por natureza, exige duplicação: alocar um novo espaço, percorrer todos os elementos e replicar o conteúdo. Em arquiteturas modernas, onde objetos são frequentemente passados entre diferentes camadas e módulos, esse custo acumulado se torna proibitivo. O advento da semântica de movimento não substituiu a cópia, mas a complementou: hoje o programador pode escolher entre copiar, quando precisa de independência total, ou mover, quando deseja apenas transferir a posse dos recursos. Essa escolha consciente reflete a filosofia do C++ de dar ao desenvolvedor ferramentas de controle fino sobre desempenho e segurança.

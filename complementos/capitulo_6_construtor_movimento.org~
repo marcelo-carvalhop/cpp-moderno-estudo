@@ -1,0 +1,3 @@
+* Construtor de Movimento
+
+O construtor de movimento é uma função especial de classe, introduzida no C++11, cuja finalidade é inicializar um objeto a partir de outro objeto temporário, transferindo seus recursos internos em vez de copiá-los. Sua assinatura típica recebe um parâmetro do tipo referência rvalue e, dentro de sua implementação, os recursos do objeto original são "roubados", enquanto o objeto fonte é deixado em um estado vazio, porém válido. O construtor de movimento reduz drasticamente o custo de operações que envolvem objetos grandes e temporários, tornando viável a escrita de programas mais eficientes e expressivos.

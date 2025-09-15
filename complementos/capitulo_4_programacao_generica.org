@@ -1,0 +1,3 @@
+* Programação Genérica
+
+É o paradigma de programação que busca escrever algoritmos e estruturas de dados de forma independente dos tipos específicos com que serão utilizados. No C++, isso é alcançado por meio de templates. Assim, um algoritmo como 'std::sort' pode ordenar um 'std::vector<int>', um 'std::vector<double>' ou até um contêiner definido pelo usuário, sem necessidade de duplicação de código. A programação genérica é um dos pilares do C++ moderno, pois permite expressar operações em termos de conceitos gerais (como "iterável" ou "ordenável"), em vez de tipos concretos.

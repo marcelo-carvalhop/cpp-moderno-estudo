@@ -1,0 +1,3 @@
+* Bibliotecas de Expressão de Templates
+
+São bibliotecas que exploram intensamente templates e técnicas de metaprogramação para construir expressões que não são avaliadas imediatamente, mas sim transformadas e otimizadas pelo compilador em tempo de compilação. Isso evita a criação de temporários desnecessários e gera código altamente eficiente. Exemplos clássicos são bibliotecas como *Eigen* (para álgebra linear) e *Boost.Proto*, que implementam mecanismos de expression templates. Aqui, auto é crucial porque os tipos intermediários gerados por essas bibliotecas são extremamente complexos e impraticáveis de escrever manualmente.

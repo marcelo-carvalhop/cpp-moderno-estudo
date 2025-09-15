@@ -1,0 +1,3 @@
+* Operador de Atribuição de Movimento
+
+O operador de atribuição de movimento é o mecanismo que permite a um objeto já existente receber os recursos de outro objeto temporário. Semelhante ao construtor de movimento, ele recebe como argumento uma referência rvalue, libera os recursos previamente mantidos pelo objeto de destino e então assume a posse dos recursos do objeto fonte. O operador de atribuição de movimento garante que a semântica de movimento não se limite à inicialização de novos objetos, mas também abarque a reatribuição entre instâncias, completando a integração desse paradigma ao ciclo de vida dos objetos em C++.

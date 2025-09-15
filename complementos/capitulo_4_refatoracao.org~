@@ -1,0 +1,3 @@
+* Refatoração
+
+É o processo disciplinado de modificar a estrutura interna do código sem alterar seu comportamento observável. O objetivo é melhorar a clareza, a manutenibilidade, a eficiência ou a extensibilidade. Em linguagens como C++, onde os tipos de retorno podem mudar devido a escolhas de implementação ou adoção de novas bibliotecas, auto protege o código cliente contra falhas sutis durante refatorações.

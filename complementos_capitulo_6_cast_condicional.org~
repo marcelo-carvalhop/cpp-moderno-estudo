@@ -1,0 +1,3 @@
+* Cast Condicional
+
+Um cast condicional é uma conversão explícita que altera a forma como o compilador interpreta uma expressão. No contexto do C++ moderno, o exemplo mais emblemático é a função 'std::move', que, apesar do nome, não move nada por si só. O que ela faz é realizar um cast condicional de um lvalue para um rvalue, sinalizando ao compilador que aquele objeto pode ter seus recursos transferidos. Esse ato é uma declaração de intenção do programador: ao usar 'std::move', assume-se a responsabilidade de não reutilizar o objeto original, exceto para destruí-lo ou reatribuí-lo.

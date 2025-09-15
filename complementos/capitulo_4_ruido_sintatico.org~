@@ -1,0 +1,3 @@
+* Ruído Sintático
+
+Refere-se a toda a complexidade textual que obscurece a intenção real do código. Em C++, isso se manifesta frequentemente em declarações de tipos longos e verbosos, como iteradores ou assinaturas de funções com múltiplos templates. O uso de auto reduz drasticamente esse ruído, deixando visível apenas a essência da operação: a lógica que o programador deseja expressar. Menos ruído sintático significa mais foco na intenção e menos margem para erro humano.

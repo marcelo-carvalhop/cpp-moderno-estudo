@@ -1,0 +1,3 @@
+* Padrão “sink”
+
+O padrão “sink” é uma convenção de design em C++ segundo a qual uma função recebe seus parâmetros por valor para indicar que pretende assumir a posse definitiva dos recursos do objeto. Essa escolha explicita que a função “consome” o objeto, liberando o chamador para decidir como entregá-lo: por cópia, por movimento explícito com std::move, ou por um temporário. O padrão “sink” é particularmente poderoso porque torna a intenção de posse inequívoca e aproveita as otimizações da semântica de movimento, simplificando o código e aumentando a clareza das interfaces.

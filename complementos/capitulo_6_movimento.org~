@@ -1,0 +1,3 @@
+* Semântica de Movimento
+
+A semântica de movimento é o mecanismo introduzido no C++11 que permite a transferência de recursos de um objeto para outro sem a necessidade de cópia. Em vez de duplicar dados potencialmente grandes — como buffers de memória, vetores ou strings —, a linguagem possibilita que o objeto de destino assuma diretamente a posse dos recursos internos do objeto de origem. O objeto movido permanece em um estado válido, mas esvaziado, destinado apenas a ser destruído ou reutilizado. Esse recurso tornou possível transformar operações antes custosas, de complexidade proporcional ao tamanho do objeto (O(n)), em operações quase instantâneas, de tempo constante (O(1)), tornando-se um dos pilares do C++ moderno.

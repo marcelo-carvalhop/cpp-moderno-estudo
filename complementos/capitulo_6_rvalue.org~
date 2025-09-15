@@ -1,0 +1,3 @@
+* Rvalue (right-hand-side value)
+
+Um rvalue é uma expressão que não possui identidade persistente, consistindo geralmente em valores temporários, literais ou resultados intermediários de operações. Esses valores existem apenas durante a avaliação da expressão e não podem ter seu endereço tomado de forma direta. Exemplos de rvalues são números literais, expressões aritméticas e objetos retornados por funções que não são armazenados em variáveis. O C++11 formalizou o papel do rvalue ao permitir que ele fosse capturado por referências especiais (&&), abrindo caminho para a semântica de movimento.

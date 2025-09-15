@@ -1,0 +1,3 @@
+* Referência (Reference)
+
+Uma referência é um alias para um objeto existente, introduzido no C++ para oferecer uma forma mais segura e sintaticamente transparente de indireção. Ao contrário de ponteiros, referências não podem ser nulas, não podem ser reassentadas após a inicialização e são utilizadas como se fossem o próprio objeto (acesso com . em vez de ->). Sua semântica expressa obrigatoriedade: “este objeto sempre existe e sempre será o mesmo”. Referências são, portanto, ideais para parâmetros de funções que não fazem sentido sem um objeto válido.

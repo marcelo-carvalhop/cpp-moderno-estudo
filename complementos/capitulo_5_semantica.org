@@ -1,0 +1,4 @@
+* Semântica
+
+Semântica é o significado atribuído às construções sintáticas de uma linguagem. Em outras palavras, enquanto a sintaxe dita “como escrever”, a semântica define “o que significa”. No contexto do C++, a semântica de uma referência garante que ela sempre está vinculada a um objeto válido, enquanto a semântica de um ponteiro inclui a possibilidade de ausência ('nullptr'
+) e de reassentamento. A semântica é, portanto, o contrato de comportamento que o compilador e o programador compartilham.

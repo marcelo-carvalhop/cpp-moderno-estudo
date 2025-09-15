@@ -1,0 +1,3 @@
+* Lvalue (locator value)
+
+Um lvalue é uma expressão que se refere a uma entidade com identidade persistente, isto é, algo que ocupa um local específico da memória e cujo endereço pode ser obtido. Variáveis nomeadas, elementos de arrays e referências são exemplos típicos de lvalues. Conceitualmente, é aquilo que pode permanecer no lado esquerdo de uma atribuição, pois representa um objeto que possui continuidade ao longo da execução do programa. O lvalue é, portanto, o contraponto natural ao rvalue dentro da tipologia de expressões do C++.

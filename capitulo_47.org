@@ -85,3 +85,5 @@ Agora que entendemos a natureza do perigo, a questão é: como protegemos nossa 
 
 
 |[[./capitulo_46.org][Anterior]]|[[./cpp_moderno_indice.org][Índice]]|[[./capitulo_48.org][Próximo]]|
+
+

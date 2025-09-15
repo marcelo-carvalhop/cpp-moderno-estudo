@@ -1,0 +1,3 @@
+* Interface Semântica
+
+É o contrato conceitual entre a função (ou classe) e seu usuário: aquilo que a função "promete" entregar em termos de significado, independentemente da implementação concreta. No exemplo do seu texto, a função obter_id_unico() promete fornecer "um identificador único". O tipo exato (std::size_t, unsigned long long etc.) é detalhe de implementação. Ao usar auto, o código cliente se ancora na interface semântica (“me dê um ID”), em vez de depender de um detalhe de representação.

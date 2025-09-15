@@ -1,0 +1,153 @@
+* O Conceito de Rvalue no C++
+
+O C++ é uma linguagem que sempre deu ao programador um controle minucioso sobre a vida dos objetos. Diferente de linguagens puramente gerenciadas, onde cópias e destruições são decididas pelo compilador ou pelo coletor de lixo, em C++ cabe ao desenvolvedor pensar sobre quando um objeto deve ser copiado, quando deve ser compartilhado e, a partir do C++11, quando pode ser simplesmente movido. No centro dessa revolução está a distinção entre *lvalues* e *rvalues*.
+
+Este capítulo é dedicado a entender em profundidade o que significa um rvalue, como ele se comporta, por que é essencial para a semântica de movimento e como o programador pode explorá-lo na prática.
+
+** O que é um rvalue?
+
+O termo /rvalue/ vem de /right-hand value/, porque esses valores tradicionalmente apareciam no lado direito de uma atribuição. Em contraste, um /lvalue/ (/locator value/) representa um objeto que ocupa um lugar definido na memória e que pode ser endereçado.
+
+Um /rvalue/ é, em resumo, *um valor temporário, sem identidade persistente e que normalmente não pode ser endereçado*. Ele existe apenas durante a execução de uma expressão e é descartado logo em seguida.
+
+Exemplo simples:
+#+begin_src cpp
+#include <iostream>
+
+int main() {
+    int x = 5;        // 'x' é um lvalue: tem nome, endereço e pode ser reutilizado
+    int y = x + 2;    // 'x + 2' é um rvalue: resultado temporário, descartado após a atribuição
+
+    std::cout << y << std::endl; // imprime 7
+}
+#+end_src
+
+Aqui, x é um lvalue, pois podemos escrever &x e obter seu endereço. Já x + 2 é um rvalue: não podemos armazenar um ponteiro para ele, e após ser usado na atribuição, ele deixa de existir.
+
+**  Por que rvalues importam?
+
+Durante muito tempo, rvalues eram apenas intermediários de cálculo. Porém, quando o C++ evoluiu para o padrão C++11, eles passaram a ter um papel fundamental: *os rvalues são os únicos candidatos seguros para transferência de recursos na semântica de movimento*.
+
+A lógica é simples: se algo é temporário, podemos reutilizar seus recursos sem medo de corromper dados. Isso abriu caminho para construtores e operadores de movimento.
+
+** 3. Referências a rvalues (T&&)
+
+Para capturar um rvalue explicitamente, o C++11 introduziu um novo tipo de referência: *a referência rvalue*, escrita como T&&. Diferente da referência comum (T&), que só pode se ligar a lvalues, a rvalue reference conecta-se exclusivamente a temporários.
+
+Exemplo prático:
+
+#+begin_src cpp
+#include <iostream>
+#include <string>
+
+void recebe_lvalue(const std::string& s) {
+    std::cout << "Recebi um lvalue: " << s << std::endl;
+}
+
+void recebe_rvalue(std::string&& s) {
+    std::cout << "Recebi um rvalue: " << s << std::endl;
+}
+
+int main() {
+    std::string nome = "Marcelo";
+
+    recebe_lvalue(nome);          // chama a versão lvalue
+    recebe_rvalue("Horizonte");   // chama a versão rvalue
+}
+#+end_src
+
+Saída:
+
+#+begin_src bash
+Recebi um lvalue: Marcelo
+Recebi um rvalue: Horizonte
+#+end_src
+
+Note que "Horizonte" é uma string temporária: ela não tem nome, existe apenas dentro da expressão e pode ser passada com segurança para uma função que aceita std::string&&.
+
+** 'std::move': o /cast/ que transforma lvalues em rvalues
+
+Nem sempre o programador quer trabalhar apenas com temporários literais. Muitas vezes temos um objeto nomeado (um lvalue), mas sabemos que ele não será mais utilizado. Para sinalizar ao compilador que esse objeto pode ser tratado como temporário, existe a função 'std::move'.
+
+Apesar do nome, 'std::move' não move nada por si só: ele apenas faz um cast do objeto para um rvalue, permitindo que construtores ou operadores de movimento sejam chamados.
+
+#+begin_src cpp
+#include <iostream>
+#include <string>
+
+void recebe_rvalue(std::string&& s) {
+    std::cout << "Recebi (e movi) um rvalue: " << s << std::endl;
+}
+
+int main() {
+    std::string cidade = "Gothenburg";
+
+    // recebe_rvalue(cidade); // ERRO: cidade é um lvalue
+    recebe_rvalue(std::move(cidade)); // OK: convertemos para rvalue
+
+    std::cout << "Conteúdo de 'cidade' após o move: " << cidade << std::endl;
+}
+#+end_src
+
+Saída típica:
+
+#+begin_src bash
+Recebi (e movi) um rvalue: Gothenburg
+Conteúdo de 'cidade' após o move:
+#+end_src
+
+Repare que cidade fica em um estado válido mas indefinido (aqui, vazio). Esse é o efeito do movimento.
+
+** Um exemplo real: vetor dinâmico
+
+Considere a seguinte classe que simula um vetor dinâmico simplificado:
+
+#+begin_src cpp
+#include <iostream>
+
+class Vetor {
+private:
+    int* dados;
+    size_t tamanho;
+
+public:
+    // Construtor
+    Vetor(size_t n) : dados(new int[n]), tamanho(n) {
+        for (size_t i = 0; i < n; ++i) dados[i] = 0;
+    }
+
+    // Destrutor
+    ~Vetor() {
+        delete[] dados;
+    }
+
+    // Construtor de cópia
+    Vetor(const Vetor& outro) : dados(new int[outro.tamanho]), tamanho(outro.tamanho) {
+        for (size_t i = 0; i < tamanho; ++i) dados[i] = outro.dados[i];
+        std::cout << "Construtor de CÓPIA chamado" << std::endl;
+    }
+
+    // Construtor de movimento
+    Vetor(Vetor&& outro) noexcept : dados(outro.dados), tamanho(outro.tamanho) {
+        outro.dados = nullptr;
+        outro.tamanho = 0;
+        std::cout << "Construtor de MOVIMENTO chamado" << std::endl;
+    }
+};
+
+int main() {
+    Vetor a(1000000);           // cria vetor grande
+    Vetor b = a;                // chama construtor de cópia (copia 1 milhão de elementos)
+    Vetor c = std::move(a);     // chama construtor de movimento (só troca ponteiros)
+}
+#+end_src 
+
+Neste código, a diferença entre /cópia/ e /movimento/ é evidente. O construtor de cópia faz uma duplicação cara de memória, enquanto o de movimento apenas transfere o ponteiro, em tempo constante.
+
+**  Conclusão
+
+O conceito de /rvalue/ pode parecer inicialmente técnico ou excessivamente formal, mas ele é a pedra fundamental que sustenta a eficiência do C++ moderno. Um rvalue não é apenas um valor temporário: é uma oportunidade para transformar uma operação potencialmente custosa em algo praticamente gratuito.
+
+Ao dominar a distinção entre lvalues e rvalues, e ao aprender a usar 'T&&' junto de 'std::move', o programador ganha acesso ao núcleo da semântica de movimento, capaz de tornar programas muito mais rápidos sem perder segurança.
+
+Por isso, estudar /rvalues/ não é apenas um exercício acadêmico: é aprender a pensar como o C++ pensa sobre objetos, tempo de vida e eficiência.

@@ -1,0 +1,3 @@
+* Arquiteturas Complexas
+
+Arquiteturas complexas de software são sistemas compostos por múltiplas camadas ou subsistemas que interagem entre si de maneira hierárquica ou distribuída. Exemplos comuns incluem arquiteturas em três camadas, divididas entre persistência de dados, lógica de negócios e apresentação. Nesses cenários, os objetos precisam transitar constantemente entre fronteiras modulares. A semântica de movimento exerce papel central nesses sistemas, pois permite que dados volumosos sejam transferidos de uma camada a outra sem custos de cópia excessivos, tornando possível construir soluções robustas e eficientes em larga escala.
