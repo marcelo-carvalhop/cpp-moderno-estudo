@@ -123,7 +123,3 @@ Em última análise, a escolha entre referência e ponteiro é uma declaração 
 [[../complementos/capitulo_5_ponteiro.org][Ponteiro]]
 [[../complementos/capitulo_5_referencia.org][Referência]]
 
-*Leitura Complementar*:
-
-[[../complementos/capitulo_5_conceito_rvalue.org][O Conceito de Rvalue no C++]]
-[[../complementos/capitulo_5_conceito_lvalue.org][O Conceito de Lvalue no c++]]

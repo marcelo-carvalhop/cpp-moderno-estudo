@@ -1,3 +1,0 @@
-* Sintaxe
-
-A sintaxe é o conjunto de regras formais que definem como os símbolos de uma linguagem podem ser combinados para formar programas válidos. Em C++, refere-se à forma externa do código — como declaramos variáveis, escrevemos expressões ou invocamos funções. Por exemplo, a diferença entre '*' para ponteiros e '&' para referências é uma escolha sintática que carrega significado semântico. Embora a sintaxe seja apenas a "aparência" do código, ela influencia fortemente sua legibilidade e expressividade.

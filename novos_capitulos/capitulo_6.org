@@ -148,6 +148,11 @@ Dominar a semântica de movimento é dominar a gestão de recursos e a performance 
 [[../complementos/capitulo_6_rvalue.org][Rvalue (right-hand-side value)]]
 [[../complementos/capitulo_6_construtor_movimento.org][Construtor de Movimento]]
 [[../complementos/capitulo_6_operador_atribuicao.org][Operador de Atribuição de Movimento]]
-[[../complementos_capitulo_6_cast_condicional.org][Cast Condicional]]
+[[../complementos/capitulo_6_cast_condicional.org][Cast Condicional]]
 [[../complementos/capitulo_6_arquiteturas_complexas.org][Arquiteturas Complexas]]
 [[../complementos/capitulo_6_sink.org][Padrão "sink"]]
+
+*Leitura Complementar*:
+
+[[../complementos/capitulo_5_conceito_rvalue.org][O Conceito de Rvalue no C++]]
+[[../complementos/capitulo_5_conceito_lvalue.org][O Conceito de Lvalue no c++]]
