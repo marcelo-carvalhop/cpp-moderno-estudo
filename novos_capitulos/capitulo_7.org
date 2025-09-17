@@ -120,3 +120,8 @@ Isso garante que, se você chamar make_unique_simplificado<MeuObjeto>(std::move(
   3. *Funções de Ordem Superior*: Funções que recebem outras funções e seus argumentos, como std::thread (cujo construtor encaminha os argumentos para a função da thread) ou std::async.
 
 Em resumo, o forwarding perfeito é a solução para o problema de perda de informação de tipo em código genérico. Ele deve ser usado sempre que uma função de template precisa passar seus argumentos para outra função de forma que a função de destino os receba exatamente como a função de template os recebeu. É a cola que permite que a semântica de movimento e as sobrecargas de referência fluam sem atrito através das camadas de abstração que construímos.
+
+#+begin_quote
+  O capítulo acima segue o mesmo padrão dos demais capítulos, porém foi gerado com problemas. A linguagem é complexa e muitos conceitos são anunaciados sem terem sido trabalhados anteriormente, eu pensei em adicionar aqui também um glóssario, mas não acredito que teria uma função didática boa, por isso gerei uma nova versão que pode ser que contenha melhores informações e uma didática mais simples, segue o link: 
+  [[../complementos/capitulo_7_revisado.org][Capítulo 7 (Revisado) - Forwarding Perfeito: Preservando a Inenção Original]]
+#+end_quote
