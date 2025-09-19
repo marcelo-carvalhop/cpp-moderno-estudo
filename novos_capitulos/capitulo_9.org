@@ -1,0 +1,117 @@
+* Capítulo 09: 'constexpr': Programação Entre Dois Mundos
+
+A palavra-chave constexpr, introduzida no C++11 e significativamente aprimorada no C++14 e C++17, representa uma das evoluções mais profundas no pensamento do C++ moderno. Ela formaliza e expande uma ideia que sempre esteve no coração da linguagem: fazer o máximo de trabalho possível em tempo de compilação. Se um valor pode ser conhecido antes de o programa executar, ele deve ser calculado pelo compilador. Isso resulta em programas menores, mais rápidos e, em alguns casos, com garantias de correção mais fortes.
+
+'constexpr' é uma promessa dupla. Quando aplicada a uma variável, ela afirma que seu valor é uma verdadeira constante de tempo de compilação, utilizável em contextos que exigem isso (como o tamanho de um array estático). Quando aplicada a uma função, ela sugere que a função pode ser avaliada em tempo de compilação, se todos os seus argumentos forem constantes de tempo de compilação.
+
+** 9.1 /constexpr/ em Variáveis: Mais que /const/
+
+Uma variável const é uma variável cujo valor não pode ser modificado após a inicialização. No entanto, essa inicialização pode acontecer em tempo de execução.
+
+#+begin_src cpp
+#include <random>
+
+int obter_valor_aleatorio() {
+    // ... gera um número aleatório ...
+    return 42; // Exemplo simplificado
+}
+
+const int VALOR_CONST = obter_valor_aleatorio(); // Inicializado em tempo de execução
+#+end_src
+
+'VALOR_CONST' é constante, mas seu valor não é conhecido pelo compilador. Por outro lado, constexpr exige que a inicialização seja feita em tempo de compilação.
+
+#+begin_src cpp
+constexpr int LADOS_DO_QUADRADO = 4;
+int tabuleiro[LADOS_DO_QUADRADO][LADOS_DO_QUADRADO]; // Válido. O tamanho é conhecido.
+
+// const int LARGURA = VALOR_CONST;
+// int tela[LARGURA]; // ERRO DE COMPILAÇÃO! LARGURA não é uma constante de tempo de compilação.
+#+end_src
+
+/constexpr/ garante que a variável seja utilizável em qualquer contexto que exija uma expressão constante integral, o nível mais alto de "constância" na linguagem.
+
+** 9.2 /constexpr/ em Funções: O Compilador como Intérprete
+
+Este é o aspecto mais revolucionário. Uma função 'constexpr' é uma função que o compilador pode, ele mesmo, executar.
+
+*Exemplo Simples: Fatorial*
+#+begin_src cpp
+#include <iostream>
+#include <array>
+
+// Uma função que pode ser executada tanto em tempo de compilação quanto em tempo de execução.
+constexpr long long fatorial(int n) {
+    return n <= 1 ? 1 : n * fatorial(n - 1);
+}
+
+int main() {
+    // Uso em tempo de compilação:
+    // O compilador calcula fatorial(5) e o resultado (120) é "embutido" no código.
+    constexpr long long resultado_compile_time = fatorial(5);
+    std::cout << "Fatorial de 5 (compile-time): " << resultado_compile_time << "\n";
+
+    // O resultado é usado para definir o tamanho de um array.
+    // Isso só é possível porque o valor é conhecido pelo compilador.
+    std::array<int, fatorial(4)> meu_array; // Array com 24 elementos.
+    std::cout << "Tamanho do array: " << meu_array.size() << "\n";
+
+    // Uso em tempo de execução:
+    // O usuário fornece um valor, então o compilador gera o código normal da função
+    // para ser executado quando o programa rodar.
+    std::cout << "Digite um número: ";
+    int x;
+    std::cin >> x;
+    std::cout << "Fatorial de " << x << " (run-time): " << fatorial(x) << "\n";
+    
+    return 0;
+}
+#+end_src
+
+A mesma função /fatorial/ vive em dois mundos. Quando chamada com argumentos conhecidos pelo compilador, ela é executada dentro do próprio compilador. Quando chamada com argumentos de tempo de execução, o compilador gera o código assembly para ela, como faria com qualquer função normal.
+
+*A Evolução do /constexpr/*
+  - *C++11*: Funções constexpr eram muito restritas. Elas só podiam conter uma única instrução return.
+
+  - *C++14*: As restrições foram relaxadas. Agora, funções 'constexpr' podem ter múltiplas instruções, 'if's, loops e variáveis locais. Isso abriu a porta para algoritmos muito mais complexos.
+
+  - *C++17 e C++20*: Aprimoraram ainda mais, permitindo lambdas em contextos constexpr e introduzindo 'consteval' (que força a avaliação em tempo de compilação) e 'constinit' (que garante a inicialização estática).
+
+** 9.3 /if constexpr/: Decisões de Compilação
+
+O C++17 introduziu 'if constexpr', que permite ao compilador descartar ramos de um 'if' com base em uma condição de tempo de compilação. Isso é uma ferramenta poderosa para metaprogramação, permitindo escrever uma única função de template que se comporta de maneiras drasticamente diferentes para tipos diferentes, sem sobrecarga de tempo de execução.
+
+#+begin_src cpp
+#include <iostream>
+#include <string>
+#include <type_traits> // Para std::is_pointer
+
+template<typename T>
+void imprimir_valor(T valor) {
+    // Esta condição é avaliada EM TEMPO DE COMPILAÇÃO.
+    if constexpr (std::is_pointer_v<T>) {
+        // Se T for um ponteiro, este bloco de código é compilado.
+        // O bloco 'else' é completamente descartado.
+        std::cout << "É um ponteiro: " << *valor << "\n";
+    } else {
+        // Se T não for um ponteiro, este bloco é compilado.
+        // O bloco 'if' é descartado.
+        std::cout << "Não é um ponteiro: " << valor << "\n";
+    }
+}
+
+int main() {
+    int x = 10;
+    int* p = &x;
+    std::string s = "Olá";
+
+    imprimir_valor(s); // Compila a versão 'else'
+    imprimir_valor(p); // Compila a versão 'if'
+    
+    return 0;
+}
+#+end_src
+
+Sem if constexpr, teríamos que usar técnicas de metaprogramação de template muito mais complexas (como SFINAE) para alcançar o mesmo resultado.
+
+Em essência, constexpr é a manifestação da filosofia de custo zero. Ele move a computação do tempo de execução, que é caro e pago pelo usuário final, para o tempo de compilação, que é um custo único pago pelo desenvolvedor. Em sistemas onde a performance é crítica — como em computação embarcada, jogos ou finanças de alta frequência — a capacidade de pré-calcular tabelas, validar configurações ou otimizar a lógica em tempo de compilação não é um luxo, mas uma necessidade. constexpr é a ferramenta que torna essa necessidade uma realidade prática e elegante.

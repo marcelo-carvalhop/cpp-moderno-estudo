@@ -1,0 +1,134 @@
+* Capítulo 10: Tipos Fortes e Segurança Semântica
+
+Um dos paradoxos do C++ é que ele possui um sistema de tipos estático e poderoso, mas, por padrão, trata tipos fundamentalmente diferentes como se fossem intercambiáveis. Considere o seguinte código:
+
+#+begin_src cpp
+void definir_timeout(int milissegundos) { /* ... */ }
+void definir_distancia(int metros) { /* ... */ }
+
+int main() {
+    int tempo = 5000;
+    int distancia = 5000;
+
+    definir_timeout(distancia); // ERRO SEMÂNTICO!
+    definir_distancia(tempo);   // ERRO SEMÂNTICO!
+    
+    return 0;
+}
+#+end_src
+
+Este código compila perfeitamente. O compilador vê apenas ints sendo passados para funções que esperam ints. No entanto, do ponto de vista do domínio do problema, o código está perigosamente errado. Estamos passando uma distância para uma função que espera um tempo. Este é um erro semântico, um erro de significado, que o sistema de tipos padrão é cego para detectar.
+
+A solução para essa classe de problemas é a criação de tipos fortes (strong types). A ideia é usar o sistema de tipos do C++ para criar novos tipos distintos que encapsulam os tipos primitivos, tornando-os não intercambiáveis e adicionando significado — semântica — ao nosso código.
+
+10.1 A Abordagem Clássica: struct Wrapper
+A maneira mais simples e robusta de criar um tipo forte é encapsular o tipo primitivo em uma struct (ou class).
+
+cpp
+Copy
+#include <iostream>
+
+// Criamos novos tipos distintos para nossas unidades.
+struct Milissegundos {
+    int valor;
+};
+
+struct Metros {
+    int valor;
+};
+
+void definir_timeout(Milissegundos ms) {
+    std::cout << "Timeout definido para " << ms.valor << "ms.\n";
+}
+
+void definir_distancia(Metros m) {
+    std::cout << "Distância definida para " << m.valor << "m.\n";
+}
+
+int main() {
+    Milissegundos tempo{5000};
+    Metros distancia{5000};
+
+    definir_timeout(tempo);       // Correto.
+    definir_distancia(distancia); // Correto.
+
+    // As linhas a seguir agora causam ERROS DE COMPILAÇÃO.
+    // O sistema de tipos está nos protegendo de erros semânticos.
+    // definir_timeout(distancia); // Erro: não é possível converter Metros para Milissegundos
+    // definir_distancia(tempo);   // Erro: não é possível converter Milissegundos para Metros
+    
+    return 0;
+}
+Ao "embrulhar" o int em uma struct, criamos um tipo completamente novo aos olhos do compilador. Milissegundos e Metros não são mais intercambiáveis, embora ambos contenham um int. Forçamos o código a ser explícito sobre as unidades que está usando, eliminando a ambiguidade e prevenindo bugs. Esta é a essência da segurança semântica.
+
+10.2 Melhorando a Ergonomia: Construtores e Operadores
+Embora a abordagem da struct seja segura, ela pode ser um pouco verbosa (tempo.valor). Podemos melhorar a ergonomia adicionando construtores e sobrecarregando operadores para tornar nossos tipos fortes tão fáceis de usar quanto os tipos primitivos.
+
+cpp
+Copy
+#include <iostream>
+
+struct Milissegundos {
+    int valor;
+    
+    // Permite conversão explícita de int para Milissegundos
+    explicit Milissegundos(int v) : valor(v) {}
+};
+
+// Sobrecarga de operador para permitir a impressão direta
+std::ostream& operator<<(std::ostream& os, const Milissegundos& ms) {
+    return os << ms.valor << "ms";
+}
+
+void definir_timeout(Milissegundos ms) {
+    std::cout << "Timeout definido para " << ms << ".\n";
+}
+
+int main() {
+    // A inicialização agora é mais limpa
+    definir_timeout(Milissegundos{5000});
+    
+    return 0;
+}
+A palavra-chave explicit no construtor é crucial. Ela impede que o compilador faça conversões implícitas de int para Milissegundos, forçando o desenvolvedor a ser sempre explícito sobre a criação do tipo forte. Isso mantém a segurança que buscamos.
+
+10.3 O Idioma "Named Constructor" para Clareza
+Para tipos que podem ser construídos a partir de diferentes unidades, podemos usar um padrão chamado Named Constructor Idiom (um conjunto de funções de fábrica estáticas) para tornar a criação ainda mais clara.
+
+cpp
+Copy
+#include <chrono> // Para referência, a STL usa essa abordagem extensivamente
+
+class Duracao {
+private:
+    long long m_nanossegundos;
+    explicit Duracao(long long nanos) : m_nanossegundos(nanos) {}
+
+public:
+    // Funções de fábrica estáticas que documentam a unidade de origem
+    static Duracao segundos(int s) { return Duracao(s * 1'000'000'000LL); }
+    static Duracao milissegundos(int ms) { return Duracao(ms * 1'000'000LL); }
+    
+    long long como_milissegundos() const { return m_nanossegundos / 1'000'000LL; }
+};
+
+void agendar_evento(Duracao d) {
+    std::cout << "Evento agendado em " << d.como_milissegundos() << "ms.\n";
+}
+
+int main() {
+    // A intenção é inconfundível.
+    agendar_evento(Duracao::segundos(5));
+    agendar_evento(Duracao::milissegundos(250));
+    
+    return 0;
+}
+A biblioteca <chrono> da STL é o exemplo máximo dessa filosofia. std::chrono::seconds, std::chrono::milliseconds, etc., são tipos fortes que impedem que você some segundos a metros, garantindo a correção dimensional em tempo de compilação.
+
+10.4 Tipos Fortes como Fronteiras de Sistemas
+A utilidade dos tipos fortes se torna ainda mais aparente nas fronteiras de um sistema ou de um módulo. Ao projetar uma API, usar tipos fortes como UserID, TransactionID ou FilePath em vez de long, std::string ou const char* cria um contrato muito mais robusto.
+
+Previne erros de ordem: É impossível chamar transferir_fundos(to_account, from_account, amount) se os tipos forem AccountID_From e AccountID_To.
+Auto-documentação: A assinatura da função abrir_arquivo(const FilePath& p) é muito mais clara do que abrir_arquivo(const std::string& s).
+Segurança: Um tipo SanitizedHTML pode garantir, através de seu construtor privado e funções de fábrica, que ele só pode ser criado a partir de uma string que já passou por um processo de sanitização, prevenindo ataques de XSS (Cross-Site Scripting) em toda a base de código.
+Em resumo, a criação de tipos fortes é uma técnica para ensinar ao compilador as regras do seu domínio de problema. É uma troca deliberada: adicionamos um pequeno esforço inicial na definição de tipos para ganhar uma enorme recompensa em segurança, clareza e manutenibilidade a longo prazo. É a manifestação do princípio de que o código deve ser escrito para que os erros sejam difíceis de cometer, e o sistema de tipos é nosso aliado mais poderoso nessa tarefa.
