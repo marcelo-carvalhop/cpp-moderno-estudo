@@ -1,0 +1,7 @@
+* explicit
+
+No C++, a palavra-chave *explicit* é usada para marcar construtores e operadores de conversão, indicando ao compilador que eles não devem ser utilizados em conversões implícitas de tipos. O motivo é simples: sem 'explicit', o compilador pode realizar conversões automáticas e inesperadas entre tipos, o que abre espaço para erros sutis de semântica.
+
+No contexto de *tipos fortes*, o uso de 'explicit' é essencial. Imagine um tipo 'Milissegundos' que encapsula um 'int'. Se o construtor não fosse 'explicit', qualquer inteiro poderia ser convertido automaticamente em 'Milissegundos', o que anularia a proteção semântica desejada. Ao exigir que a criação do tipo seja explícita, ou seja, 'definir_timeout(Milissegundos{5000});', o desenvolvedor é forçado a declarar sua intenção de forma clara e inequívoca.
+
+Assim, 'explicit' é uma ferramenta para fortalecer o contrato entre programador e compilador, eliminando ambiguidades e tornando o código mais seguro, claro e robusto.

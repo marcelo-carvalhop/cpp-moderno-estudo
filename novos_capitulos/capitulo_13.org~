@@ -1,0 +1,102 @@
+Capítulo 13: Exceções vs. código robusto sem exceções
+A gestão de erros é um pilar central no design de software confiável. Em C++, a discussão sobre a melhor abordagem para lidar com falhas operacionais frequentemente se polariza em duas filosofias principais: o uso idiomático do sistema de exceções e o uso de códigos de erro ou tipos de retorno que representam o estado da operação. Esta não é uma escolha meramente sintática; ela reflete visões distintas sobre o fluxo de controle, a robustez e o custo computacional.
+
+13.1 A Filosofia das Exceções: Erros são Excepcionais
+Como explorado anteriormente, o mecanismo de try/throw/catch foi projetado com uma premissa fundamental: separar o código da lógica principal ("o caminho feliz") do código de tratamento de erros. A filosofia subjacente é que os erros que impedem uma função de cumprir seu contrato são eventos excepcionais e não devem poluir o fluxo de controle normal.
+
+Vantagens:
+
+Limpeza do Código: A lógica de negócios permanece clara e linear, livre de verificações de erro a cada passo.
+Propagação Automática: Uma exceção não tratada se propaga automaticamente pela pilha de chamadas até que um manipulador (catch) seja encontrado. Isso evita a necessidade de cada função intermediária inspecionar e repassar manualmente um código de erro.
+Segurança com RAII: A garantia de stack unwinding (desenrolar da pilha) assegura que os destrutores de objetos na pilha sejam chamados, tornando o gerenciamento de recursos (memória, locks, arquivos) robusto e automático na presença de erros.
+Tipos de Erro Ricos: Exceções são objetos. Elas podem carregar informações contextuais detalhadas sobre a falha (mensagens, códigos de erro, stack traces), muito além de um simples valor de retorno.
+Desvantagens e Críticas:
+
+Custo Oculto: Embora o "caminho feliz" seja frequentemente otimizado para ter custo zero (zero-cost exceptions), o ato de lançar uma exceção é uma operação cara em tempo de execução. Envolve a captura do estado da pilha, a busca por um manipulador e o desenrolar da pilha.
+Fluxo de Controle Não-Local: A propagação automática pode tornar o fluxo de controle difícil de rastrear. Não é imediatamente óbvio, ao ler uma chamada de função, que ela pode transferir o controle para um bloco catch muito distante.
+Restrições de Uso: Exceções são frequentemente desabilitadas ou proibidas em certos domínios, como sistemas embarcados de tempo real crítico ou kernels de sistema operacional, onde o custo e a não-determinismo do lançamento de exceções são inaceitáveis.
+13.2 A Filosofia dos Códigos de Erro: Erros são Dados
+A abordagem alternativa trata os erros não como eventos excepcionais que alteram o fluxo de controle, mas como um dos possíveis resultados de uma operação. O erro é simplesmente dados que a função retorna.
+
+Formas Comuns:
+
+Códigos de Retorno: A abordagem clássica do C, onde um valor especial (e.g., -1, nullptr) indica falha. errno é frequentemente usado para fornecer mais detalhes.
+Parâmetros de Saída: A função retorna um booleano indicando sucesso/falha, e o resultado real ou o objeto de erro é preenchido através de um parâmetro de referência.
+Tipos de Retorno Compostos: A abordagem moderna e preferida, que utiliza tipos como std::optional (C++17), std::expected (C++23) ou std::pair.
+Exemplo com std::optional (C++17):
+std::optional<T> representa um valor que pode ou não estar presente. É ideal para funções que podem falhar, mas onde a razão da falha não é importante.
+
+cpp
+Copy
+#include <iostream>
+#include <optional>
+#include <string>
+
+std::optional<int> string_para_int(const std::string& s) {
+    try {
+        return std::stoi(s);
+    } catch (const std::invalid_argument&) {
+        return std::nullopt; // Retorna um estado "vazio" para indicar falha.
+    } catch (const std::out_of_range&) {
+        return std::nullopt;
+    }
+}
+
+int main() {
+    if (auto resultado = string_para_int("123")) {
+        std::cout << "Sucesso: " << *resultado << "\n";
+    } else {
+        std::cout << "Falha na conversão.\n";
+    }
+
+    if (auto resultado = string_para_int("abc")) {
+        std::cout << "Sucesso: " << *resultado << "\n";
+    } else {
+        std::cout << "Falha na conversão.\n";
+    }
+    return 0;
+}
+Exemplo com std::expected (C++23):
+std::expected<T, E> é ainda mais poderoso. Ele contém ou um valor de sucesso (T) ou um valor de erro (E), permitindo que a função retorne informações detalhadas sobre a falha.
+
+cpp
+Copy
+// Requer C++23
+/*
+#include <iostream>
+#include <expected>
+#include <string>
+
+enum class ErroConversao { Invalido, ForaDoRange };
+
+std::expected<int, ErroConversao> string_para_int_cpp23(const std::string& s) {
+    try {
+        return std::stoi(s);
+    } catch (const std::invalid_argument&) {
+        return std::unexpected(ErroConversao::Invalido);
+    } catch (const std::out_of_range&) {
+        return std::unexpected(ErroConversao::ForaDoRange);
+    }
+}
+*/
+Vantagens:
+
+Fluxo de Controle Explícito: O tratamento de erro é local e explícito. O programador é forçado a lidar com o resultado da falha no local da chamada.
+Performance: Retornar um valor, mesmo um struct como std::optional, é uma operação de tempo de execução muito mais barata e previsível do que lançar uma exceção.
+Universalidade: Funciona em qualquer ambiente, incluindo aqueles onde as exceções são proibidas.
+Desvantagens:
+
+Verboso: Pode levar a um código mais verboso, com verificações if após cada chamada de função que pode falhar.
+Fácil de Ignorar: O programador pode esquecer de verificar o estado de erro, permitindo que o programa continue com dados inválidos (embora tipos como std::optional e std::expected tornem isso mais difícil e explícito).
+13.3 A Síntese Moderna: Quando Usar Cada Um
+A visão moderna, defendida por muitos na comunidade C++, incluindo Herb Sutter, não é uma escolha de "um ou outro", mas uma abordagem híbrida baseada na natureza do erro:
+
+Use Exceções para Erros de Lógica e Invariantes do Sistema:
+Quando uma função não pode cumprir seu contrato fundamental (e.g., um construtor que não pode construir um objeto válido).
+Para violações de pré-condições que indicam um bug no programa (e.g., std::out_of_range).
+Quando o erro ocorre em uma camada profunda do sistema e o ponto de recuperação está muito acima na pilha de chamadas.
+Use Tipos de Retorno para Falhas Operacionais Esperadas:
+Quando a falha é um resultado comum e esperado da operação (e.g., "arquivo não encontrado", "usuário digitou uma senha inválida", "falha na conversão de string").
+Em APIs públicas onde forçar o chamador a lidar com o erro explicitamente é desejável.
+Em código onde a performance é crítica e o custo de uma exceção é inaceitável.
+A escolha entre exceções e códigos de erro é uma decisão de design fundamental. As exceções são para o inesperado, para falhas que quebram o modelo do programa. Os tipos de retorno de erro são para o esperado, para os resultados alternativos que fazem parte do domínio do problema. Usar cada ferramenta em seu contexto apropriado leva a um código que é, ao mesmo tempo, robusto, legível e performático.

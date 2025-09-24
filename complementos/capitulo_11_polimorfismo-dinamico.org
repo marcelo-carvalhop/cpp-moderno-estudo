@@ -1,0 +1,3 @@
+* Polimorfismo dinâmico
+
+Polimorfismo dinâmico é a capacidade de tratar objetos de diferentes tipos derivados de uma mesma classe base por meio de um ponteiro ou referência à classe base, com a decisão de qual função executar sendo tomada em tempo de execução. Em C++, isso é viabilizado pelas funções virtuais e pelas tabelas virtuais ('vtables'). É a técnica que permite escrever código genérico em alto nível (como processar uma lista de 'Sensor*' sem precisar conhecer o tipo concreto de cada sensor). Embora poderoso, o polimorfismo dinâmico implica custos de desempenho e maior complexidade de memória, o que leva, em alguns contextos, à busca de alternativas como polimorfismo estático via templates.

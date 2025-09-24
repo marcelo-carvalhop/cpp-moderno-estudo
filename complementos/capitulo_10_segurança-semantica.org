@@ -1,0 +1,3 @@
+* Segurança semântica (Semantic Safety)
+
+Segurança semântica é a propriedade de um programa que garante que os valores manipulados pelo código carreguem sempre o significado correto de acordo com o domínio do problema. Enquanto a verificação de tipos tradicional impede que se adicione uma string a um número, a segurança semântica impede que um número válido, mas pertencente a outra categoria conceitual, seja usado no lugar errado. Por exemplo, passar uma variável que representa distância para uma função que espera um tempo. Em C++, a segurança semântica é alcançada ao se criar abstrações que tornam tais confusões impossíveis de compilar, geralmente por meio de tipos fortes, funções de fábrica e encapsulamento.

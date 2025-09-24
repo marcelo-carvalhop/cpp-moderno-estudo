@@ -1,0 +1,34 @@
+*Namespace*
+
+Estrutura do C++ que agrupa símbolos (funções, classes, variáveis, enums, etc.) dentro de um escopo nomeado, prevenindo colisões de nomes e organizando o código logicamente. Diferente de uma classe, não oferece encapsulamento de dados, apenas organização semântica.
+
+*Namespace anônimo*
+
+Um namespace sem nome, definido com namespace { ... }. Todo símbolo declarado dentro dele tem ligação interna (visível apenas dentro daquela unidade de tradução). É usado para ocultar detalhes de implementação, substituindo o antigo uso de static em variáveis e funções de escopo de arquivo.
+
+*using directive / using declaration*
+
+  - /Using declaration ('using Graficos::Janela;')/: introduz um único identificador no escopo atual, sendo considerado seguro em muitos casos.
+
+  - /Using directive ('using namespace Graficos;')/: introduz todo o namespace, podendo causar conflitos de nomes inesperados e é geralmente desaconselhado em headers.
+
+ODR (One Definition Rule)
+Regra fundamental do C++ que afirma que cada entidade (função, classe, variável, template) deve ter uma definição única em todo o programa. Violá-la gera erros de link ou comportamento indefinido. O modelo de inclusão via #include torna mais fácil violar a ODR.
+
+Unidade de Tradução (Translation Unit)
+O resultado do pré-processamento de um arquivo fonte C++ (normalmente um .cpp junto com todos os headers incluídos). É a unidade mínima que o compilador compila antes da fase de linkagem. Namespaces anônimos e variáveis static limitam a visibilidade ao nível da unidade de tradução.
+
+Módulo (C++20)
+Nova forma de organização introduzida no C++20 que substitui o modelo textual de inclusão. Um módulo compila sua interface uma única vez e fornece uma representação binária pré-compilada a outros arquivos que o importam, reduzindo tempo de compilação e aumentando encapsulamento.
+
+Unidade de Interface do Módulo
+Arquivo especial (extensão .cppm em muitos compiladores) que declara o que o módulo exporta. Apenas símbolos marcados com export ficam visíveis para importadores.
+
+Unidade de Implementação do Módulo
+Arquivos .cpp que também pertencem ao módulo (declarados com module nome;). Servem para implementar funções e detalhes privados que não precisam ser exportados.
+
+Header Unit
+Recurso de compatibilidade dos compiladores que permite importar headers tradicionais (#include <vector>) como módulos (import <vector>;), facilitando a migração gradual de projetos existentes.
+
+Fronteira de Sistema
+Conceito arquitetural que representa os limites entre diferentes partes de um sistema de software. Namespaces fornecem fronteiras lógicas (organização de símbolos). Módulos, além disso, fornecem fronteiras físicas (compilação isolada, encapsulamento binário e dependências explícitas).

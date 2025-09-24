@@ -1,0 +1,3 @@
+* RTTI (Run-Time Type Information)
+
+RTTI é o mecanismo do C++ que permite ao programa, em tempo de execução, identificar o tipo dinâmico exato de um objeto. Ele é a base para funcionalidades como dynamic_cast e o operador typeid. Quando usado, o compilador gera estruturas auxiliares (como tabelas de tipos) que permitem verificar, por exemplo, se um ponteiro para Sensor aponta de fato para um SensorTemperatura ou SensorUmidade. O ganho é a segurança contra comportamentos indefinidos em downcasts, mas o custo é a sobrecarga de memória e de tempo de execução. Por esse motivo, o uso excessivo de RTTI é frequentemente interpretado como sinal de falha de design, sugerindo que o polimorfismo virtual poderia ter sido utilizado de forma mais idiomática.

@@ -1,0 +1,159 @@
+* Capítulo 13: Exceções vs. Código Robusto Sem Exceções
+
+** Contexto Histórico e Filosófico
+
+C++ herdou da sua herança dupla (C e Simula) duas visões de tratamento de erros. Do lado de C, veio a cultura dos códigos de erro e errno, prática direta, mas sujeita a erros de verificação. Do lado de linguagens orientadas a objetos, veio a filosofia de exceções como mecanismo de separação semântica entre fluxo normal e fluxo anômalo.
+
+Esse choque de culturas permanece vivo até hoje:
+
+  - A escola das exceções vê erros como algo qualitativamente diferente do fluxo normal, merecendo um mecanismo especial.
+  - A escola dos retornos vê erros como dados normais que devem ser tratados localmente, com o compilador ajudando a forçar o manuseio.
+
+13.1 O Modelo das Exceções
+Filosofia
+
+Exceções são usadas quando o contrato fundamental de uma função não pode ser cumprido. São, portanto, um mecanismo para falhas inesperadas, e não para resultados alternativos triviais.
+
+Pontos de Força
+
+Código limpo e expressivo: O “caminho feliz” fica livre de verificações de erro repetitivas.
+
+Stack unwinding automático: garante que destrutores de RAII sejam chamados — uma das maiores vantagens em sistemas complexos.
+
+Transporte de contexto: exceções podem carregar mensagens, códigos, ou objetos inteiros descrevendo a falha.
+
+Módulos independentes: um módulo pode lançar exceções sem que os chamadores precisem conhecer todos os códigos possíveis.
+
+Críticas e Dificuldades
+
+Custo em tempo de execução: lançar exceções envolve estruturas internas, tabelas de stack unwinding e busca de handlers.
+
+Fluxo de controle implícito: pode ser difícil rastrear onde exatamente um erro será capturado.
+
+Compatibilidade: em ambientes restritos (embedded, games, drivers) exceções frequentemente são desativadas.
+
+Complexidade de biblioteca: templates genéricos e exceções podem interagir de forma explosiva (padrões como noexcept ajudam a controlar isso).
+
+Exemplo Prático
+#include <iostream>
+#include <stdexcept>
+#include <vector>
+
+int acesso_seguro(const std::vector<int>& v, size_t i) {
+    if (i >= v.size())
+        throw std::out_of_range("Índice inválido: " + std::to_string(i));
+    return v[i];
+}
+
+int main() {
+    try {
+        std::vector<int> dados = {1, 2, 3};
+        std::cout << acesso_seguro(dados, 5) << "\n";
+    } catch (const std::exception& e) {
+        std::cerr << "Erro capturado: " << e.what() << "\n";
+    }
+}
+
+13.2 O Modelo Sem Exceções
+Filosofia
+
+Aqui, falhas não são excepcionais: são resultados esperados. O erro é tratado como parte do contrato da função.
+
+Estratégias
+
+Códigos de retorno: simples, mas frágeis (o chamador pode ignorar).
+
+Parâmetros de saída + bool: reduz risco, mas é verboso.
+
+Tipos modernos (optional/expected): representam explicitamente a possibilidade de falha, com suporte do compilador.
+
+Pontos de Força
+
+Explícito e local: chamador sempre lida com o resultado.
+
+Performance previsível: sem stack unwinding, mais adequado para sistemas embarcados e tempo real.
+
+Universalidade: funciona mesmo em compiladores/configurações sem exceções.
+
+Críticas
+
+Verboso: muitas verificações if podem poluir código.
+
+Risco de descuido: programadores podem ignorar retornos (embora [[nodiscard]] em C++17 ajude).
+
+Composição complexa: encadear várias funções com optional/expected pode levar a aninhamentos profundos.
+
+Exemplo com std::expected
+#include <iostream>
+#include <expected>
+#include <string>
+
+enum class Erro { Invalido, ForaDoRange };
+
+std::expected<int, Erro> string_para_int(const std::string& s) {
+    try {
+        return std::stoi(s);
+    } catch (const std::invalid_argument&) {
+        return std::unexpected(Erro::Invalido);
+    } catch (const std::out_of_range&) {
+        return std::unexpected(Erro::ForaDoRange);
+    }
+}
+
+int main() {
+    auto r = string_para_int("abc");
+    if (r) {
+        std::cout << "Valor: " << *r << "\n";
+    } else {
+        std::cout << "Erro de conversão\n";
+    }
+}
+
+13.3 A Visão Moderna: Escolha Contextual
+Quando preferir exceções
+
+Violação de invariantes, erros graves que não fazem parte do “fluxo normal”.
+
+Bibliotecas genéricas onde os chamadores podem reagir de formas variadas.
+
+Situações em que a clareza e a robustez de RAII superam o custo de performance.
+
+Quando preferir retornos
+
+Resultados esperados (ex.: “arquivo não existe”, “usuário digitou errado”).
+
+APIs públicas onde forçar tratamento explícito é desejável.
+
+Ambientes sem suporte a exceções.
+
+Código de performance crítica em hot paths.
+
+13.4 Técnicas Avançadas
+
+noexcept: especifica que uma função não lança exceções, ajudando o compilador a otimizar.
+
+Exceções e templates: deve-se projetar interfaces genéricas para não dependerem fortemente de políticas de exceções.
+
+Erro como parte do tipo: std::variant ou tipos monádicos (em bibliotecas funcionais de C++) permitem encadear computações que podem falhar de forma elegante.
+
+Programação defensiva: combinar verificações estáticas (static_assert, contratos C++20) com runtime.
+
+13.5 Boas Práticas Recomendadas
+
+Sempre documentar se uma função pode lançar ou não (noexcept quando aplicável).
+
+Usar [[nodiscard]] para funções que retornam optional/expected.
+
+Lançar exceções apenas em situações realmente excepcionais.
+
+Não misturar arbitrariamente exceções e códigos de erro na mesma API.
+
+Seguir guidelines de grandes projetos (Core Guidelines: [E.12, E.14, E.15]).
+
+👉 Em resumo:
+
+Exceções → Para erros inesperados e críticos, que quebram o contrato.
+
+Retornos (optional/expected) → Para erros esperados e operacionais, que fazem parte do domínio.
+
+Essa síntese não é apenas teoria — ela guia o design das bibliotecas padrão modernas (C++17/20/23) e de gigantes como Google, LLVM e Microsoft.

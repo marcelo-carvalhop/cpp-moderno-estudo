@@ -1,0 +1,132 @@
+* Capítulo 11: Casting explícito e seus perigos
+
+O sistema de tipos do C++ é um mecanismo de segurança essencial, projetado para prevenir erros de categoria. Contudo, cenários práticos, especialmente na programação de sistemas e na interoperabilidade com código legado, exigem a capacidade de contornar essas garantias. Para isso, o C++ oferece operadores de conversão de tipo explícita, ou casting.
+
+A forma de cast herdada do C, '(novo_tipo)expressao', é problemática por sua ambiguidade, mascarando operações de risco variado sob uma única sintaxe. O C++ moderno aborda isso com quatro operadores de cast nomeados, que forçam o programador a declarar a intenção da conversão, clarificando os riscos envolvidos.
+
+11.1 static_cast
+O static_cast é usado para conversões entre tipos relacionados, onde a validade da conversão pode ser verificada em tempo de compilação. Ele lida com conversões implícitas de forma explícita, como entre tipos numéricos, e a navegação em hierarquias de classes.
+
+O principal perigo do static_cast reside no downcasting — a conversão de um ponteiro de uma classe base para uma derivada. Nenhuma verificação é feita em tempo de execução; o operador assume que a conversão é válida. Se essa suposição estiver incorreta, o resultado é comportamento indefinido.
+
+cpp
+Copy
+#include <iostream>
+
+class Sensor { 
+public: 
+    virtual ~Sensor() = default; 
+};
+
+class SensorTemperatura : public Sensor { 
+public: 
+    double ler_temperatura() { return 25.3; } 
+};
+
+class SensorUmidade : public Sensor { 
+public:
+    double ler_umidade() { return 55.0; }
+};
+
+void processar_sensor(Sensor* s) {
+    // O programador está fazendo uma suposição aqui.
+    // Se 's' não for um SensorTemperatura, a linha seguinte leva a comportamento indefinido.
+    SensorTemperatura* st = static_cast<SensorTemperatura*>(s);
+    std::cout << "Temperatura (via static_cast): " << st->ler_temperatura() << "\n";
+}
+
+int main() {
+    SensorTemperatura temp_sensor;
+    SensorUmidade umid_sensor;
+
+    std::cout << "Processando sensor de temperatura:\n";
+    processar_sensor(&temp_sensor); // Válido e funciona como esperado.
+
+    std::cout << "\nProcessando sensor de umidade (incorretamente):\n";
+    // A chamada a seguir compila, mas resultará em comportamento indefinido,
+    // pois tentará chamar 'ler_temperatura' em um objeto SensorUmidade.
+    // processar_sensor(&umid_sensor); // DESASTRE EM POTENCIAL
+    
+    return 0;
+}
+11.2 const_cast
+Este operador tem o propósito exclusivo de adicionar ou remover os qualificadores const ou volatile. Seu uso legítimo é raro, tipicamente para interoperar com APIs legadas que não foram projetadas com const-correctness.
+
+O perigo fundamental é tentar modificar um objeto que foi originalmente declarado como const. Tal ação resulta em comportamento indefinido, pois o compilador pode ter alocado o objeto em memória somente leitura.
+
+cpp
+Copy
+#include <cstdio>
+#include <cstring>
+#include <string>
+#include <iostream>
+
+// API C legada que deveria receber 'const char*', mas não o faz.
+extern "C" size_t legacy_string_length(char* str) {
+    return strlen(str);
+}
+
+int main() {
+    const std::string minha_string = "Olá, mundo!";
+    
+    // Sabemos que 'legacy_string_length' não modifica a string.
+    // O const_cast é usado para adequar o tipo à interface legada.
+    size_t len = legacy_string_length(const_cast<char*>(minha_string.c_str()));
+    std::cout << "Tamanho via API legada: " << len << "\n";
+
+    const int x = 100;
+    int* p_x = const_cast<int*>(&x);
+    // A linha a seguir é comportamento indefinido.
+    // *p_x = 200; 
+    
+    return 0;
+}
+11.3 reinterpret_cast
+O reinterpret_cast é o operador mais perigoso. Ele instrui o compilador a reinterpretar a representação binária de um tipo como se fosse de outro tipo completamente não relacionado, sem realizar qualquer conversão.
+
+Seu uso é restrito a programação de baixo nível, onde a manipulação direta de bits e endereços é necessária. O código que utiliza reinterpret_cast é, por natureza, não-portátil e depende de suposições sobre a arquitetura subjacente.
+
+cpp
+Copy
+#include <iostream>
+#include <cstdint>
+#include <cstring>
+
+struct PacoteRede {
+    uint32_t id_pacote;
+    uint16_t flags;
+    uint16_t checksum;
+};
+
+void processar_pacote(unsigned char* buffer, size_t tamanho) {
+    if (tamanho < sizeof(PacoteRede)) return;
+
+    // O endereço em 'buffer' é tratado como o endereço de um PacoteRede.
+    // Isso depende criticamente do alinhamento de memória e da ordem dos bytes.
+    PacoteRede* pacote = reinterpret_cast<PacoteRede*>(buffer);
+
+    std::cout << "ID do Pacote: " << pacote->id_pacote << "\n";
+    std::cout << "Flags: " << std::hex << "0x" << pacote->flags << std::dec << "\n";
+}
+
+int main() {
+    unsigned char buffer[sizeof(PacoteRede)];
+    
+    // Simula a chegada de um pacote de rede
+    uint32_t id = 12345;
+    uint16_t fl = 0x01;
+    uint16_t cs = 0xFFFF;
+    
+    memcpy(buffer, &id, sizeof(id));
+    memcpy(buffer + sizeof(id), &fl, sizeof(fl));
+    memcpy(buffer + sizeof(id) + sizeof(fl), &cs, sizeof(cs));
+
+    processar_pacote(buffer, sizeof(buffer));
+    
+    return 0;
+}
+11.4 dynamic_cast
+O dynamic_cast é projetado para realizar downcasting de forma segura em hierarquias de classes polimórficas (com ao menos uma função virtual). Ele realiza uma verificação em tempo de execução para garantir que a conversão é válida. Se a conversão falhar, ele retorna nullptr (para ponteiros) ou lança std::bad_cast (para referências), evitando o comportamento indefinido. O custo dessa segurança é a sobrecarga da verificação em tempo de execução (RTTI). O uso excessivo de dynamic_cast pode indicar uma oportunidade de melhorar o design utilizando polimorfismo de forma mais eficaz.
+
+Conclusão:
+Os operadores de cast explícito são ferramentas necessárias, mas perigosas. Seu uso deve ser minimizado e confinado a situações onde não há alternativa de design mais segura. A escolha do operador correto serve como documentação da intenção e do risco, tornando o código mais claro e auditável do que o ambíguo cast no estilo C.

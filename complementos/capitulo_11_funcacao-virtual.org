@@ -1,0 +1,3 @@
+* Função virtual
+
+Uma função virtual é um método de uma classe declarado com a palavra-chave virtual, permitindo que subclasses redefinam seu comportamento e que chamadas a esse método sejam resolvidas em tempo de execução (polimorfismo dinâmico). Em C++ a escolha de qual função é executada não depende apenas do tipo estático do ponteiro ou referência, mas sim do tipo real do objeto apontado em tempo de execução. Essa capacidade é essencial para a extensibilidade e a reutilização de código em hierarquias de classes. No entanto, ela vem acompanhada de custos: necessidade de tabelas virtuais (vtables), maior uso de memória e a possibilidade de erros sutis quando se lida com destrutores não virtuais em classes base.

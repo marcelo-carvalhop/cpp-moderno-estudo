@@ -1,0 +1,7 @@
+* Funções de fábrica estáticas
+
+As funções de fábrica estáticas (também chamadas de named constructors ou “construtores nomeados”) são métodos estáticos definidos dentro de uma classe que retornam instâncias dessa própria classe. Elas servem como alternativas mais expressivas e autoexplicativas ao uso direto de construtores.
+
+O objetivo central desse padrão é melhorar a legibilidade e evitar ambiguidades. Por exemplo, uma classe Duracao pode representar tanto segundos quanto milissegundos. Se aceitasse apenas um int no construtor, não haveria clareza sobre a unidade usada. Ao criar métodos como Duracao::segundos(5) e Duracao::milissegundos(250), a intenção do código fica explícita, e o risco de erro semântico desaparece.
+
+As funções de fábrica estáticas também permitem esconder detalhes de implementação, como a conversão para uma unidade interna comum (por exemplo, nanossegundos), mantendo a interface pública clara, consistente e resistente a erros. Essa técnica é usada extensivamente na biblioteca padrão do C++ em <chrono>, que fornece std::chrono::seconds, std::chrono::milliseconds e outros tipos fortemente diferenciados.

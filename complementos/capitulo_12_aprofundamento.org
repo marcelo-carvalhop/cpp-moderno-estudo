@@ -1,0 +1,41 @@
+* Notas de Aprofundamento
+
+Alguns conceitos relacionados a namespaces e módulos, embora não tenham sido explorados em detalhe no corpo principal do capítulo, merecem menção por sua relevância prática e teórica no C++.
+
+** ODR (One Definition Rule)
+
+A One Definition Rule é um dos pilares do sistema de tipos e da organização de código no C++. Ela estabelece que cada entidade do programa — seja função, classe, variável ou template — deve ter exatamente uma definição visível durante a linkagem. Declarações múltiplas são permitidas (como nos headers), mas múltiplas definições violam a ODR e resultam em erros de link ou comportamento indefinido. O modelo baseado em #include torna essa regra delicada, pois o mesmo cabeçalho pode ser incluído em diversas unidades de tradução. Módulos reduzem drasticamente o risco de violação da ODR, já que a interface é compilada uma única vez.
+
+** Header Units
+
+Para suavizar a transição do modelo de inclusão tradicional para módulos, o padrão introduziu o conceito de header units. Em essência, um compilador pode tratar um header tradicional como uma unidade de módulo, permitindo que seja importado diretamente com 'import <vector>;' em vez de '#include <vector>'. Esse mecanismo oferece ganhos de performance sem exigir que toda a base de código seja reescrita de imediato, funcionando como um “atalho” entre os dois mundos.
+
+** Namespaces Abertos
+
+Diferente de classes, namespaces podem ser abertos em múltiplos pontos do código. Isso significa que um namespace não precisa ser definido em um único bloco contínuo: funções e classes podem ser adicionadas a ele em diferentes arquivos ou seções do programa. Essa característica é essencial para grandes bibliotecas, que muitas vezes estendem o mesmo namespace em módulos distintos.
+
+** Namespaces Aninhados
+
+C++11 introduziu uma sintaxe mais concisa para declarar namespaces aninhados. Em vez de escrever:
+
+#+begin_src cpp
+namespace Rede {
+    namespace Protocolo {
+        class Pacote { /* ... */ };
+    }
+}
+#+end_src
+
+Podemos escrever:
+
+#+begin_src cpp
+namespace Rede::Protocolo {
+    class Pacote { /* ... */ };
+}
+#+end_src 
+
+A clareza obtida com namespaces aninhados permite estruturar grandes sistemas de forma hierárquica, refletindo melhor a divisão conceitual do domínio do problema.
+
+** Fronteiras Conceituais e Físicas
+
+Enquanto namespaces fornecem uma separação lógica, é importante notar que eles não constituem barreiras físicas: o compilador ainda processa todas as definições como parte de uma única unidade textual expandida. Já os módulos impõem uma fronteira real, isolando dependências e encapsulando detalhes de implementação. Em termos de arquitetura, isso significa que namespaces organizam, mas não isolam, enquanto módulos organizam e isolam.

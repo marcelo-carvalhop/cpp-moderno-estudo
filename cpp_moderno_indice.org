@@ -41,13 +41,15 @@
 [[./antigos/capitulo_29.org][Capítulo 29: A Alma da Lambda — Mecânica de Captura em Detalhe]]
 [[./antigos/capitulo_30.org][Capítulo 30: Estado e Mutabilidade em Lambdas]]
 [[./antigos/capitulo_31.org][Capítulo 31: Lambdas e a Programação Genérica]]
+
 [[./antigos/capitulo_32.org][Capítulo 32: Padrões de Uso e Técnicas Avançadas com Lambdas]]
 [[./antigos/capitulo_33.org][Capítulo 33: A Mecânica do Lançamento — throw e o Desenrolamento da Pilha]]
 [[./antigos/capitulo_34.org][Capítulo 34: A Arte da Captura — catch e a Hierarquia de Exceções]]
 [[./antigos/capitulo_35.org][Capítulo 35: O Contrato de Segurança — Garantias de Exceção]]
 [[./antigos/capitulo_36.org][Capítulo 36: O Especificador noexcept — Uma Análise Profunda]]
 [[./antigos/capitulo_37.org][Capítulo 37: Além das Exceções — Tratamento de Erros no C++ Moderno]]
-[[./antigos/capitulo_38.org][Capítulo 38: A Regra dos Três — O Paradigma Clássico de Gerenciamento de Recursos]]
+[[./antigos/capitulo_38.org][
+Capítulo 38: A Regra dos Três — O Paradigma Clássico de Gerenciamento de Recursos]]
 [[./antigos/capitulo_39.org][Capítulo 39: A Regra dos Cinco — A Evolução com a Semântica de Movimento (C++11)]]
 [[./antigos/capitulo_40.org][Capítulo 40: A Regra do Zero — A Filosofia do C++ Moderno]]
 [[./antigos/capitulo_41.org][Capítulo 41: Uma Nuance Final — O Padrão Copy-and-Swap]]
@@ -93,10 +95,10 @@ Ao longo de mais de cem capítulos, cada seção é organizada em torno de temas
 [[./novos_capitulos/capitulo_8.org][08. Inicialização moderna: uniform, structured, designated]]
 [[./novos_capitulos/capitulo_9.org][09. /constexpr/: programação entre dois mundos]]
 [[./novos_capitulos/capitulo_10.org][10. Tipos fortes e segurança semântica]]
-[./novos_capitulos/capitulo_11.org]11. Casting explícito e seus perigos
-[./novos_capitulos/capitulo_12.org]12. Namespaces, módulos e fronteiras de sistemas
-[./novos_capitulos/capitulo_13.org]13. Exceções vs. código robusto sem exceções
-[./novos_capitulos/capitulo_14.org]14. Idiomas escondidos no core da linguagem
+[[./novos_capitulos/capitulo_11.org][11. Casting explícito e seus perigos]]
+[[./novos_capitulos/capitulo_12.org][12. Namespaces, módulos e fronteiras de sistemas]]
+[[./novos_capitulos/capitulo_13.org][13. Exceções vs. código robusto sem exceções]]
+[[./novos_capitulos/capitulo_14.org][14. Idiomas escondidos no core da linguagem]]
 [./novos_capitulos/capitulo_15.org]15. Filosofia da complexidade em C++
 
 /Leituras complementares/:
@@ -122,21 +124,21 @@ CppCon (talks sobre RAII, move semantics, constexpr).
 
 /Capítulos/:
 
-16. Templates como alicerce de arquitetura
-17. Dedução de tipos: o compilador como aliado
-18. SFINAE — erros que viram design
-19. Concepts: um novo contrato para C++
-20. Constraints expressivas
-21. Tipos dependentes e contexto de compilação
-22. Especialização de templates: arte e armadilhas
-23. Polimorfismo estático com CRTP
-24. Variadic templates e abstrações poderosas
-25. Templates recursivos: design em cascata
-26. Metafunções e manipulação de tipos
-27. Idioma tag dispatching
-28. Abstrações genéricas em containers
-29. Bibliotecas genéricas: elegância vs. usabilidade
-30. Templates como linguagem própria
+[./novos_capitulos/capitulo_16.org]16. Templates como alicerce de arquitetura
+[./novos_capitulos/capitulo_16.org]17. Dedução de tipos: o compilador como aliado
+[./novos_capitulos/capitulo_18.org]18. SFINAE — erros que viram design
+[./novos_capitulos/capitulo_19.org]19. Concepts: um novo contrato para C++
+[./novos_capitulos/capitulo_20.org]20. Constraints expressivas
+[./novos_capitulos/capitulo_21.org]21. Tipos dependentes e contexto de compilação
+[./novos_capitulos/capitulo_22.org]22. Especialização de templates: arte e armadilhas
+[./novos_capitulos/capitulo_23.org]23. Polimorfismo estático com CRTP
+[./novos_capitulos/capitulo_24.org]24. Variadic templates e abstrações poderosas
+[./novos_capitulos/capitulo_25.org]25. Templates recursivos: design em cascata
+[./novos_capitulos/capitulo_26.org]26. Metafunções e manipulação de tipos
+[./novos_capitulos/capitulo_27.org]27. Idioma tag dispatching2
+[./novos_capitulos/capitulo_28.org]28. Abstrações genéricas em containers
+[./novos_capitulos/capitulo_29.org]29. Bibliotecas genéricas: elegância vs. usabilidade
+[./novos_capitulos/capitulo_30.org]30. Templates como linguagem própria
 
 /Leituras complementares/: 
 *Livros:*

@@ -142,3 +142,12 @@ A utilidade dos tipos fortes se torna ainda mais aparente nas fronteiras de um s
   - *Segurança*: Um tipo 'SanitizedHTML' pode garantir, através de seu construtor privado e funções de fábrica, que ele só pode ser criado a partir de uma string que já passou por um processo de sanitização, prevenindo ataques de /XSS (Cross-Site Scripting)/ em toda a base de código.
 
 Em resumo, a criação de tipos fortes é uma técnica para ensinar ao compilador as regras do seu domínio de problema. É uma troca deliberada: adicionamos um pequeno esforço inicial na definição de tipos para ganhar uma enorme recompensa em segurança, clareza e manutenibilidade a longo prazo. É a manifestação do princípio de que o código deve ser escrito para que os erros sejam difíceis de cometer, e o sistema de tipos é nosso aliado mais poderoso nessa tarefa.
+
+*Glossário*:
+
+[[../complementos/capitulo_10_tipos-fortes.org][Tipos fortes]]
+[[../complementos/capitulo_10_segurança-semantica.org][Segurança Semântica]]
+[[../complementos/capitulo_10_struct-wapper.org][Struct Wraper]]
+[[../complementos/capitulo_10_explicit.org][explict]]
+[[../complementos/capitulo_10_funcoes-fabrica-estaticas.org][Funções de fábrica Estáticas]]
+[[../complementos/capitulo_10_xss.org][XSS (Cross-Site Scripting)]]

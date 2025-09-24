@@ -1,0 +1,3 @@
+* Struct Wrapper
+
+O padrão conhecido como /struct wrapper/ consiste em encapsular um tipo primitivo dentro de uma 'struct' ou 'class' para criar um tipo completamente novo. Esse novo tipo não é implicitamente conversível para o tipo original, o que força o programador a ser explícito na manipulação dos valores. Essa técnica é uma das maneiras mais diretas de implementar tipos fortes em C++. Além de proteger contra erros semânticos, o /struct wrapper/ também serve como ponto de extensão: nele podem ser adicionados construtores, operadores sobrecarregados e métodos utilitários, transformando um valor primitivo simples em uma entidade expressiva e segura do domínio.

@@ -1,0 +1,3 @@
+* Const-correctness
+
+O termo /const-correctness/ refere-se à disciplina de projetar e implementar código em C++ de forma que o uso de const esteja correto e consistente em todos os lugares apropriados. Isso significa marcar como const parâmetros de função que não devem ser modificados, métodos que não alteram o estado do objeto, e retornos que devem ser protegidos contra escrita. O benefício principal é aumentar a segurança e a clareza: o compilador atua como guardião, impedindo modificações indevidas e documentando, na própria assinatura das funções, a intenção do desenvolvedor. A ausência de const-correctness é comum em código legado, levando à necessidade de const_cast para adaptar interfaces, o que pode introduzir riscos.

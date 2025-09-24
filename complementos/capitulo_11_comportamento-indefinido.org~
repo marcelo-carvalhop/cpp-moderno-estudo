@@ -1,0 +1,3 @@
+* Comportamento indefinido
+
+Comportamento indefinido (undefined behavior) ocorre quando o programa executa uma operação que não tem resultado especificado pelo padrão da linguagem. Em C++, isso pode acontecer em diversas situações: acessar memória fora dos limites de um array, usar ponteiros inválidos, modificar um objeto declarado como const, ou realizar um cast incorreto. O termo “indefinido” significa que qualquer coisa pode acontecer: o programa pode parecer funcionar, pode falhar de forma imprevisível, ou pode se comportar de modo diferente em compilações ou arquiteturas distintas. Evitar comportamento indefinido é um dos pilares do design seguro em C++.

@@ -1,0 +1,211 @@
+* Capítulo 14: Idiomas escondidos no core da linguagem
+
+Além das características formais documentadas no padrão, o C++ é rico em "idiomas": padrões de uso que combinam múltiplas funcionalidades da linguagem de maneiras engenhosas para resolver problemas recorrentes. Estes idiomas não são truques, mas sim técnicas de design fundamentais que permitem a criação de código mais eficiente, seguro e manutenível. Dominá-los é o que distingue a mera aplicação da linguagem da sua verdadeira maestria.
+
+** PIMPL (Pointer to Implementation): Ocultando o Privado
+
+O idioma PIMPL, também conhecido como "Cheshire Cat", é uma técnica poderosa para reduzir o acoplamento físico e acelerar os tempos de compilação. O problema que ele resolve é a fragilidade dos arquivos de cabeçalho: qualquer mudança em um detalhe de implementação privado de uma classe (e.g., adicionar um membro de dados privado) exige a recompilação de todos os arquivos que incluem seu cabeçalho.
+
+A solução é mover todos os membros privados para uma classe de implementação separada, que é apenas declarada (forward-declared) no cabeçalho público. A classe pública mantém apenas um ponteiro opaco para essa implementação.
+
+*Antes do PIMPL (widget.h):*
+#+begin_src cpp
+// widget.h
+#include <string>
+#include <vector> // Cada cliente de Widget precisa processar <vector>.
+
+class Widget {
+public:
+    Widget();
+    ~Widget();
+    void do_something();
+private:
+    std::string name_;
+    std::vector<int> data_; // Detalhe de implementação exposto.
+};
+#+end_src 
+
+*Com o PIMPL:*
+
+*widget.h (Interface Pública)*:
+#+begin_src cpp
+// widget.h
+#include <memory>
+
+class Widget {
+public:
+    Widget();
+    ~Widget(); // Destrutor deve ser declarado aqui...
+    Widget(Widget&&); // ...e os membros especiais também,
+    Widget& operator=(Widget&&); // se necessários.
+
+    void do_something();
+
+private:
+    class Impl; // Declaração avançada (forward declaration).
+    std::unique_ptr<Impl> pimpl_; // Ponteiro para a implementação.
+};
+#+end_src
+
+*widget.cpp (Implementação Privada)*:
+
+cpp
+Copy
+// widget.cpp
+#include "widget.h"
+#include <string>
+#include <vector>
+#include <iostream>
+
+// A definição completa da implementação está oculta no .cpp.
+class Widget::Impl {
+public:
+    void do_something_impl() {
+        std::cout << "Implementação: " << name_ << "\n";
+    }
+private:
+    std::string name_ = "PIMPL";
+    std::vector<int> data_;
+};
+
+// O construtor agora aloca a implementação.
+Widget::Widget() : pimpl_(std::make_unique<Impl>()) {}
+
+// O destrutor DEVE ser definido no .cpp, onde Impl é um tipo completo.
+// Se fosse deixado implícito no header, o compilador geraria um erro.
+Widget::~Widget() = default;
+Widget::Widget(Widget&&) = default;
+Widget& Widget::operator=(Widget&&) = default;
+
+void Widget::do_something() {
+    pimpl_->do_something_impl();
+}
+O resultado é uma interface pública completamente desacoplada de seus detalhes de implementação. Os clientes de Widget não precisam mais incluir <string> ou <vector>, e a implementação pode ser alterada livremente sem forçar a recompilação de todo o projeto.
+
+14.2 SFINAE (Substitution Failure Is Not An Error)
+SFINAE é um princípio fundamental da metaprogramação com templates. Ele estabelece que, quando o compilador tenta substituir os parâmetros de um template e a substituição resulta em código inválido, ele não gera um erro de compilação. Em vez disso, ele simplesmente remove aquela sobrecarga do conjunto de funções candidatas.
+
+Este princípio é a base para técnicas que permitem habilitar ou desabilitar templates com base nas propriedades de seus tipos. A ferramenta moderna para aplicar SFINAE é std::enable_if.
+
+cpp
+Copy
+#include <iostream>
+#include <type_traits> // Para is_integral, is_floating_point
+
+// Habilitado apenas se T for um tipo integral (int, char, etc.).
+template <typename T,
+          typename = std::enable_if_t<std::is_integral_v<T>>>
+void processar(T valor) {
+    std::cout << "Processando um integral: " << valor << "\n";
+}
+
+// Habilitado apenas se T for um tipo de ponto flutuante (float, double).
+template <typename T,
+          typename = std::enable_if_t<std::is_floating_point_v<T>>,
+          typename = void> // Parâmetro extra para diferenciar a assinatura
+void processar(T valor) {
+    std::cout << "Processando um ponto flutuante: " << valor << "\n";
+}
+
+int main() {
+    processar(10);      // Chama a versão integral.
+    processar(3.14);    // Chama a versão de ponto flutuante.
+    // processar("olá"); // Erro de compilação: nenhuma sobrecarga viável.
+    return 0;
+}
+SFINAE permite que o programador escreva código genérico que se adapta às características dos tipos, uma pedra angular da Biblioteca Padrão.
+
+14.3 CRTP (Curiously Recurring Template Pattern)
+O CRTP é um idioma que emula o polimorfismo em tempo de compilação (polimorfismo estático). A técnica consiste em uma classe base template que recebe a própria classe derivada como um de seus parâmetros de template.
+
+Isso permite que a classe base chame métodos da classe derivada de forma segura, usando um static_cast em seu ponteiro this. Como não há funções virtuais, o custo do v-table lookup em tempo de execução é eliminado, e o compilador pode frequentemente embutir (inline) as chamadas, resultando em um código extremamente eficiente.
+
+cpp
+Copy
+#include <iostream>
+
+// Classe base template que implementa a interface.
+template <typename Derivada>
+class Contador {
+public:
+    void incrementar() {
+        ++contador_;
+    }
+    void decrementar() {
+        --contador_;
+    }
+    int valor() const {
+        // A "mágica": a classe base pode chamar um método da derivada.
+        static_cast<const Derivada*>(this)->notificar_mudanca(contador_);
+        return contador_;
+    }
+private:
+    int contador_ = 0;
+};
+
+// Classe derivada que herda da base, passando a si mesma como parâmetro.
+class MeuContador : public Contador<MeuContador> {
+public:
+    // Implementa o ponto de customização exigido pela base.
+    void notificar_mudanca(int novo_valor) const {
+        std::cout << "O valor do contador agora é: " << novo_valor << "\n";
+    }
+};
+
+int main() {
+    MeuContador c;
+    c.incrementar();
+    c.incrementar();
+    c.valor(); // Imprime a notificação.
+    return 0;
+}
+14.4 Tag Dispatching
+Tag Dispatching é uma técnica para selecionar uma implementação de função com base nas propriedades de um tipo, representadas por "tags" (geralmente structs vazias). É uma forma de sobrecarga de função que despacha em tempo de compilação. A Biblioteca Padrão a utiliza extensivamente, por exemplo, para otimizar algoritmos com base nas categorias dos iteradores.
+
+cpp
+Copy
+#include <iostream>
+#include <vector>
+#include <list>
+
+// 1. Definir as tags
+struct random_access_iterator_tag {};
+struct bidirectional_iterator_tag {};
+
+// 2. Função de implementação para cada tag
+template<typename It>
+void meu_advance_impl(It& it, int n, random_access_iterator_tag) {
+    std::cout << "Usando implementação de acesso aleatório (rápida).\n";
+    it += n;
+}
+
+template<typename It>
+void meu_advance_impl(It& it, int n, bidirectional_iterator_tag) {
+    std::cout << "Usando implementação bidirecional (lenta).\n";
+    if (n > 0) { while (n-- > 0) ++it; }
+}
+
+// 3. Função principal que despacha para a implementação correta
+template<typename It>
+void meu_advance(It& it, int n) {
+    // Aqui, uma lógica mais complexa (type traits) determinaria a tag correta.
+    // Para simplificar, vamos escolher manualmente.
+    if constexpr (std::is_same_v<typename std::iterator_traits<It>::iterator_category, std::random_access_iterator_tag>) {
+         meu_advance_impl(it, n, random_access_iterator_tag{});
+    } else {
+         meu_advance_impl(it, n, bidirectional_iterator_tag{});
+    }
+}
+
+int main() {
+    std::vector<int> v = {1, 2, 3, 4, 5};
+    auto v_it = v.begin();
+    meu_advance(v_it, 2); // Despacha para a versão de acesso aleatório.
+
+    std::list<int> l = {1, 2, 3, 4, 5};
+    auto l_it = l.begin();
+    meu_advance(l_it, 2); // Despacha para a versão bidirecional.
+    
+    return 0;
+}
+Estes idiomas são a prova da profundidade e expressividade do C++. Eles representam soluções elegantes e eficientes para problemas complexos de design de software, transformando características da linguagem em poderosos blocos de construção.

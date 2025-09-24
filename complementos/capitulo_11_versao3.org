@@ -1,0 +1,100 @@
+* Capítulo 11: Casting explícito e seus perigos
+
+O sistema de tipos do C++ é um mecanismo de segurança fundamental, projetado para prevenir erros de categoria, garantindo que operações sejam aplicadas apenas a tipos compatíveis. No entanto, a programação de sistemas frequentemente exige a interação com hardware, APIs de baixo nível ou código legado, cenários onde as garantias do sistema de tipos precisam ser contornadas. Para esses casos, o C++ provê mecanismos de conversão de tipo explícita, ou casting.
+
+A forma de cast herdada da linguagem C, (novo_tipo)expressao, é notoriamente perigosa por sua ambiguidade. Ela pode executar diferentes tipos de conversão — desde uma mudança de valor relativamente segura até uma reinterpretação de bits altamente perigosa — sob uma única sintaxe. Isso torna o código difícil de auditar e propenso a erros. Para resolver essa questão, o C++ introduziu quatro operadores de cast nomeados, cada um com um propósito bem definido, forçando o programador a declarar a natureza da conversão e, consequentemente, o risco associado.
+
+** static_cast
+
+O 'static_cast' é utilizado para conversões entre tipos relacionados, onde a validade da conversão pode ser, em grande parte, verificada em tempo de compilação. É a ferramenta para conversões que, embora não sejam sempre seguras em termos de valor (podem haver perdas de dados), são seguras em termos de tipo.
+
+*Aplicações*:
+
+  - *Conversões numéricas explícitas*: 'int i = static_cast<int>(3.14);'. Isso deixa claro que a perda de precisão é intencional.
+  - *Conversão de void**: Para converter um ponteiro genérico void* de volta para um ponteiro de tipo específico.
+  - *Navegação em hierarquias de classes*: 'static_cast' pode ser usado para converter um ponteiro de uma classe derivada para uma classe base (upcasting), o que é sempre seguro. Também pode ser usado para a operação inversa (downcasting).
+
+*O Perigo do Downcasting*:
+
+O uso de 'static_cast' para converter um ponteiro de base para derivada é uma das suas aplicações mais perigosas. Nenhuma verificação é feita em tempo de execução. O programador assume total responsabilidade pela validade da conversão. Se o ponteiro base não apontar, de fato, para um objeto do tipo derivado, o resultado é comportamento indefinido.
+
+#+begin_src cpp
+class Base {};
+class Derivada : public Base { public: int valor_derivado = 10; };
+
+int main() {
+    Base b;
+    Derivada d;
+    Base* p_base_ok = &d;
+    Base* p_base_errado = &b;
+
+    // Seguro, pois sabemos que p_base_ok aponta para uma Derivada.
+    Derivada* p_derivada_ok = static_cast<Derivada*>(p_base_ok);
+    
+    // Perigoso: p_base_errado não aponta para uma Derivada.
+    // A linha a seguir compila, mas seu uso levará a comportamento indefinido.
+    Derivada* p_derivada_errado = static_cast<Derivada*>(p_base_errado);
+    // Acessar p_derivada_errado->valor_derivado corromperia a memória.
+    
+    return 0;
+}
+#+end_src
+
+** const_cast
+
+Este operador tem um único propósito: adicionar ou remover os qualificadores const ou 'volatile de uma variável. Seu uso legítimo é raro e geralmente se limita a interagir com código legado que não foi projetado com const-correctness.
+
+*O Perigo da Modificação*:
+O perigo fundamental do 'const_cast' é a tentativa de modificar um objeto que foi originalmente declarado como 'const'. Se um objeto nasce 'const', o compilador tem a liberdade de colocá-lo em memória somente leitura. Usar 'const_cast' para remover a constância e então tentar escrever nesse objeto resulta em comportamento indefinido, frequentemente levando a uma falha de segmentação.
+
+#+begin_src cpp
+void funcao_legada(int* p) { *p = 5; }
+
+int main() {
+    const int x = 10;
+    // A linha a seguir causa comportamento indefinido.
+    // Estamos tentando modificar um objeto que é fundamentalmente constante.
+    // funcao_legada(const_cast<int*>(&x));
+    
+    int y = 20;
+    const int* p_y = &y;
+    // Este uso é válido, embora ainda perigoso. O objeto original ('y') não é const.
+    funcao_legada(const_cast<int*>(p_y)); // y agora é 5.
+    
+    return 0;
+}
+#+end_src
+
+** reinterpret_cast
+
+O 'reinterpret_cast' é o operador mais poderoso e perigoso. Ele instrui o compilador a reinterpretar a representação binária de um ponteiro (ou tipo integral) como se fosse de outro tipo completamente não relacionado. Nenhuma conversão de valor ou verificação de tipo é realizada.
+
+*Aplicações*:
+Seu uso é restrito a programação de baixo nível, como interagir com hardware, implementar serialização customizada ou trabalhar com alocadores de memória.
+
+*O Perigo da Não-Portabilidade*:
+O resultado de um 'reinterpret_cast' é altamente dependente da plataforma, da arquitetura do compilador, do alinhamento de memória e da ordem dos bytes (endianness). Código que utiliza 'reinterpret_cast' é, por definição, não-portátil e frágil. Seu uso em código de aplicação é um forte indicativo de um problema de design.
+
+#+begin_src cpp
+#include <cstdint>
+
+// Converte um ponteiro para um tipo integral para armazenamento ou logging.
+// A conversão de volta só é segura se for para o mesmo tipo de ponteiro.
+uintptr_t endereco_serializado = reinterpret_cast<uintptr_t>(&main);
+#+end_src
+
+** dynamic_cast
+
+O 'dynamic_cast' é projetado para realizar downcasting de forma segura em hierarquias de classes polimórficas (aquelas com ao menos uma função virtual). Diferente do 'static_cast', ele realiza uma verificação em tempo de execução para garantir que a conversão é válida.
+
+*Mecanismo de Segurança*:
+
+  - Se a conversão para um tipo de ponteiro falhar, 'dynamic_cast' retorna 'nullptr'.
+
+  - Se a conversão para um tipo de referência falhar, ele lança uma exceção do tipo 'std::bad_cast'.
+
+*O Perigo do Custo e do Design*:
+O perigo aqui não é o comportamento indefinido, mas sim o custo de performance associado à verificação em tempo de execução (que requer RTTI - Run-Time Type Information) e o que seu uso pode indicar sobre o design do software. O uso excessivo de 'dynamic_cast' pode ser um sinal de que a lógica do programa está sendo baseada em testes de tipo explícitos, em vez de confiar no comportamento polimórfico através de funções virtuais, o que geralmente leva a um design mais robusto e extensível.
+
+*Conclusão*:
+Os operadores de cast explícito do C++ são ferramentas necessárias para cenários específicos, mas seu uso deve ser minimizado. Eles representam uma quebra deliberada das garantias de segurança do sistema de tipos. A escolha do operador correto serve como documentação, indicando a natureza da conversão e o nível de risco assumido. A regra geral é sempre preferir alternativas mais seguras e, quando um cast for inevitável, usar o operador mais específico e restrito possível para a tarefa.
