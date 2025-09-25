@@ -86,19 +86,33 @@ Ao longo de mais de cem capítulos, cada seção é organizada em torno de temas
 /Capítulos/:
 
 [[./novos_capitulos/capitulo_1.org][01. O C++ além do básico]]
+
 [[./novos_capitulos/capitulo_2.org][02. Filosofia da evolução: de 2011 a 2023]]
+
 [[./novos_capitulos/capitulo_3.org][03. RAII repensado em sistemas modernos]]
+
 [[./novos_capitulos/capitulo_4.org][04. O verdadeiro poder do /auto/]]
+
 [[./novos_capitulos/capitulo_5.org][05. Referências vs. ponteiros: decisões de design]]
+
 [[./novos_capitulos/capitulo_6.org][06. Semântica de movimento em arquiteturas complexas]]
+
 [[./novos_capitulos/capitulo_7.org][07. Forwarding perfeito: quando e por quê]]
+
 [[./novos_capitulos/capitulo_8.org][08. Inicialização moderna: uniform, structured, designated]]
+
 [[./novos_capitulos/capitulo_9.org][09. /constexpr/: programação entre dois mundos]]
+
 [[./novos_capitulos/capitulo_10.org][10. Tipos fortes e segurança semântica]]
+
 [[./novos_capitulos/capitulo_11.org][11. Casting explícito e seus perigos]]
+
 [[./novos_capitulos/capitulo_12.org][12. Namespaces, módulos e fronteiras de sistemas]]
+
 [[./novos_capitulos/capitulo_13.org][13. Exceções vs. código robusto sem exceções]]
+
 [[./novos_capitulos/capitulo_14.org][14. Idiomas escondidos no core da linguagem]]
+
 [[./novos_capitulos/capitulo_15.org][15. Filosofia da complexidade em C++]]
 
 /Leituras complementares/:
