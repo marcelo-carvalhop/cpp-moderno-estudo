@@ -215,3 +215,8 @@ int main() {
 #+end_src
 
 Estes idiomas são a prova da profundidade e expressividade do C++. Eles representam soluções elegantes e eficientes para problemas complexos de design de software, transformando características da linguagem em poderosos blocos de construção.
+
+
+*Leituras Complementares*:
+[[../complementos/capitulo_14_notas.org][Esclarecimentos e Deconsposições]]
+[[../complementos/capitulo_14_alem.org][Um pouco mais além]]

@@ -99,7 +99,7 @@ Ao longo de mais de cem capítulos, cada seção é organizada em torno de temas
 [[./novos_capitulos/capitulo_12.org][12. Namespaces, módulos e fronteiras de sistemas]]
 [[./novos_capitulos/capitulo_13.org][13. Exceções vs. código robusto sem exceções]]
 [[./novos_capitulos/capitulo_14.org][14. Idiomas escondidos no core da linguagem]]
-[./novos_capitulos/capitulo_15.org]15. Filosofia da complexidade em C++
+[[./novos_capitulos/capitulo_15.org][15. Filosofia da complexidade em C++]]
 
 /Leituras complementares/:
 *Livros:*

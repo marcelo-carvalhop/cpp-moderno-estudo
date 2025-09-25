@@ -1,0 +1,93 @@
+14.5 RAII (Resource Acquisition Is Initialization)
+
+Se há um idioma que define o espírito do C++, esse é o RAII. A ideia é simples: vincular o tempo de vida de um recurso (como memória, arquivo ou mutex) ao tempo de vida de um objeto. Assim que o objeto é criado, ele adquire o recurso; quando sai de escopo, libera-o automaticamente no destrutor.
+
+Essa é a razão pela qual o C++ não precisa de garbage collector para gerenciar recursos. É também o que torna std::unique_ptr, std::lock_guard e std::fstream tão poderosos: você nunca precisa se preocupar em chamar “release” ou “close” manualmente. O compilador garante que tudo será limpo, mesmo em casos de exceção.
+
+#include <iostream>
+#include <fstream>
+
+void escrever() {
+    std::ofstream arquivo("saida.txt"); // RAII: abre aqui
+    arquivo << "Olá, RAII!\n";
+} // Aqui o arquivo é fechado automaticamente
+
+
+Com RAII, a gestão de recursos deixa de ser uma responsabilidade frágil do programador e se torna parte da própria semântica do C++.
+
+14.6 Type Erasure
+
+Há momentos em que você quer esconder o tipo concreto de um objeto, mas ainda manter sua interface. Em linguagens como Java, você resolve isso com herança e interfaces. Em C++, existe outro caminho: o type erasure.
+
+A ideia é encapsular qualquer tipo que siga um contrato em um invólucro único, que apaga a identidade do tipo real, mas preserva o comportamento. std::function é o exemplo mais famoso: você pode guardar lambdas, ponteiros de função ou objetos functor, e chamá-los todos da mesma maneira.
+
+#include <iostream>
+#include <functional>
+
+void exemplo(std::function<void()> f) {
+    f(); // Não importa se veio de lambda ou função global
+}
+
+void global() { std::cout << "Função global\n"; }
+
+int main() {
+    exemplo(global);
+    exemplo([] { std::cout << "Lambda\n"; });
+}
+
+
+O preço do type erasure é uma pequena indireção em tempo de execução, mas a flexibilidade conquistada é enorme.
+
+14.7 Expression Templates
+
+Esse idioma nasceu para resolver um problema de eficiência: operações encadeadas em classes matemáticas. Imagine uma biblioteca de matrizes. Se você escreve C = A + B + D, a implementação ingênua gera temporários intermediários. O custo é enorme.
+
+Expression templates transformam essa expressão em uma árvore de templates resolvida em tempo de compilação, eliminando temporários. O resultado é um código tão rápido quanto escrever a operação manualmente, mas com a notação elegante de expressões matemáticas.
+
+Esse truque foi popularizado por bibliotecas como Blitz++ e Eigen, e ainda hoje é uma das maiores demonstrações da expressividade do sistema de templates do C++.
+
+14.8 Idioma Copy-and-Swap
+
+Outro clássico. Implementar operadores de atribuição em C++ pode ser um pesadelo, principalmente se sua classe gerencia recursos dinâmicos. O idioma copy-and-swap resolve isso com elegância.
+
+A ideia é simples: você implementa o operador de atribuição fazendo uma cópia do objeto de origem e, depois, troca os dados da cópia com o objeto atual. No final, a cópia temporária é destruída, levando embora os dados antigos.
+
+#include <utility>
+#include <string>
+
+class Pessoa {
+public:
+    Pessoa(std::string nome) : nome_(std::move(nome)) {}
+    Pessoa& operator=(Pessoa outro) {
+        swap(*this, outro);
+        return *this;
+    }
+    friend void swap(Pessoa& a, Pessoa& b) {
+        std::swap(a.nome_, b.nome_);
+    }
+private:
+    std::string nome_;
+};
+
+
+Esse padrão reduz a duplicação de código, trata exceções de forma natural e garante uma semântica forte de atribuição.
+
+** Idioma Rule of Zero
+
+Durante anos, os programadores C++ falaram na “rule of three”: se você precisava escrever destrutor, copy constructor e operador de atribuição, deveria escrever todos os três. Com C++11 e além, surgiu uma nova filosofia: a rule of zero.
+
+A ideia é projetar suas classes de tal forma que você não precise escrever nenhum desses membros especiais. Em vez disso, você delega a responsabilidade de gerenciar recursos para tipos da biblioteca padrão, como std::unique_ptr ou std::vector. O compilador cuida do resto.
+
+Isso muda o estilo de programação: em vez de pensar em liberar memória manualmente, você pensa em como estruturar a classe para que o compilador faça esse trabalho. O código fica mais limpo, seguro e expressivo.
+
+** Idioma Small Object Optimization (SOO)
+
+Um detalhe interessante do design de bibliotecas é que, muitas vezes, objetos pequenos são tratados de forma diferente de objetos grandes. A std::string, por exemplo, implementa uma otimização invisível: quando a string é curta o suficiente, ela é armazenada dentro do próprio objeto, sem precisar alocar memória no heap.
+
+Esse padrão é chamado de small object optimization. É um idioma porque virou prática recorrente: ao perceber que muitos objetos têm tamanho pequeno, você projeta a classe para armazenar dados diretamente quando couber, caindo no heap apenas quando ultrapassa esse limite. O resultado é ganho de desempenho e redução de fragmentação de memória.
+
+** Idioma Barton–Nackman (ou “friend function trick”)
+
+Esse é mais obscuro, mas fascinante. Ele aparece quando queremos sobrecarregar operadores (como == ou <<) sem recorrer a polimorfismo virtual. A ideia é definir funções amigas dentro de um template, de forma que a resolução de sobrecarga use ADL (argument-dependent lookup) para escolher a função certa.
+
+O padrão ficou famoso em bibliotecas de expressões matemáticas e também aparece no std::rel_ops. É um exemplo de como a resolução de nomes no C++ pode ser usada a favor de designs elegantes.

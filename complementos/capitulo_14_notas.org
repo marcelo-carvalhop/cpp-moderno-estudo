@@ -1,0 +1,33 @@
+* Capítulo 14 – Idiomas escondidos no núcleo do C++
+
+Além do que está escrito no padrão da linguagem, o C++ guarda um conjunto de “idiomas”: padrões de uso que surgiram da prática e da engenhosidade dos programadores. Eles não são truques ocasionais, mas sim formas consolidadas de combinar recursos da linguagem para resolver problemas recorrentes de maneira elegante. É nesse ponto que a linguagem mostra sua profundidade: dominar esses idiomas é o que separa o uso básico do verdadeiro domínio.
+
+** PIMPL (Pointer to Implementation)
+
+O PIMPL, conhecido também como “Cheshire Cat”, surgiu para resolver um problema muito comum: a fragilidade dos cabeçalhos. Quando você declara os membros privados de uma classe diretamente no header, qualquer mudança neles — mesmo irrelevante para quem usa a classe — obriga a recompilação de todos os arquivos que a incluem. Isso gera acoplamento excessivo e compilações lentas.
+
+O truque é simples. Em vez de expor os detalhes privados, você os move para uma classe separada, que só existe no arquivo .cpp. No header, a classe pública guarda apenas um ponteiro opaco para essa implementação. Assim, os clientes da sua classe só conhecem a interface e não ficam sabendo de <string> ou <vector>. Se você mudar esses detalhes, nada fora do .cpp precisa ser recompilado.
+
+O preço é que você precisa cuidar do gerenciamento desse ponteiro — hoje simplificado com std::unique_ptr. O destrutor e os membros especiais (move constructor, move assignment) precisam ser definidos no .cpp, onde a implementação está visível. Mas, no final, você ganha uma interface estável e tempos de compilação muito menores.
+
+** SFINAE (Substitution Failure Is Not An Error)
+
+Esse princípio pode soar enigmático à primeira vista, mas ele é uma das pedras fundamentais da metaprogramação em C++. O compilador, ao tentar instanciar um template, pode se deparar com uma substituição inválida. Em quase todas as linguagens isso resultaria em erro; em C++, não. O compilador simplesmente descarta aquela opção e segue avaliando as demais.
+
+Isso permite escrever código que “se adapta” ao tipo recebido. Quer habilitar uma função apenas para inteiros? Use std::enable_if com std::is_integral. Quer outra só para double ou float? Habilite-a com std::is_floating_point. No final, você tem uma única função “conceitual”, mas que ganha formas diferentes dependendo do tipo passado.
+
+É dessa ideia que surgem muitas das facilidades da biblioteca padrão: algoritmos que funcionam para uma infinidade de tipos, mas que escolhem a versão certa em tempo de compilação.
+
+** CRTP (Curiously Recurring Template Pattern)
+
+O nome parece estranho, mas a ideia é direta. Imagine que você quer polimorfismo — mas sem pagar o preço de tabelas virtuais e chamadas dinâmicas. O CRTP oferece isso: uma classe base recebe como parâmetro de template a própria classe derivada. Assim, a base consegue chamar métodos definidos na derivada, mas tudo resolvido em tempo de compilação.
+
+O resultado é uma forma de polimorfismo estático. O compilador sabe exatamente qual função deve ser chamada e, muitas vezes, consegue embutir (inline) essa chamada. Isso elimina a sobrecarga do polimorfismo dinâmico e gera código extremamente eficiente, ao mesmo tempo em que mantém uma estrutura clara de extensibilidade.
+
+** Tag Dispatching
+
+Aqui temos uma forma engenhosa de selecionar a implementação correta para uma função ainda em tempo de compilação. A ideia é representar propriedades de tipos por meio de pequenas structs vazias, chamadas de “tags”. Essas tags servem como guias: quando você chama uma função, a tag associada ao tipo despacha para a versão mais adequada.
+
+A biblioteca padrão usa esse truque o tempo todo, especialmente em algoritmos que precisam decidir como percorrer iteradores. Se um iterador é de acesso aleatório, a função avança rapidamente com aritmética de ponteiros; se é apenas bidirecional, a mesma função cai em uma versão mais lenta, baseada em laços.
+
+Tudo isso é decidido em tempo de compilação, sem custo extra em tempo de execução. Para o usuário, basta chamar advance; o compilador já sabe qual versão deve ser usada.
