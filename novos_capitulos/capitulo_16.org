@@ -1,0 +1,128 @@
+* Capítulo 16: Templates como alicerce de arquitetura
+
+Na primeira parte deste livro, abordamos os templates de forma tática, como ferramentas para criar componentes reutilizáveis, como no idioma CRTP. Agora, iniciamos uma jornada para reposicionar os templates de sua função como ferramenta para seu verdadeiro papel no C++ moderno: o de um alicerce fundamental para a arquitetura de software. A programação genérica, conforme idealizada por Alexander Stepanov e popularizada pela STL, não é sobre evitar a repetição de código; é sobre a descoberta de algoritmos e estruturas de dados abstratos que são independentes de tipos de dados específicos.
+
+Quando pensamos em arquitetura, frequentemente imaginamos diagramas de classes, herança e polimorfismo em tempo de execução. Essa é a arquitetura do polimorfismo dinâmico, poderosa para modelar relações "é um" em domínios onde a flexibilidade em tempo de execução é crucial. No entanto, existe uma dimensão paralela de design, a arquitetura do polimorfismo estático, construída inteiramente com templates. Esta arquitetura é definida em tempo de compilação, resultando em código que é, ao mesmo tempo, altamente flexível e extremamente performático.
+
+** Além dos Contêineres: Templates na Lógica de Negócios
+
+O exemplo canônico de templates é um contêiner como std::vector<T>. Embora útil, isso limita nossa percepção. O verdadeiro poder emerge quando aplicamos o pensamento genérico à lógica de negócios. Considere um sistema de processamento de transações financeiras.
+
+Uma abordagem tradicional orientada a objetos poderia definir uma classe base Transacao e classes derivadas como TransacaoAcoes, TransacaoTitulos, TransacaoMoedas. O processamento seria feito através de funções virtuais.
+
+Uma arquitetura baseada em templates abordaria o problema de forma diferente. Em vez de focar nos tipos de transação, focaria nas capacidades ou políticas que governam o processamento.
+
+#+begin_src cpp
+#include <iostream>
+#include <string>
+
+// --- Políticas de Validação ---
+struct ValidacaoRigorosa {
+    void validar(const std::string& id) const {
+        if (id.length() < 5) throw std::runtime_error("ID inválido!");
+        std::cout << "Validação rigorosa OK.\n";
+    }
+};
+
+struct ValidacaoFlexivel {
+    void validar(const std::string& id) const {
+        std::cout << "Validação flexível OK.\n";
+    }
+};
+
+// --- Políticas de Logging ---
+struct LogDetalhado {
+    void log(const std::string& msg) const {
+        std::cout << "[LOG DETALHADO] " << msg << "\n";
+    }
+};
+
+struct LogSilencioso {
+    void log(const std::string& msg) const { /* Não faz nada */ }
+};
+
+// --- Componente Arquitetural Genérico ---
+template <typename PoliticaValidacao, typename PoliticaLog>
+class ProcessadorTransacao {
+public:
+    void processar(const std::string& id) {
+        logger_.log("Iniciando processamento para " + id);
+        
+        validador_.validar(id);
+        
+        // ... lógica de negócios principal ...
+        std::cout << "Processando transação " << id << "...\n";
+        
+        logger_.log("Processamento concluído para " + id);
+    }
+
+private:
+    PoliticaValidacao validador_;
+    PoliticaLog logger_;
+};
+
+int main() {
+    // Composição em tempo de compilação:
+    // Um processador para ambientes de produção.
+    ProcessadorTransacao<ValidacaoRigorosa, LogDetalhado> prod_processor;
+    std::cout << "--- Processador de Produção ---\n";
+    prod_processor.processar("TXN12345");
+
+    std::cout << "\n";
+
+    // Um processador para testes ou ambientes de baixo risco.
+    ProcessadorTransacao<ValidacaoFlexivel, LogSilencioso> test_processor;
+    std::cout << "--- Processador de Teste ---\n";
+    test_processor.processar("TXN1");
+    
+    return 0;
+}
+#+end_src
+
+Neste exemplo, ProcessadorTransacao não é uma classe, mas um molde para uma família de classes. A arquitetura não é definida por herança, mas pela composição de políticas em tempo de compilação. Não há custo de funções virtuais, e o compilador pode otimizar agressivamente cada instância do processador, potencialmente embutindo (inlining) as chamadas de validar e log e eliminando completamente o código para LogSilencioso.
+
+** O Contrato Implícito e a Ascensão dos Concepts
+
+A programação com templates, historicamente, dependia de um "contrato implícito". O ProcessadorTransacao acima funciona desde que os tipos PoliticaValidacao e PoliticaLog forneçam os métodos esperados (validar e log) com as assinaturas corretas. Se um tipo não cumprir esse contrato, o resultado é uma cascata de erros de compilação obscuros, originados das profundezas da instanciação do template.
+
+Essa fragilidade foi, por muito tempo, a maior crítica ao uso de templates em larga escala. A solução, introduzida formalmente no C++20, são os Concepts, que exploraremos em detalhes nos próximos capítulos. Os Concepts permitem que o contrato implícito se torne explícito.
+
+#+begin_src cpp
+// Esboço com C++20 Concepts
+/*
+template <typename T>
+concept Validavel = requires(T v, std::string s) {
+    { v.validar(s) } -> std::same_as<void>;
+};
+
+template <typename T>
+concept Logavel = requires(T l, std::string s) {
+    { l.log(s) } -> std::same_as<void>;
+};
+
+template <Validavel V, Logavel L>
+class ProcessadorTransacao { ... };
+*/
+#+end_src
+
+Com os Concepts, a arquitetura baseada em templates ganha uma nova camada de robustez. Os requisitos de um componente genérico são declarados formalmente, e os erros de compilação se tornam claros e imediatos, ocorrendo no ponto da chamada, não no ponto da instanciação.
+
+** Templates como um Mecanismo de Geração de Código
+É útil pensar em templates não apenas como código genérico, mas como uma sub-linguagem dentro do C++ cujo propósito é gerar código C++. Quando você escreve ProcessadorTransacao<ValidacaoRigorosa, LogDetalhado>, você não está instanciando um objeto; você está instruindo o compilador a gerar uma classe ProcessadorTransacao_Rigoroso_Detalhado inteiramente nova e concreta.
+
+Essa perspectiva revela por que os templates são um pilar arquitetural. Eles permitem a criação de abstrações que não existem em tempo de execução. A "política" não é um objeto que pode ser trocado dinamicamente; é um parâmetro para a geração de código. Isso permite a criação de "costuras" arquiteturais que são resolvidas antes mesmo de o programa ser executado, combinando a flexibilidade do design com a performance do código escrito à mão.
+
+*Conclusão*:
+Ver os templates apenas como uma forma de evitar código duplicado é como ver um motor a jato apenas como uma forma de criar vento. Sua verdadeira função é permitir um paradigma de design onde a arquitetura do software é parametrizada e montada em tempo de compilação. Ao compor políticas, definir contratos explícitos com concepts e pensar em termos de geração de código, os templates se tornam a base para a construção de sistemas que são, ao mesmo tempo, abstratos, seguros e eficientes ao extremo.
+
+*Leituras Complementares*:
+
+[[../antigos/capitulo_44.org][Classes Abstratas e Interfaces]]
+
+[[../complementos/capitulo_16_interfaces.org][Interfaces como contrato de software]]
+
+[[../complementos/capitulo_16_templates.org][O Poder Arquitetural dos Templates]]
+
+[[../complementos/capitulo_16_templates_escala.org][Templates em Escala - Potência, Armadilhas e Arquiteturas Reais]]
+
+[[../complementos/capitulo_16_estudos_casos.org][Estudos de Caso Suplementares sobre Templates em C++]]

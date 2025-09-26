@@ -1,0 +1,116 @@
+* /auto/ como espelho da dedução de tipos
+
+No coração do C++ moderno está a ideia de que o compilador pode ser usado como um colaborador ativo na escrita de código. O comando auto é a materialização mais visível desse princípio. Introduzido em C++11 e expandido em C++14 e C++17, ele permite que o compilador deduza o tipo de uma variável ou retorno de função a partir de sua expressão de inicialização.
+
+Longe de ser apenas um recurso de conveniência, auto é uma ponte direta para as regras de dedução de tipos dos templates. A sintaxe parece trivial, mas a morfologia que emerge é profunda, especialmente quando o auto se combina com referências, const, ponteiros e decltype.
+
+** Sintaxe fundamental
+
+A forma mais simples é:
+
+#+begin_src cpp 
+auto x = 10;       // x é int
+auto y = 3.14;     // y é double
+auto z = "text";   // z é const char*
+#+end_src
+
+O compilador analisa a expressão à direita do = e deduz o tipo da variável à esquerda, aplicando exatamente as mesmas regras que em template<typename T> void f(T). Por isso, no caso acima, x é int (não int&, nem const int).
+
+** Auto com referências e const
+
+A verdadeira força aparece quando misturamos auto com qualificadores de referência e const.
+
+int n = 10;
+const int cn = 20;
+
+auto a = n;        // a é int
+auto b = cn;       // b é int (const é ignorado, pois é cópia)
+auto& c = n;       // c é int& (referência direta)
+const auto& d = cn; // d é const int& (const é preservado)
+
+
+Note como o auto sozinho ignora constância do valor original (semelhante ao Caso 3 da dedução por valor em templates). Já quando explicitamos & ou const&, a constância e a referência passam a fazer parte do tipo final.
+
+3. Auto universal: auto&&
+
+O caso mais sofisticado é auto&&. Ele segue exatamente as regras das referências universais:
+
+int n = 1;
+const int cn = 2;
+
+auto&& r1 = n;   // r1 é int& (porque n é lvalue)
+auto&& r2 = cn;  // r2 é const int& (porque cn é lvalue const)
+auto&& r3 = 5;   // r3 é int&& (porque 5 é rvalue)
+
+
+Esse é o mesmo mecanismo que fundamenta o encaminhamento perfeito em funções template. Com auto&&, podemos capturar qualquer expressão mantendo sua "valoridade" (se é lvalue ou rvalue).
+
+4. Interações com decltype
+
+A palavra-chave decltype expande ainda mais as possibilidades, pois permite capturar o tipo exato de uma expressão, com ou sem ajustes. Ao combiná-la com auto, obtemos formas híbridas como decltype(auto):
+
+int n = 0;
+int& f() { return n; }
+
+auto x = f();        // x é int (referência removida, cópia)
+decltype(auto) y = f(); // y é int& (referência preservada)
+
+
+Essa distinção é crítica em templates genéricos, onde preservar o tipo exato (incluindo se é referência) pode ser essencial para manter semânticas corretas.
+
+5. Auto em retorno de funções
+
+Desde C++14, é possível declarar funções cujo retorno é deduzido automaticamente:
+
+auto soma(int a, int b) {
+    return a + b; // tipo de retorno deduzido como int
+}
+
+
+Com C++14, múltiplos return precisam ser consistentes, ou o compilador emitirá erro.
+Com C++11, só era possível usar auto no retorno com trailing return type e decltype:
+
+template<typename T, typename U>
+auto soma(T a, U b) -> decltype(a + b) {
+    return a + b;
+}
+
+
+O decltype(auto) retorna aqui ao protagonismo quando queremos preservar exatamente o tipo resultante da expressão.
+
+6. Morfologia prática e exemplos compiláveis
+#include <iostream>
+#include <vector>
+
+int main() {
+    std::vector<int> v = {1,2,3};
+
+    // Caso 1: auto simples
+    auto x = v[0];         // int
+    const auto y = v[1];   // const int
+
+    // Caso 2: auto&
+    auto& r1 = v[0];       // int&
+    const auto& r2 = v[1]; // const int&
+
+    // Caso 3: auto&& universal
+    auto&& r3 = v[2];      // int& (porque v[2] é lvalue)
+    auto&& r4 = 42;        // int&& (porque 42 é rvalue)
+
+    // Caso 4: decltype(auto)
+    auto f = [&]() -> int& { return v[0]; };
+    auto a = f();          // int (referência perdida)
+    decltype(auto) b = f();// int& (referência preservada)
+
+    std::cout << a << " " << b << "\n";
+}
+
+7. Vantagens e armadilhas
+
+O auto reduz a verbosidade, especialmente em código genérico, onde o tipo exato pode ser longo ou dependente de templates (por exemplo, iteradores STL). No entanto, seu uso indiscriminado pode mascarar detalhes importantes, como a perda de const em cópias, ou mudanças sutis no tipo de retorno.
+
+Uma prática recomendada é usar auto sempre que o tipo já estiver explícito no lado direito (evidente ao leitor), mas evitar quando o tipo deduzido não é óbvio.
+
+Conclusão
+
+O auto não é apenas açúcar sintático, mas uma manifestação explícita da lógica de dedução de tipos. Ele transforma a relação com o compilador, pedindo a ele que deduza aquilo que já está implícito no código, mas ainda dando ao programador o poder de controlar as nuances com &, const e decltype(auto). Ao dominá-lo, deixamos de escrever tipos redundantes e passamos a pensar diretamente em termos da semântica da expressão.

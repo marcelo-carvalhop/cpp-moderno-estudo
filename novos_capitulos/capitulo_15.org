@@ -31,3 +31,7 @@ Para muitas tarefas, existem múltiplas maneiras de se fazer a mesma coisa: pont
 *Conclusão da Parte I:*
 
 A complexidade do C++ não é arbitrária. Ela é o preço do controle, da performance e da expressividade. A filosofia da linguagem não é esconder a complexidade do mundo real, mas fornecer um conjunto de ferramentas de abstração poderosas e de custo zero para que o programador possa gerenciá-la. O objetivo não é ter uma linguagem simples, mas uma linguagem que permita a construção de soluções simples e eficientes para problemas inerentemente complexos. Com esta base filosófica estabelecida, as próximas partes deste livro se concentrarão em como aplicar essas ferramentas para construir os pilares do software moderno.
+
+*Leitura Complementar*:
+
+[[../complementos/capitulo_15_complemento.org][A Filosfia da Complexidade em C++ - Complemento]]

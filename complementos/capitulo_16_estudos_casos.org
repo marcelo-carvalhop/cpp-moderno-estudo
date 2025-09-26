@@ -1,0 +1,103 @@
+* Estudos de Caso Suplementares sobre Templates em C++
+
+Se o capítulo anterior delineou a força e a contradição dos templates no plano conceitual, este apêndice busca iluminar casos práticos onde sua influência se estende para domínios distintos — da programação funcional embutida em ranges, à representação de tipos heterogêneos em variant, até a persistência de dados em bibliotecas de serialização.
+
+** std::ranges: polimorfismo sem herança
+
+O Ranges (C++20) é um marco na STL: nele, os templates tornam-se ferramentas de programação funcional. Operações como filter, transform e take podem ser encadeadas em estilo quase declarativo, mas sem o custo de iteradores virtuais ou lambdas interpretados.
+
+#+begin_src cpp 
+#include <ranges>
+#include <vector>
+#include <iostream>
+
+int main() {
+    std::vector<int> v = {1, 2, 3, 4, 5, 6};
+
+    auto even_squared = v 
+        | std::views::filter([](int n){ return n % 2 == 0; })
+        | std::views::transform([](int n){ return n * n; });
+
+    for (int x : even_squared)
+        std::cout << x << " "; // 4 16 36
+}
+#+end_src 
+
+Aqui não há overhead de execução: cada camada da composição é um tipo gerado por templates que sabe, em tempo de compilação, exatamente o que fazer. Não existe função virtual, não existe iterator boxing. O compilador tece uma cadeia de tipos que se funde em um laço altamente otimizado.
+
+Por trás da simplicidade da sintaxe, vive um ecossistema de conceitos, constraints e views que exigem um esforço enorme de quem implementa, mas que ao programador entrega uma interface de “custo zero” quase matemática.
+
+** std::variant: união tipada em tempo de compilação
+
+Outro exemplo moderno é o std::variant, introduzido em C++17. Ele é uma união segura, representando um valor que pode assumir um entre diversos tipos. O uso extensivo de templates permite que o compilador calcule, em tempo de compilação, o tamanho e alinhamento necessário para armazenar todos os tipos possíveis, além de fornecer acesso seguro.
+
+#+begin_src cpp 
+#include <variant>
+#include <iostream>
+#include <string>
+
+int main() {
+    std::variant<int, std::string> v;
+    v = 42;
+
+    std::visit([](auto&& arg){
+        std::cout << arg << "\n";
+    }, v); // imprime 42
+
+    v = "texto";
+    std::visit([](auto&& arg){
+        std::cout << arg << "\n";
+    }, v); // imprime "texto"
+}
+#+end_src 
+
+O poder aqui não está apenas em oferecer uma abstração segura, mas em como os templates permitem ao compilador especializar o acesso para cada alternativa. O std::visit é um dos exemplos mais elegantes de como os templates permitem simular pattern matching — anos antes do match nativo chegar a outras linguagens.
+
+** Serialização Genérica: cereal e afins
+
+Em bibliotecas de serialização, como cereal, Boost.Serialization ou protobuf-cpp, os templates fornecem uma forma de generalizar a leitura e escrita sem recorrer a herança pesada ou RTTI.
+
+#+begin_src cpp 
+#include <cereal/archives/json.hpp>
+#include <cereal/types/vector.hpp>
+#include <sstream>
+#include <iostream>
+
+struct Data {
+    int id;
+    std::vector<int> values;
+
+    template<class Archive>
+    void serialize(Archive& ar) {
+        ar(id, values);
+    }
+};
+
+int main() {
+    Data d{1, {10,20,30}};
+    std::stringstream ss;
+
+    { cereal::JSONOutputArchive oar(ss); oar(d); }
+    std::cout << ss.str() << "\n";
+}
+#+end_src 
+
+O segredo está na função serialize ser ela mesma um template — o mesmo código atende tanto a um JSONArchive quanto a um BinaryArchive. A geração de código ocorre de forma estática, eliminando a necessidade de uma API virtual centralizada.
+
+Esse padrão ilustra a força dos templates como ponte entre tipos arbitrários e um protocolo comum, sem a burocracia das hierarquias de classes.
+
+** Lições Transversais
+
+Esses três casos — ranges, variant e serialização — iluminam a mesma tensão discutida antes:
+
+  - O uso de templates permite abstrações ricas e seguras sem custo em tempo de execução.
+
+  - O preço é pago em complexidade de implementação, mensagens de erro extensas e maior tempo de compilação.
+
+A STL moderna, ao adotar concepts, tenta mitigar parte desse custo, tornando os erros mais legíveis e as restrições mais explícitas. Mas a filosofia permanece: o C++ entrega ferramentas que permitem escrever bibliotecas que parecem DSLs, enquanto exigem do programador um entendimento profundo de metaprogramação.
+
+** Fecho
+
+Este apêndice mostrou como os templates, longe de serem um recurso restrito a containers genéricos, impulsionam a evolução do C++ para novos paradigmas: programação funcional (ranges), união tipada e pattern matching (variant), e sistemas de persistência (serialização genérica).
+
+Cada exemplo demonstra um mesmo princípio: o poder dos templates em esculpir uma linguagem dentro da linguagem, equilibrando elegância de uso com a dureza da implementação.

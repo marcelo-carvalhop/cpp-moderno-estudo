@@ -1,0 +1,86 @@
+** Auto como laboratório da dedução de tipos
+
+O uso de 'auto' pode ser visto como um campo de experimentação para as regras de dedução apresentadas no capítulo anterior. Sempre que nos perguntamos "/como o compilador deduz T em um template?/", podemos escrever uma linha de código com 'auto' e observar o resultado.
+
+Por exemplo:
+
+#+begin_src cpp 
+template<typename T>
+void f(T p);
+
+int main() {
+    const int cx = 42;
+
+    f(cx);           // Como T é deduzido?
+    auto a = cx;     // Qual é o tipo de 'a'?
+}
+#+end_src 
+
+As duas situações são equivalentes: em ambas, 'T' (ou 'auto') será deduzido como 'int', descartando o 'const'. Essa simetria mostra que 'auto' não é um mecanismo separado, mas apenas uma aplicação das mesmas regras.
+
+** Auto e inicializadores: a exceção importante
+
+Existe, porém, uma nuance que foge ao paralelismo: listas de inicialização.
+
+#+begin_src cpp 
+auto x = {1, 2, 3};  // x é std::initializer_list<int>
+#+end_src 
+
+Aqui, 'auto' não segue as mesmas regras que templates. Um template não deduziria um 'initializer_list' automaticamente:
+
+#+begin_src cpp 
+template<typename T>
+void g(T p);
+
+g({1, 2, 3}); // Erro: dedução não funciona com lista bruta
+#+end_src
+
+Essa é a única grande exceção: quando envolvemos '{}', 'auto' tem um tratamento especial, introduzido para harmonizar com o design do 'std::initializer_list'.
+
+** Auto em lambdas e range-based for
+
+A introdução de 'auto' também abriu espaço para expressões mais legíveis em construções modernas:
+
+#+begin_src cpp 
+std::vector<int> v = {1,2,3};
+
+for (auto x : v) {       // x é int (cópia)
+    x *= 2;
+}
+
+for (auto& x : v) {      // x é int& (referência ao elemento)
+    x *= 2;
+}
+#+end_src
+
+Esse uso direto é, de novo, um reflexo das mesmas regras: 'auto' sozinho remove const e referência; auto& preserva referência; 'const auto&' preserva const e evita cópia desnecessária.
+
+Já nos lambdas, o 'auto' se torna ainda mais expressivo, permitindo parâmetros genéricos:
+
+#+begin_src cpp 
+auto lambda = [](auto x) { return x * 2; };
+lambda(3);    // int → retorna int
+lambda(3.14); // double → retorna double
+#+end_src
+
+Aqui, o 'auto' é literalmente açúcar sintático para um parâmetro de template.
+
+** O papel de decltype(auto) no encaminhamento
+
+No estudo da dedução de tipos, vimos como preservar referências e constância é essencial. O 'decltype(auto)' se insere nesse ponto como uma ponte entre 'auto' e 'decltype', permitindo que a dedução não perca detalhes sutis:
+
+#+begin_src
+int n = 0;
+int& f() { return n; }
+
+auto x = f();        // int (referência perdida)
+decltype(auto) y = f(); // int& (referência preservada)
+#+end_src
+
+Esse é um reflexo direto das regras de dedução do capítulo anterior: 'auto' segue a lógica de parâmetros por valor, descartando referências; já 'decltype(auto)' respeita a forma da expressão original.
+
+** Conclusão estendida
+
+O estudo de 'auto' não é apenas prático, mas filosófico dentro do C++ moderno. Ele força o programador a raciocinar como o compilador, internalizando as mesmas regras que regem os templates. O que se aprende em dedução de tipos se reflete imediatamente no comportamento de 'auto', e vice-versa.
+
+Se o capítulo anterior mostrou como os templates se apoiam na dedução de tipos para se tornar a base arquitetural do C++, este capítulo extra mostra como o 'auto' serve como uma lupa: uma forma concreta e imediata de ver essas regras em ação no cotidiano, seja ao iterar sobre um contêiner, escrever uma lambda ou decidir como preservar o tipo exato de uma expressão.

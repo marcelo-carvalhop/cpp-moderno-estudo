@@ -1,0 +1,125 @@
+* Capítulo 17: Dedução de tipos: o compilador como aliado
+
+A programação com templates é um diálogo com o compilador. Nós escrevemos um "molde" de código, e o compilador, ao ver como o usamos, gera a versão concreta e final. O coração deste diálogo é o processo de dedução de tipos de template. É o mecanismo pelo qual o compilador examina os argumentos fornecidos a uma função template e determina quais tipos concretos devem substituir os parâmetros de template (como T).
+
+Longe de ser um processo mágico ou imprevisível, a dedução de tipos segue um conjunto de regras rigorosas e bem definidas. Como detalhado em "C++ Templates: The Complete Guide", entender essas regras é essencial, pois elas governam o comportamento de quase todo o código genérico que escrevemos. Ao dominar essas regras, deixamos de adivinhar o que o compilador fará e passamos a usá-lo como um aliado previsível e poderoso.
+
+O processo pode ser resumido da seguinte forma: para uma chamada func(expr) a uma função template template<typename T> void func(ParamType p), o compilador compara o tipo de expr com a forma de ParamType para deduzir o tipo T. As regras para essa dedução variam de acordo com a forma de ParamType.
+
+** Caso 1: ParamType é uma Referência ou Ponteiro (não-universal)
+
+Quando o parâmetro da função template é uma referência (T&) ou um ponteiro (T*), a dedução é a mais direta.
+
+O tipo de expr é usado como o tipo para T.
+Se expr for uma referência, a parte da referência é ignorada para a dedução.
+A "constância" (const) e a "volatilidade" (volatile) de expr são preservadas em T.
+
+#+begin_src cpp
+template<typename T>
+void func_ref(T& p);
+
+int main() {
+    int x = 10;
+    const int cx = 20;
+    const int& rx = x;
+
+    // func_ref(x);
+    // expr é 'x', tipo 'int'.
+    // T é deduzido como 'int'.
+    // ParamType (T&) se torna 'int&'.
+
+    // func_ref(cx);
+    // expr é 'cx', tipo 'const int'.
+    // T é deduzido como 'const int'.
+    // ParamType (T&) se torna 'const int&'.
+
+    // func_ref(rx);
+    // expr é 'rx', tipo 'const int&'.
+    // A referência é ignorada, o tipo base é 'const int'.
+    // T é deduzido como 'const int'.
+    // ParamType (T&) se torna 'const int&'.
+    
+    return 0;
+}
+#+end_src
+
+Neste caso, T espelha o tipo do argumento, incluindo sua constância, mas ignorando se o argumento em si era uma referência.
+
+Caso 2: ParamType é uma Referência Universal (ou de Encaminhamento)
+Quando o parâmetro é da forma T&&, onde T é um tipo a ser deduzido, ele se comporta como uma referência universal. Este é um caso especial com regras próprias, que são a base do encaminhamento perfeito (perfect forwarding).
+
+Se expr for um lvalue (um valor que tem um nome/endereço), T é deduzido como uma referência lvalue ao tipo de expr.
+Se expr for um rvalue (um valor temporário), T é deduzido como o tipo não-referência de expr (seguindo as regras do Caso 1).
+cpp
+Copy
+template<typename T>
+void func_universal(T&& p);
+
+int main() {
+    int x = 10;
+    const int cx = 20;
+
+    // func_universal(x);
+    // 'x' é um lvalue de tipo 'int'.
+    // T é deduzido como 'int&'.
+    // ParamType (T&&) se torna 'int& &&', que colapsa para 'int&'.
+
+    // func_universal(cx);
+    // 'cx' é um lvalue de tipo 'const int'.
+    // T é deduzido como 'const int&'.
+    // ParamType (T&&) se torna 'const int& &&', que colapsa para 'const int&'.
+
+    // func_universal(100);
+    // '100' é um rvalue de tipo 'int'.
+    // T é deduzido como 'int'.
+    // ParamType (T&&) se torna 'int&&'.
+    
+    return 0;
+}
+A capacidade de T ser deduzido como um tipo de referência é única para este caso e é o que permite que a função template preserve perfeitamente a "valoridade" (lvalue/rvalue) do argumento original.
+
+Caso 3: ParamType não é Ponteiro nem Referência (Passagem por Valor)
+Quando o parâmetro é passado por valor (T), a semântica é de cópia. O parâmetro p será um objeto novo e independente.
+
+Como antes, se expr for uma referência, ela é ignorada.
+Diferentemente do Caso 1, se expr for const ou volatile, esses qualificadores também são ignorados.
+A lógica é que, como p é uma cópia, a constância do objeto original é irrelevante para ele. O novo objeto p é, por padrão, modificável dentro da função.
+
+cpp
+Copy
+template<typename T>
+void func_valor(T p);
+
+int main() {
+    int x = 10;
+    const int cx = 20;
+    const int& rx = x;
+    const char* const ptr = "Olá";
+
+    // func_valor(x);
+    // T é deduzido como 'int'.
+
+    // func_valor(cx);
+    // 'cx' é 'const int'. O 'const' é ignorado.
+    // T é deduzido como 'int'.
+
+    // func_valor(rx);
+    // 'rx' é 'const int&'. A referência e o 'const' são ignorados.
+    // T é deduzido como 'int'.
+
+    // func_valor(ptr);
+    // 'ptr' é 'const char* const'. O 'const' no ponteiro é ignorado.
+    // T é deduzido como 'const char*'. (O const no que é apontado é mantido).
+    
+    return 0;
+}
+Dedução de auto e a Unificação de Conceitos
+Um dos insights mais importantes do C++ moderno é que as regras de dedução de tipo para a palavra-chave auto são (com uma pequena exceção para std::initializer_list) exatamente as mesmas que para templates.
+
+auto var = expr; segue as regras do Caso 3.
+auto& var = expr; e const auto& var = expr; seguem as regras do Caso 1.
+auto&& var = expr; segue as regras do Caso 2.
+Essa unificação simplifica o aprendizado da linguagem. Ao entender a dedução de tipos de template, você simultaneamente entende o comportamento de auto, tornando o compilador um aliado consistente em ambos os contextos.
+
+Conclusão:
+A dedução de tipos não é um processo arbitrário. É um algoritmo preciso que forma a base da interação entre o programador e o compilador no domínio da programação genérica. Compreender esses três casos principais nos permite prever com exatidão como o código genérico se comportará, escrever encaminhamento perfeito de forma correta e usar auto com confiança. É o conhecimento que transforma o compilador de uma caixa preta em um parceiro de design transparente e confiável.

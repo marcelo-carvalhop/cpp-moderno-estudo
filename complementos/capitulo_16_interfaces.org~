@@ -1,0 +1,83 @@
+* Interfaces como contrato de software
+
+Quando se fala em arquitetura de software em C++, invariavelmente nos deparamos com o conceito de interface. Essa palavra, tão comum em linguagens como Java ou C#, ganha em C++ uma expressão mais variada e menos explícita, mas igualmente poderosa. Interfaces não são apenas um detalhe sintático; são contratos. Um contrato que declara: “aqui estão as operações que você pode esperar, independentemente de como serão realizadas”.
+
+O coração de uma interface é o polimorfismo dinâmico. Enquanto os templates (como vimos no capítulo anterior) operam no mundo estático, onde o compilador gera versões concretas de código para cada combinação de parâmetros, as interfaces vivem no mundo do tempo de execução. A grande virtude de uma interface é permitir que diferentes classes ofereçam o mesmo conjunto de operações, ainda que cada uma implemente essas operações de forma distinta.
+
+** A anatomia de uma interface em C++
+
+Em C++ não existe uma palavra-chave interface. O que existe é a ideia de classe abstrata pura, uma classe que declara métodos virtuais puros (aqueles marcados com = 0) e não fornece implementação. O compilador obriga qualquer classe derivada a implementar esses métodos, sob pena de também ser considerada abstrata.
+
+Um exemplo simples mostra essa construção:
+
+#+begin_src cpp 
+#include <iostream>
+#include <memory>
+
+// A interface: um contrato para qualquer forma de dispositivo de saída
+class IOutputDevice {
+public:
+    virtual void write(const std::string& msg) = 0;
+    virtual ~IOutputDevice() = default;
+};
+
+// Implementação que escreve no console
+class ConsoleOutput : public IOutputDevice {
+public:
+    void write(const std::string& msg) override {
+        std::cout << "[Console] " << msg << "\n";
+    }
+};
+
+// Implementação que grava em um arquivo
+#include <fstream>
+class FileOutput : public IOutputDevice {
+public:
+    explicit FileOutput(const std::string& filename) : file_(filename) {}
+    
+    void write(const std::string& msg) override {
+        file_ << "[File] " << msg << "\n";
+    }
+
+private:
+    std::ofstream file_;
+};
+
+int main() {
+    std::unique_ptr<IOutputDevice> device;
+
+    device = std::make_unique<ConsoleOutput>();
+    device->write("Mensagem enviada ao console");
+
+    device = std::make_unique<FileOutput>("log.txt");
+    device->write("Mensagem gravada em arquivo");
+}
+#+end_src 
+
+Neste exemplo, IOutputDevice é uma interface. Ela não sabe nada sobre console ou arquivo; apenas define um contrato. O cliente do código interage sempre com o tipo IOutputDevice, e não precisa se preocupar com a implementação concreta. A mágica acontece por meio da tabela virtual (vtable), um mecanismo interno do compilador que mapeia chamadas de métodos virtuais para a implementação correta em tempo de execução.
+
+Por que usar interfaces?
+
+O valor central das interfaces é o desacoplamento. Em vez de codificar diretamente contra classes concretas (como ConsoleOutput), o cliente depende de uma abstração (IOutputDevice). Isso permite que o comportamento mude em tempo de execução, que novas implementações surjam sem alterar o código cliente, e que o sistema se torne extensível sem recompilação massiva.
+
+Esse desacoplamento traz consequências práticas: facilita testes unitários, já que podemos injetar implementações falsas ou simuladas (mocks); favorece a substituição de dependências em sistemas complexos; e abre espaço para arquiteturas plugáveis, onde o código cliente permanece fixo e apenas as implementações variam.
+
+As desvantagens e o custo oculto
+
+Mas interfaces não são uma panaceia. O polimorfismo dinâmico tem um preço. Cada chamada virtual implica uma indireção por meio da vtable, o que, embora barato em termos absolutos, não é gratuito e pode ser um gargalo em cenários de alto desempenho. Além disso, o uso extensivo de hierarquias de interfaces tende a fragmentar o design, produzindo estruturas de difícil manutenção quando mal planejadas.
+
+Outro ponto delicado é a ausência de verificação estrutural. Diferente dos Concepts em templates, que declaram de forma explícita os requisitos de um tipo em tempo de compilação, as interfaces só verificam conformidade em tempo de linkagem. Se uma classe esquece de implementar um método, a falha é detectada pelo compilador, mas se uma interface é mal desenhada, o custo de refatoração se espalha pelo sistema.
+
+Boas práticas no uso de interfaces
+
+Um princípio fundamental é a clareza do contrato. Uma interface deve ser pequena, coesa e estável. Quanto mais métodos ela expuser, mais difícil será sua implementação e evolução. Interfaces gordas (chamadas de fat interfaces) impõem um peso desnecessário sobre classes concretas e aumentam o acoplamento.
+
+Outro princípio é evitar a tentação de usá-las onde não são necessárias. Se não há múltiplas implementações previstas ou se a flexibilidade de tempo de execução não é uma exigência clara, o uso de templates ou composição direta pode ser preferível.
+
+Por fim, é importante dar nomes que expressem o contrato, e não a implementação. IOutputDevice comunica claramente o que se espera; ConsoleLoggerInterface já insinua detalhes de implementação e viola a abstração.
+
+Interfaces versus templates
+
+Ao colocar interfaces lado a lado com templates, vemos dois mundos complementares. Interfaces são flexíveis, dinâmicas, ideais quando o comportamento só pode ser definido em tempo de execução. Templates são rígidos no tempo de compilação, mas recompensam com performance, verificações mais robustas e ausência de sobrecarga em chamadas.
+
+A arte da arquitetura em C++ consiste em escolher sabiamente quando usar cada ferramenta. Um sistema que exige plugins carregados dinamicamente ou suporte a bibliotecas de terceiros tende a favorecer interfaces. Um sistema embarcado, de recursos restritos e foco em performance, tende a preferir templates. Em muitos casos, a resposta está em uma combinação dos dois: interfaces para definir os pontos de extensão externos, templates para parametrizar e otimizar os componentes internos.

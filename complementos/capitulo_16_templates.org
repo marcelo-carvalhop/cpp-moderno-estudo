@@ -1,0 +1,184 @@
+* O Poder Arquitetural dos Templates
+
+Se o polimorfismo dinâmico é a face visível da orientação a objetos em C++, os templates são o motor silencioso que, desde a STL de Alexander Stepanov, redefine o que significa escrever código genérico. Os templates não são apenas um mecanismo de “parâmetros de tipo”, mas sim uma sub-linguagem dentro de C++, com regras próprias, semânticas próprias e até mesmo falhas próprias. Entender templates em profundidade é compreender como o C++ moderno constrói suas abstrações mais poderosas — da STL às bibliotecas mais sofisticadas como Boost ou ranges.
+
+** Instanciação e Regras de Substituição
+
+Um template é, em essência, um molde de código. Diferente da herança clássica, onde o compilador já conhece todas as classes e métodos, o template adia a verificação de tipos até o momento em que é instanciado. Isso significa que um código aparentemente inválido pode compilar se nunca for instanciado.
+
+#+begin_src cpp 
+template<typename T>
+void f(T t) {
+    // Isso só é inválido se instanciarmos f com um tipo sem operator+.
+    auto x = t + t;
+}
+#+end_src 
+
+Se chamarmos f(3), tudo funciona, pois int suporta +. Se chamarmos f(std::string("A")), também. Mas se tentarmos f(std::ofstream{}), só nesse momento o compilador emitirá o erro. Esse adiamento é chamado de two-phase lookup: o compilador analisa a definição do template em um primeiro momento, mas só realiza verificações completas durante a instância concreta.
+
+Esse mecanismo dá origem a um dos princípios mais poderosos (e confusos) do C++: SFINAE.
+
+** SFINAE: Substitution Failure Is Not An Error
+
+SFINAE é a regra que permite que falhas em substituições de tipos durante a dedução de templates não sejam tratadas como erros fatais, mas sim como exclusões daquela especialização. Essa sutileza permite construir código que “testa” propriedades de tipos em tempo de compilação.
+
+#+begin_src cpp 
+#include <type_traits>
+#include <iostream>
+
+// Habilita esta função apenas se T tiver operador de soma.
+template<typename T>
+auto sum(T a, T b) -> decltype(a + b, T{}) {
+    std::cout << "Soma disponível\n";
+    return a + b;
+}
+
+// Sobrecarga fallback.
+void sum(...) {
+    std::cout << "Soma indisponível\n";
+}
+
+int main() {
+    sum(1, 2);                 // Soma disponível
+    sum(std::cout, std::cout); // Soma indisponível
+}
+#+end_src 
+
+Aqui, decltype(a + b, T{}) só é válido se a + b compilar. Se não, a especialização falha, mas graças ao SFINAE, o compilador não gera erro: apenas descarta essa versão e cai na alternativa.
+
+Sem SFINAE, conceitos como traits (std::is_integral, std::is_copy_constructible) e bibliotecas modernas como ranges seriam impossíveis.
+
+** Especialização: Total e Parcial
+
+Templates permitem não apenas a generalização, mas também a adaptação a casos específicos. A especialização total substitui completamente a implementação genérica:
+
+#+begin_src cpp
+template<typename T>
+struct Printer {
+    static void print(const T& value) {
+        std::cout << value << "\n";
+    }
+};
+
+// Especialização total para bool
+template<>
+struct Printer<bool> {
+    static void print(bool value) {
+        std::cout << (value ? "true" : "false") << "\n";
+    }
+};
+#+end_src 
+
+Já a especialização parcial refina um template apenas em determinadas condições, mantendo genérico o resto.
+
+#+begin_src cpp 
+template<typename T>
+struct Wrapper {
+    T value;
+};
+
+// Especialização parcial para ponteiros
+template<typename T>
+struct Wrapper<T*> {
+    T* ptr;
+};
+#+end_src
+
+Essas técnicas são cruciais em bibliotecas genéricas, permitindo otimizações sem quebrar a interface uniforme.
+
+** Metaprogramação com Templates
+
+Templates não apenas geram código — eles podem executar cálculos em tempo de compilação. Essa era a base da metaprogramação clássica antes de constexpr. Um exemplo canônico é o cálculo fatorial:
+
+#+begin_src cpp 
+template<int N>
+struct Factorial {
+    static constexpr int value = N * Factorial<N-1>::value;
+};
+
+template<>
+struct Factorial<0> {
+    static constexpr int value = 1;
+};
+
+int main() {
+    static_assert(Factorial<5>::value == 120);
+}
+#+end_src 
+
+Embora hoje constexpr seja a forma preferida, a técnica mostra como os templates podem ser usados como uma linguagem funcional no próprio compilador.
+
+** Concepts e Constraints
+
+Até o C++17, os templates sofriam do “contrato implícito”: qualquer erro de incompatibilidade de tipos resultava em mensagens obscuras. O C++20 introduziu concepts, permitindo declarar formalmente os requisitos de um template.
+
+#+begin_src cpp 
+#include <concepts>
+
+template<std::integral T>
+T gcd(T a, T b) {
+    while (b != 0) {
+        T t = b;
+        b = a % b;
+        a = t;
+    }
+    return a;
+}
+#+end_src
+
+Aqui, gcd só existe para tipos integrais. A tentativa de chamar gcd(3.5, 2.1) falha imediatamente, com mensagem clara.
+
+Concepts elevam os templates ao mesmo patamar das interfaces em outras linguagens, mas sem custo de execução, pois tudo acontece em tempo de compilação.
+
+** Idiomas Arquiteturais com Templates
+
+Vários padrões de design ganham uma forma nova quando transportados para o mundo dos templates. O exemplo mais marcante é o CRTP (Curiously Recurring Template Pattern), que substitui polimorfismo dinâmico por estático.
+
+#+begin_src cpp 
+template<typename Derived>
+class Base {
+public:
+    void interface() {
+        static_cast<Derived*>(this)->implementation();
+    }
+};
+
+class Concrete : public Base<Concrete> {
+public:
+    void implementation() {
+        std::cout << "Implementação concreta\n";
+    }
+};
+
+int main() {
+    Concrete c;
+    c.interface();
+}
+#+end_src 
+
+Aqui, Base define a interface, mas delega a implementação ao Derived. O compilador resolve tudo em tempo de compilação, eliminando o custo de chamadas virtuais.
+
+Esse padrão é a base de bibliotecas como Eigen (álgebra linear), que exploram CRTP para compor operações matemáticas sem penalidade de desempenho.
+
+** O Futuro: Templates como DSL
+
+Olhando para a evolução do C++, vemos templates se consolidando como uma linguagem de domínio específico embutida. Bibliotecas modernas usam templates para oferecer sintaxes quase naturais:
+
+#+begin_src cpp 
+#include <ranges>
+#include <iostream>
+
+int main() {
+    auto v = {1, 2, 3, 4, 5};
+    for (auto x : v | std::views::filter([](int n){ return n % 2; })
+                    | std::views::transform([](int n){ return n * n; })) {
+        std::cout << x << " ";
+    }
+}
+#+end_src 
+
+Essa expressividade só é possível porque os templates são capazes de gerar abstrações altamente otimizadas, ao mesmo tempo seguras e declarativas.
+
+** Conclusão
+
+Templates em C++ são muito mais que um mecanismo de parametrização de tipos. Eles são o tecido onde se costura desde a STL até as bibliotecas mais sofisticadas de hoje. Dominar instanciamento, SFINAE, especialização, metaprogramação e concepts é compreender como se constrói a arquitetura estática do C++ moderno. E, ao contrário do polimorfismo dinâmico, eles não custam nada em tempo de execução: são a própria encarnação da máxima de Stroustrup, a abstração de custo zero.
