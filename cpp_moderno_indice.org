@@ -1,71 +1,71 @@
 * Índice
 
-+[[./antigos/capitulo_1_errado.org][Capítulo 1: Introdução ao CPP Moderno]]+\\
-[[./antigos/capitulo_1.org][Capítulo 1: Mergulhando no C++ Moderno: Fundamentos e Filosofia]]\\
-[[./antigos/capitulo_2.org][Capítulo 2: Tipos Fundamentais, Variáveis e Controle de Fluxo: Os Átomos da Lógica]]\\
-[[./antigos/capitulo_3.org][Capítulo 3: A Anatomia dos Dados: Um Mergulho Profundo nos Tipos Primitivos]]\\
-[[./antigos/capitulo_4.org][Capítulo 4: A Realidade Física dos Dados: Alinhamento, Conversões e o Abismo do Indefinido]]\\
-[[./antigos/parada_estrategica.org][Parada Estratégica: Subir ou Descer o Nível?]]\\
-[[./antigos/interludio_1.org][Interlúdio: Um Mapa Para a Maestria — Por Que o Caminho Importa?]]\\
-[[./antigos/capitulo_5.org][Capítulo 5: Funções — A Arte de Organizar a Lógica]]\\
-[[./antigos/capitulo_6.org][Capítulo 6: A Mecânica das Funções — Por Baixo dos Panos]]\\
-+[[./antigos/capitulo_7_errado.org][Capítulo 7: Agregando Dados — A Simplicidade e o Poder das Structs]]+\\
-[[./antigos/capitulo_7.org][Capítulo 7: Definindo Dados e Constantes — Structs, Enums e o Escopo Global]]\\
-[[./antigos/capitulo_8.org][Capítulo 8: Indireção e Memória — Uma Análise de Ponteiros]]\\
-[[./antigos/capitulo_9.org][Capítulo 9: A Arquitetura da Memória e o Gerenciamento Dinâmico]]\\
-+[[./antigos/capitulo_10_errado.org][Capítulo 10: Gerenciamento de Recursos como um Princípio — Ponteiros Inteligentes e a Semântica de Posse]]+\\
-[[./antigos/capitulo_10.org][Capítulo 10: Posse Exclusiva e Gerenciamento de Recursos — Uma Análise de std::unique_ptr]]\\
-[[./antigos/capitulo_11.org][Capítulo 11: Posse Compartilhada e o Ciclo de Vida Colaborativo — std::shared_ptr]]\\
-[[./antigos/capitulo_12.org][Capítulo 12: Observação Não-Proprietária e a Quebra de Ciclos de Referência — std::weak_ptr]]\\
-[[./antigos/capitulo_13.org][Capítulo 13: Manipulação de Tipos e Auto-Referência em Posse Compartilhada]]\\
-[[./antigos/analose_const.org][Análise da Palavra-chave const em Métodos de Membro]]\\
-[[./antigos/virtual_override.org][Análise de virtual e override]]\\
-[[./antigos/capitulo_14.org][Capítulo 14: Interagindo com o Mundo Exterior — Manipulação de Arquivos em C++]]\\
-[[./antigos/topicos_arquivos_teriminou.org][O Tópico de Arquivos Terminou? Não, e Eis o Que Falta:]]\\
-[[./antigos/capitulo_15.org][Capítulo 15: Mecânica Avançada de I/O — Estado, Acesso Aleatório e Performance]]\\
-[[./antigos/capitulo_16.org][Capítulo 16: Construindo Abstrações — A class e o Encapsulamento]]\\
-[[./antigos/capitulo_17.org][Capítulo 17: Hierarquias e Comportamento Dinâmico — Herança e Polimorfismo]]\\
-+[[./antigos/capitulo_18_errado.org][Capítulo 18: Organização de Código — Do Pré-processador aos Módulos do C++20]]+\\
-[[./antigos/capitulo_18.org][Capítulo 18 (Revisado e Aprofundado): Dominando o Modelo Clássico — Headers, Linkagem e o Pré-processador]]\\
-[[./antigos/capitulo_19.org][Capítulo 19: A Arquitetura Moderna — Módulos, Partições e Interfaces]]\\
-[[./antigos/capitulo_20.org][Capítulo 20: Da Linha de Comando à Automação — Construindo Projetos com make e Makefile]]\\
-+[[./antigos/capitulo_21_errado.org][Capítulo 21: A Anatomia de um Projeto CPP Canônico — Estrutura de Diretórios e Filosofia]]+\\
-[[./antigos/capitulo_21.org][Capítulo 21: A Filosofia da Estrutura de Diretórios — Um Blueprint para a Clareza]]\\
-[[./antigos/capitulo_22.org][Capítulo 22: Gerenciamento de Dependências — Construindo Sobre os Ombros de Gigantes]]\\
-[[./antigos/capitulo_23.org][Capítulo 23: A Meta-Programação do Build — Dominando o CMake]]\\
-[[./antigos/capitulo_24.org][Capítulo 24: A Filosofia da STL e a Genialidade dos Iteradores]]\\
-[[./antigos/capitulo_25.org][Capítulo 25: Contêineres Sequenciais — Gerenciando Coleções Ordenadas]]\\
-[[./antigos/capitulo_26.org][Capítulo 26: Contêineres Associativos — Busca e Recuperação Eficientes]]\\
-[[./antigos/capitulo_27.org][Capítulo 27: O Poder do <algorithm> e a Programação Expressiva]]\\
-[[./antigos/capitulo_28.org][Capítulo 28: A Natureza da Lambda — O Functor Anônimo]]\\
-[[./antigos/capitulo_29.org][Capítulo 29: A Alma da Lambda — Mecânica de Captura em Detalhe]]\\
-[[./antigos/capitulo_30.org][Capítulo 30: Estado e Mutabilidade em Lambdas]]\\
-[[./antigos/capitulo_31.org][Capítulo 31: Lambdas e a Programação Genérica]]\\
++[[./antigos/capitulo_1_errado.org][Capítulo 1: Introdução ao CPP Moderno]]+ \\
+[[./antigos/capitulo_1.org][Capítulo 1: Mergulhando no C++ Moderno: Fundamentos e Filosofia]] \\
+[[./antigos/capitulo_2.org][Capítulo 2: Tipos Fundamentais, Variáveis e Controle de Fluxo: Os Átomos da Lógica]] \\
+[[./antigos/capitulo_3.org][Capítulo 3: A Anatomia dos Dados: Um Mergulho Profundo nos Tipos Primitivos]] \\
+[[./antigos/capitulo_4.org][Capítulo 4: A Realidade Física dos Dados: Alinhamento, Conversões e o Abismo do Indefinido]] \\
+[[./antigos/parada_estrategica.org][Parada Estratégica: Subir ou Descer o Nível?]] \\
+[[./antigos/interludio_1.org][Interlúdio: Um Mapa Para a Maestria — Por Que o Caminho Importa?]] \\
+[[./antigos/capitulo_5.org][Capítulo 5: Funções — A Arte de Organizar a Lógica]] \\
+[[./antigos/capitulo_6.org][Capítulo 6: A Mecânica das Funções — Por Baixo dos Panos]] \\
++[[./antigos/capitulo_7_errado.org][Capítulo 7: Agregando Dados — A Simplicidade e o Poder das Structs]]+ \\
+[[./antigos/capitulo_7.org][Capítulo 7: Definindo Dados e Constantes — Structs, Enums e o Escopo Global]] \\
+[[./antigos/capitulo_8.org][Capítulo 8: Indireção e Memória — Uma Análise de Ponteiros]] \\
+[[./antigos/capitulo_9.org][Capítulo 9: A Arquitetura da Memória e o Gerenciamento Dinâmico]] \\
++[[./antigos/capitulo_10_errado.org][Capítulo 10: Gerenciamento de Recursos como um Princípio — Ponteiros Inteligentes e a Semântica de Posse]]+ \\
+[[./antigos/capitulo_10.org][Capítulo 10: Posse Exclusiva e Gerenciamento de Recursos — Uma Análise de std::unique_ptr]] \\
+[[./antigos/capitulo_11.org][Capítulo 11: Posse Compartilhada e o Ciclo de Vida Colaborativo — std::shared_ptr]] \\
+[[./antigos/capitulo_12.org][Capítulo 12: Observação Não-Proprietária e a Quebra de Ciclos de Referência — std::weak_ptr]] \\
+[[./antigos/capitulo_13.org][Capítulo 13: Manipulação de Tipos e Auto-Referência em Posse Compartilhada]] \\
+[[./antigos/analose_const.org][Análise da Palavra-chave const em Métodos de Membro]] \\
+[[./antigos/virtual_override.org][Análise de virtual e override]] \\
+[[./antigos/capitulo_14.org][Capítulo 14: Interagindo com o Mundo Exterior — Manipulação de Arquivos em C++]] \\
+[[./antigos/topicos_arquivos_teriminou.org][O Tópico de Arquivos Terminou? Não, e Eis o Que Falta:]] \\
+[[./antigos/capitulo_15.org][Capítulo 15: Mecânica Avançada de I/O — Estado, Acesso Aleatório e Performance]] \\
+[[./antigos/capitulo_16.org][Capítulo 16: Construindo Abstrações — A class e o Encapsulamento]] \\
+[[./antigos/capitulo_17.org][Capítulo 17: Hierarquias e Comportamento Dinâmico — Herança e Polimorfismo]] \\
++[[./antigos/capitulo_18_errado.org][Capítulo 18: Organização de Código — Do Pré-processador aos Módulos do C++20]]+ \\
+[[./antigos/capitulo_18.org][Capítulo 18 (Revisado e Aprofundado): Dominando o Modelo Clássico — Headers, Linkagem e o Pré-processador]] \\
+[[./antigos/capitulo_19.org][Capítulo 19: A Arquitetura Moderna — Módulos, Partições e Interfaces]] \\
+[[./antigos/capitulo_20.org][Capítulo 20: Da Linha de Comando à Automação — Construindo Projetos com make e Makefile]] \\
++[[./antigos/capitulo_21_errado.org][Capítulo 21: A Anatomia de um Projeto CPP Canônico — Estrutura de Diretórios e Filosofia]]+ \\
+[[./antigos/capitulo_21.org][Capítulo 21: A Filosofia da Estrutura de Diretórios — Um Blueprint para a Clareza]] \\
+[[./antigos/capitulo_22.org][Capítulo 22: Gerenciamento de Dependências — Construindo Sobre os Ombros de Gigantes]] \\
+[[./antigos/capitulo_23.org][Capítulo 23: A Meta-Programação do Build — Dominando o CMake]] \\
+[[./antigos/capitulo_24.org][Capítulo 24: A Filosofia da STL e a Genialidade dos Iteradores ]]\\
+[[./antigos/capitulo_25.org][Capítulo 25: Contêineres Sequenciais — Gerenciando Coleções Ordenadas]] \\
+[[./antigos/capitulo_26.org][Capítulo 26: Contêineres Associativos — Busca e Recuperação Eficientes]] \\
+[[./antigos/capitulo_27.org][Capítulo 27: O Poder do <algorithm> e a Programação Expressiva]] \\
+[[./antigos/capitulo_28.org][Capítulo 28: A Natureza da Lambda — O Functor Anônimo]] \\
+[[./antigos/capitulo_29.org][Capítulo 29: A Alma da Lambda — Mecânica de Captura em Detalhe]] \\
+[[./antigos/capitulo_30.org][Capítulo 30: Estado e Mutabilidade em Lambdas]] \\
+[[./antigos/capitulo_31.org][Capítulo 31: Lambdas e a Programação Genérica]] \\
 
-[[./antigos/capitulo_32.org][Capítulo 32: Padrões de Uso e Técnicas Avançadas com Lambdas]]\\
-[[./antigos/capitulo_33.org][Capítulo 33: A Mecânica do Lançamento — throw e o Desenrolamento da Pilha]]\\
-[[./antigos/capitulo_34.org][Capítulo 34: A Arte da Captura — catch e a Hierarquia de Exceções]]\\
-[[./antigos/capitulo_35.org][Capítulo 35: O Contrato de Segurança — Garantias de Exceção]]\\
-[[./antigos/capitulo_36.org][Capítulo 36: O Especificador noexcept — Uma Análise Profunda]]\\
-[[./antigos/capitulo_37.org][Capítulo 37: Além das Exceções — Tratamento de Erros no C++ Moderno]]\\
+[[./antigos/capitulo_32.org][Capítulo 32: Padrões de Uso e Técnicas Avançadas com Lambdas]] \\
+[[./antigos/capitulo_33.org][Capítulo 33: A Mecânica do Lançamento — throw e o Desenrolamento da Pilha]] \\
+[[./antigos/capitulo_34.org][Capítulo 34: A Arte da Captura — catch e a Hierarquia de Exceções]] \\
+[[./antigos/capitulo_35.org][Capítulo 35: O Contrato de Segurança — Garantias de Exceção]] \\
+[[./antigos/capitulo_36.org][Capítulo 36: O Especificador noexcept — Uma Análise Profunda]] \\
+[[./antigos/capitulo_37.org][Capítulo 37: Além das Exceções — Tratamento de Erros no C++ Moderno]] \\
 [[./antigos/capitulo_38.org][
-Capítulo 38: A Regra dos Três — O Paradigma Clássico de Gerenciamento de Recursos]]\\
-[[./antigos/capitulo_39.org][Capítulo 39: A Regra dos Cinco — A Evolução com a Semântica de Movimento (C++11)]]\\
-[[./antigos/capitulo_40.org][Capítulo 40: A Regra do Zero — A Filosofia do C++ Moderno]]\\
-[[./antigos/capitulo_41.org][Capítulo 41: Uma Nuance Final — O Padrão Copy-and-Swap]]\\
-[[./antigos/capitulo_42.org][Capítulo 42: Herança — Construindo Hierarquias de Tipos]]\\
-[[./antigos/capitulo_43.org][Capítulo 43: Polimorfismo — Uma Interface, Múltiplas Formas]]\\
-[[./antigos/capitulo_44.org][Capítulo 44: Classes Abstratas e Interfaces]]\\
-[[./antigos/capitulo_45.org][Capítulo 45: A Regra de Ouro — Destrutores Virtuais]]\\
-[[./antigos/capitulo_bonus.org][Capítulo Bônus: A Arte e os Perigos do cast em C++]]\\
-[[./antigos/capitulo_46.org][Capítulo 46: Introdução às Threads (std::thread)]]\\
-[[./antigos/capitulo_47.org][Capítulo 47: O Perigo — Condições de Corrida e Dados Compartilhados]]\\
-[[./antigos/capitulo_48.org][Capítulo 48: A Solução — Mutexes e Locks para Exclusão Mútua]]\\
-[[./antigos/capitulo_49.org][Capítulo 49: Operações Atômicas (std::atomic)]]\\
-[[./antigos/capitulo_50.org][Capítulo 50: Tarefas e o Futuro (std::async, std::future, std::promise)]]\\
-[[./antigos/capitulo_51.org][Capítulo 51: Testes Expressivos com Catch2 — A Filosofia e a Prática]]\\
-[[./antigos/capitulo_52.org][Capítulo 52: Forjando Ferramentas — Construindo um Micro-Framework de Testes]]\\
-[[./antigos/capitulo_53.org][Capítulo 53: Forjando Ferramentas — A Arte da Asserção]]\\
+Capítulo 38: A Regra dos Três — O Paradigma Clássico de Gerenciamento de Recursos]] \\
+[[./antigos/capitulo_39.org][Capítulo 39: A Regra dos Cinco — A Evolução com a Semântica de Movimento (C++11)]] \\
+[[./antigos/capitulo_40.org][Capítulo 40: A Regra do Zero — A Filosofia do C++ Moderno]] \\
+[[./antigos/capitulo_41.org][Capítulo 41: Uma Nuance Final — O Padrão Copy-and-Swap]] \\
+[[./antigos/capitulo_42.org][Capítulo 42: Herança — Construindo Hierarquias de Tipos]] \\
+[[./antigos/capitulo_43.org][Capítulo 43: Polimorfismo — Uma Interface, Múltiplas Formas]] \\
+[[./antigos/capitulo_44.org][Capítulo 44: Classes Abstratas e Interfaces]] \\
+[[./antigos/capitulo_45.org][Capítulo 45: A Regra de Ouro — Destrutores Virtuais]] \\
+[[./antigos/capitulo_bonus.org][Capítulo Bônus: A Arte e os Perigos do cast em C++]] \\
+[[./antigos/capitulo_46.org][Capítulo 46: Introdução às Threads (std::thread)]] \\
+[[./antigos/capitulo_47.org][Capítulo 47: O Perigo — Condições de Corrida e Dados Compartilhados]] \\
+[[./antigos/capitulo_48.org][Capítulo 48: A Solução — Mutexes e Locks para Exclusão Mútua]] \\
+[[./antigos/capitulo_49.org][Capítulo 49: Operações Atômicas (std::atomic)]] \\
+[[./antigos/capitulo_50.org][Capítulo 50: Tarefas e o Futuro (std::async, std::future, std::promise)]] \\
+[[./antigos/capitulo_51.org][Capítulo 51: Testes Expressivos com Catch2 — A Filosofia e a Prática]] \\
+[[./antigos/capitulo_52.org][Capítulo 52: Forjando Ferramentas — Construindo um Micro-Framework de Testes]] \\
+[[./antigos/capitulo_53.org][Capítulo 53: Forjando Ferramentas — A Arte da Asserção]] \\
 
 _______________________________________________________________________________________________________________________________
 
