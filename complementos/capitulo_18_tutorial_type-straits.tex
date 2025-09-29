@@ -1,0 +1,973 @@
+% Created 2025-09-29 Mon 14:37
+% Intended LaTeX compiler: pdflatex
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{longtable}
+\usepackage{wrapfig}
+\usepackage{rotating}
+\usepackage[normalem]{ulem}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{capt-of}
+\usepackage{hyperref}
+\date{\today}
+\title{}
+\hypersetup{
+ pdfauthor={},
+ pdftitle={},
+ pdfkeywords={},
+ pdfsubject={},
+ pdfcreator={Emacs 30.1 (Org mode 9.7.11)}, 
+ pdflang={English}}
+\begin{document}
+
+\tableofcontents
+
+\section{Tutorial prático e completo de C++ <type\textsubscript{traits}> para humanos}
+\label{sec:orgf06a40d}
+
+Este é um guia narrativo e prático sobre a biblioteca <type\textsubscript{traits}> do C++. A ideia é ensinar com linguagem simples, indo do básico ao avançado, e sempre com exemplos que você consegue compilar e executar. Evitarei ao máximo ficar em “listas” e termos acadêmicos; em vez disso, vou contar o que cada coisa faz, por que existe, e como usar no dia a dia para resolver problemas reais.
+
+\textbf{O que é <type\textsubscript{traits}> e por que usar}
+
+Quando você escreve templates em C++, muitas vezes precisa tomar decisões “em tempo de compilação” dependendo do tipo T que o usuário do seu template passou. Por exemplo: se T é um número inteiro, faça uma coisa; se é um ponteiro, faça outra; se é uma classe que tem um método específico, ative uma função; se não tiver, esconda aquela função. Para isso, o C++ oferece uma enorme coleção de “características de tipo” — os type traits — que respondem perguntas sobre tipos (é integral? é enum? é const? é conversível para X?) e também transformam tipos (remove const, adiciona referência, pega o tipo base de um enum, etc.).
+
+Essa biblioteca permite:
+\begin{itemize}
+\item Inspecionar tipos: descobrir “o que T é”.
+\item Combinar regras: “T é integral E sem sinal?”.
+\item Transformar tipos: tirar const, referência, ponteiro, etc.
+\item Ativar/desativar sobrecargas: habilitar funções só quando a condição sobre o tipo é verdadeira (SFINAE).
+\item Inferir resultados: descobrir o tipo de retorno de uma chamada (invoke\textsubscript{result}), ou se algo é invocável.
+\end{itemize}
+
+É como ter “if/else” em tempo de compilação para seus tipos.
+
+\textbf{Convenções úteis que você verá nos exemplos}
+
+Quase todos os traits existem em três sabores:
+\begin{itemize}
+\item A versão “tipo clássico” que tem um membro estático value (por exemplo, std::is\textsubscript{integral}::value).
+\item A versão “\textsubscript{v}” que dá o valor direto (std::is\textsubscript{integral}\textsubscript{v}), muito mais prática.
+\item Em traits que produzem um tipo, existe o atalho “\textsubscript{t}” (por exemplo, std::remove\textsubscript{cv}\textsubscript{t}).
+\end{itemize}
+
+Vou usar C++17/C++20 onde fizer sentido. Se você estiver em C++14, dá para adaptar. Sempre inclua:
+
+\begin{verbatim}
+#include <type_traits>
+\end{verbatim}
+
+E, para exemplos que imprimem, você vai ver:
+
+\begin{verbatim}
+#include <iostream>
+#include <string>
+#include <vector>
+#include <utility>   // às vezes necessário para std::declval, std::swap
+\end{verbatim}
+
+Quando eu mostrar “arquivos”, considere que cada exemplo é um arquivo separado com sua função main. Assim você pode compilar um por vez sem conflitos.
+\subsection{O alicerce: integral\textsubscript{constant}, true\textsubscript{type} e false\textsubscript{type}}
+\label{sec:org6c42c87}
+
+A base filosófica de <type\textsubscript{traits}> é que muitas respostas são “constantes em tempo de compilação” ligadas a tipos. A classe std::integral\textsubscript{constant} representa um número inteiro como um tipo. A partir dela surgem std::true\textsubscript{type} e std::false\textsubscript{type} (que são só integral\textsubscript{constant}<bool, true/false>).
+
+Para nós, o mais útil na prática é: a maioria dos traits já fornece um booleano em tempo de compilação. Isto é perfeito para static\textsubscript{assert}, if constexpr, SFINAE, etc.
+
+Exemplo 1 — um olá mundo de traits para imprimir se um tipo é integral:
+\begin{verbatim}
+// arquivo: exemplo1.cpp
+#include <type_traits>
+#include <iostream>
+using namespace std;
+
+template <typename T>
+void descreve_tipo() {
+    if constexpr (std::is_integral_v<T>) {
+        cout << "T é um tipo integral.\n";
+    } else if constexpr (std::is_floating_point_v<T>) {
+        cout << "T é um ponto flutuante.\n";
+    } else if constexpr (std::is_enum_v<T>) {
+        cout << "T é um enum.\n";
+    } else if constexpr (std::is_class_v<T>) {
+        cout << "T é uma classe/struct.\n";
+    } else {
+        cout << "T é de outra categoria.\n";
+    }
+}
+
+enum Cor { Vermelho, Verde, Azul };
+struct Pessoa {};
+
+int main() {
+    descreve_tipo<int>();
+    descreve_tipo<double>();
+    descreve_tipo<Cor>();
+    descreve_tipo<Pessoa>();
+    descreve_tipo<int*>();
+}
+\end{verbatim}
+
+Esse padrão if constexpr é fundamental para “ramificar” sua lógica de forma limpa sem truques obscuros.
+\subsection{Perguntas básicas sobre um tipo}
+\label{sec:org7e893dd}
+
+Você pode fazer um check-up completo de um tipo com traits como:
+\begin{itemize}
+\item std::is\textsubscript{void}, std::is\textsubscript{null}\textsubscript{pointer}
+\item std::is\textsubscript{integral}, std::is\textsubscript{floating}\textsubscript{point}, std::is\textsubscript{arithmetic} (integrais OU ponto flutuante)
+\item std::is\textsubscript{enum}, std::is\textsubscript{union}, std::is\textsubscript{class}, std::is\textsubscript{function}
+\item std::is\textsubscript{pointer}, std::is\textsubscript{reference}, std::is\textsubscript{lvalue}\textsubscript{reference}, std::is\textsubscript{rvalue}\textsubscript{reference}
+\item std::is\textsubscript{array}
+\end{itemize}
+
+Esses traits respondem com bool em tempo de compilação.
+
+Exemplo 2 — explorador simples:
+\begin{verbatim}
+// arquivo: exemplo2.cpp
+#include <type_traits>
+#include <iostream>
+#include <string>
+using namespace std;
+
+template <typename T>
+void explora() {
+    cout << boolalpha;
+    cout << "is_void: " << std::is_void_v<T> << "\n";
+    cout << "is_null_pointer: " << std::is_null_pointer_v<T> << "\n";
+    cout << "is_integral: " << std::is_integral_v<T> << "\n";
+    cout << "is_floating_point: " << std::is_floating_point_v<T> << "\n";
+    cout << "is_arithmetic: " << std::is_arithmetic_v<T> << "\n";
+    cout << "is_enum: " << std::is_enum_v<T> << "\n";
+    cout << "is_class: " << std::is_class_v<T> << "\n";
+    cout << "is_pointer: " << std::is_pointer_v<T> << "\n";
+    cout << "is_reference: " << std::is_reference_v<T> << "\n";
+    cout << "is_array: " << std::is_array_v<T> << "\n";
+    cout << "\n";
+}
+
+enum E {};
+struct S {};
+
+int main() {
+    explora<int>();
+    explora<double>();
+    explora<E>();
+    explora<S>();
+    explora<int*>();
+    explora<const int&>();
+    explora<void>();
+    explora<nullptr_t>();
+    explora<int[3]>();
+    explora<string>();
+}
+\end{verbatim}
+\subsection{Qualificadores (const/volatile) e referências}
+\label{sec:org3db1790}
+
+Quando você escreve templates, é comum “normalizar” um tipo: tirar const, tirar referência, tirar volatile, ou o combo “cvref” ao mesmo tempo. Os traits de transformação mais usados são:
+\begin{itemize}
+\item std::remove\textsubscript{const}\textsubscript{t}, std::remove\textsubscript{volatile}\textsubscript{t}, std::remove\textsubscript{cv}\textsubscript{t}
+\item std::remove\textsubscript{reference}\textsubscript{t}, std::remove\textsubscript{cvref}\textsubscript{t} (C++20)
+\item std::add\textsubscript{const}\textsubscript{t}, std::add\textsubscript{volatile}\textsubscript{t}, std::add\textsubscript{cv}\textsubscript{t}
+\item std::add\textsubscript{lvalue}\textsubscript{reference}\textsubscript{t}, std::add\textsubscript{rvalue}\textsubscript{reference}\textsubscript{t}
+\end{itemize}
+
+Exemplo 3 — normalizando tipos:
+\begin{verbatim}
+// arquivo: exemplo3.cpp
+#include <type_traits>
+#include <iostream>
+using namespace std;
+
+template <typename T>
+void mostra_normalizacoes() {
+    using SemRef = std::remove_reference_t<T>;
+    using SemCV = std::remove_cv_t<T>;
+    using SemCVRef = 
+    #if __cplusplus >= 202002L
+        std::remove_cvref_t<T>;
+    #else
+        std::remove_cv_t<std::remove_reference_t<T>>;
+    #endif
+
+    cout << boolalpha;
+    cout << "is_const<T>: " << std::is_const_v<T> << "\n";
+    cout << "is_volatile<T>: " << std::is_volatile_v<T> << "\n";
+    cout << "is_reference<T>: " << std::is_reference_v<T> << "\n";
+    cout << "is_same<SemRef,SemCVRef>: " << std::is_same_v<SemRef, SemCVRef> << "\n";
+    cout << "\n";
+}
+
+int main() {
+    mostra_normalizacoes<const int&>();
+    mostra_normalizacoes<volatile int&&>();
+    mostra_normalizacoes<int>();
+}
+\end{verbatim}
+
+Uma dica valiosa: quando você quer tratar “o tipo nu” ignorando const, volatile e referências, use remove\textsubscript{cvref}\textsubscript{t} (C++20) ou o equivalente manual.
+\subsection{Arrays, ponteiros e detalhes como rank/extent}
+\label{sec:orgd62e14d}
+
+Para arrays, temos:
+\begin{itemize}
+\item std::is\textsubscript{array}\textsubscript{v}
+\item std::rank\textsubscript{v} dá quantas dimensões o array tem (rank).
+\item std::extent\textsubscript{v}<T, N> dá o tamanho da dimensão N (0 é a primeira).
+\item std::remove\textsubscript{extent}\textsubscript{t} remove uma dimensão.
+\item std::remove\textsubscript{all}\textsubscript{extents}\textsubscript{t} remove todas.
+\end{itemize}
+
+Para ponteiros:
+\begin{itemize}
+\item std::is\textsubscript{pointer}\textsubscript{v}, std::remove\textsubscript{pointer}\textsubscript{t}, std::add\textsubscript{pointer}\textsubscript{t}.
+\end{itemize}
+
+Exemplo 4 — investigando um array multidimensional:
+\begin{verbatim}
+// arquivo: exemplo4.cpp
+#include <type_traits>
+#include <iostream>
+using namespace std;
+
+template <typename T>
+void info_array() {
+    cout << boolalpha;
+    cout << "is_array: " << std::is_array_v<T> << "\n";
+    cout << "rank: " << std::rank_v<T> << "\n";
+    if constexpr (std::rank_v<T> >= 1) {
+        cout << "extent<0>: " << std::extent_v<T, 0> << "\n";
+    }
+    if constexpr (std::rank_v<T> >= 2) {
+        cout << "extent<1>: " << std::extent_v<T, 1> << "\n";
+    }
+    cout << "\n";
+}
+
+int main() {
+    info_array<int[3]>();
+    info_array<int[2][4]>();
+    info_array<int>();
+}
+\end{verbatim}
+\subsection{Relações entre tipos: is\textsubscript{same}, is\textsubscript{base}\textsubscript{of}, is\textsubscript{convertible}, is\textsubscript{assignable}, is\textsubscript{constructible}}
+\label{sec:orgaeef8ee}
+
+Muitas decisões úteis dependem de relações:
+\begin{itemize}
+\item std::is\textsubscript{same}\textsubscript{v}<A,B> verifica igualdade exata de tipos.
+\item std::is\textsubscript{base}\textsubscript{of}\textsubscript{v}<Base, Derivada> testa herança.
+\item std::is\textsubscript{convertible}\textsubscript{v}<From, To> testa se uma conversão existe.
+\item std::is\textsubscript{assignable}\textsubscript{v}<To\&, From> testa se To pode receber From via “operator=”.
+\item std::is\textsubscript{constructible}\textsubscript{v}<T, Args\ldots{}> testa se T pode ser construído com Args.
+\end{itemize}
+
+Exemplo 5 — habilitar função só para quem é conversível para double:
+\begin{verbatim}
+// arquivo: exemplo5.cpp
+#include <type_traits>
+#include <iostream>
+#include <string>
+using namespace std;
+
+template <typename T>
+std::enable_if_t<std::is_convertible_v<T, double>, double>
+para_double(T&& x) {
+    return static_cast<double>(x);
+}
+
+template <typename T>
+std::enable_if_t<!std::is_convertible_v<T, double>, double>
+para_double(T&&) {
+    // fallback
+    return 0.0;
+}
+
+int main() {
+    cout << para_double(42) << "\n";          // 42.0
+    cout << para_double(3.14f) << "\n";       // 3.14
+    cout << para_double(string("abc")) << "\n"; // não é conversível -> 0.0
+}
+\end{verbatim}
+
+Se você já usa C++20, pode preferir requires/constraints, que são mais legíveis:
+\begin{verbatim}
+// arquivo: exemplo5a.cpp (C++20)
+#include <type_traits>
+#include <iostream>
+using namespace std;
+
+template <typename T>
+requires std::is_convertible_v<T, double>
+double para_double(T&& x) {
+    return static_cast<double>(x);
+}
+
+template <typename T>
+requires (!std::is_convertible_v<T, double>)
+double para_double(T&&) {
+    return 0.0;
+}
+
+int main() {
+    cout << para_double(42) << "\n";
+    cout << para_double(3.14f) << "\n";
+    struct X{}; cout << para_double(X{}) << "\n";
+}
+\end{verbatim}
+\subsection{Transformações úteis de tipo: decay, common\textsubscript{type}, conditional, make\textsubscript{signed}/unsigned, underlying\textsubscript{type}}
+\label{sec:orgaab22a5}
+
+Algumas transformações são tão comuns que ganharam traits próprios:
+\begin{itemize}
+\item std::decay\textsubscript{t} faz o que o compilador faz quando você passa T como parâmetro por valor: remove referência, const/volatile, e transforma arrays/funcões em ponteiros para a “coisa”.
+\item std::common\textsubscript{type}\textsubscript{t}<A,B,\ldots{}> escolhe um tipo comum (como o que o operador ternário usaria).
+\item std::conditional\textsubscript{t}<cond, A, B> escolhe A ou B com base num booleano de tempo de compilação.
+\item std::make\textsubscript{signed}\textsubscript{t}, std::make\textsubscript{unsigned}\textsubscript{t} trocam sinal de integrais.
+\item std::underlying\textsubscript{type}\textsubscript{t} pega o tipo inteiro subjacente do enum.
+\end{itemize}
+
+Exemplo 6 — soma genérica com decay e common\textsubscript{type}:
+\begin{verbatim}
+// arquivo: exemplo6.cpp
+#include <type_traits>
+#include <iostream>
+using namespace std;
+
+template <typename A, typename B>
+auto soma(A&& a, B&& b) {
+    using CA = std::decay_t<A>;
+    using CB = std::decay_t<B>;
+    using R = std::common_type_t<CA, CB>;
+    return static_cast<R>(a) + static_cast<R>(b);
+}
+
+int main() {
+    cout << soma(1, 2.5) << "\n";     // 3.5
+    cout << soma(3u, 4) << "\n";      // 7
+}
+\end{verbatim}
+\subsection{SFINAE com enable\textsubscript{if}, void\textsubscript{t} e a “detecção de membros”}
+\label{sec:org7149a24}
+
+SFINAE significa “Substitution Failure Is Not An Error”: quando o compilador tenta encaixar um template com um tipo, e algum requisito sobre o tipo não é atendido, aquela sobrecarga simplesmente é descartada, em vez de dar erro.
+
+Ferramentas principais:
+\begin{itemize}
+\item std::enable\textsubscript{if}\textsubscript{t}<cond, T> vira T se cond é true; se false, essa assinatura some.
+\item std::void\textsubscript{t}<\ldots{}> é sempre “void” se todos os \ldots{} são válidos; se alguma expressão de tipo falha, aquela especialização “não participa”.
+\end{itemize}
+
+Com void\textsubscript{t} construímos a “detecção de membros”, por exemplo: “esse tipo tem um método size()?”
+
+Exemplo 7 — detectando se um tipo tem um typedef value\textsubscript{type}:
+\begin{verbatim}
+// arquivo: exemplo7.cpp
+#include <type_traits>
+#include <iostream>
+#include <vector>
+#include <string>
+using namespace std;
+
+// Forma geral: tipo não tem value_type
+template <typename, typename = void>
+struct tem_value_type : std::false_type {};
+
+// Especialização: existe T::value_type
+template <typename T>
+struct tem_value_type<T, std::void_t<typename T::value_type>> : std::true_type {};
+
+int main() {
+    cout << boolalpha;
+    cout << "vector<int>: " << tem_value_type<vector<int>>::value << "\n"; // true
+    cout << "string: " << tem_value_type<string>::value << "\n";           // true
+    cout << "int: " << tem_value_type<int>::value << "\n";                 // false
+}
+\end{verbatim}
+
+Exemplo 8 — ativando uma função só se existe “size()”:
+\begin{verbatim}
+// arquivo: exemplo8.cpp
+#include <type_traits>
+#include <iostream>
+#include <vector>
+#include <string>
+using namespace std;
+
+template <typename, typename = void>
+struct has_size_method : std::false_type {};
+
+template <typename T>
+struct has_size_method<T, std::void_t<decltype(std::declval<const T&>().size())>>
+    : std::true_type {};
+
+template <typename T>
+std::enable_if_t<has_size_method<T>::value, size_t>
+tamanho(const T& x) {
+    return x.size();
+}
+
+template <typename T>
+std::enable_if_t<!has_size_method<T>::value, size_t>
+tamanho(const T&) {
+    return 0u;
+}
+
+int main() {
+    cout << tamanho(string("abc")) << "\n";    // 3
+    cout << tamanho(vector<int>{1,2,3,4}) << "\n"; // 4
+    cout << tamanho(42) << "\n";               // 0 (não tem size())
+}
+\end{verbatim}
+
+No C++20, dá para expressar isso com requires/concepts de forma mais natural, mas os traits continuam sendo baseados na mesma ideia.
+\subsection{is\textsubscript{invocable}, invoke\textsubscript{result}: posso chamar isso?}
+\label{sec:org4a87597}
+
+Quando você quer escrever funções que recebem “algo chamável” (um functor, lambda, ponteiro de função), é útil saber em tempo de compilação se é invocável com certos argumentos, e qual seria o tipo de retorno.
+\begin{itemize}
+\item std::is\textsubscript{invocable}\textsubscript{v}<F, Args\ldots{}>
+\item std::is\textsubscript{invocable}\textsubscript{r}\textsubscript{v}<R, F, Args\ldots{}> (pede que o retorno seja convertido para R)
+\item std::invoke\textsubscript{result}\textsubscript{t}<F, Args\ldots{}> (tipo do retorno se chamar F com Args)
+\end{itemize}
+
+Exemplo 9 — invocação segura com fallback:
+\begin{verbatim}
+// arquivo: exemplo9.cpp
+#include <type_traits>
+#include <iostream>
+#include <string>
+#include <utility>
+using namespace std;
+
+template <typename F, typename... Args>
+auto chama_ou_zero(F&& f, Args&&... args) {
+    if constexpr (std::is_invocable_v<F, Args...>) {
+        using R = std::invoke_result_t<F, Args...>;
+        if constexpr (std::is_convertible_v<R, int>) {
+            return static_cast<int>(std::invoke(std::forward<F>(f), std::forward<Args>(args)...));
+        } else {
+            return 0;
+        }
+    } else {
+        return 0;
+    }
+}
+
+int main() {
+    auto f1 = [](int x){ return x + 1; };
+    auto f2 = [](double){ return std::string("oi"); };
+    cout << chama_ou_zero(f1, 41) << "\n";   // 42
+    cout << chama_ou_zero(f2, 3.14) << "\n"; // não conversível pra int -> 0
+    cout << chama_ou_zero(42) << "\n";       // não é chamável -> 0
+}
+\end{verbatim}
+\subsection{Construtores, atribuibilidade, destrutores, “trivial” e “nothrow”}
+\label{sec:orgd4f8007}
+
+Para escrever tipos e algoritmos eficientes, checar propriedades como “é trivially copyable?” ou “o destrutor é noexcept?” pode orientar decisões importantes.
+
+Alguns traits:
+\begin{itemize}
+\item std::is\textsubscript{constructible}\textsubscript{v}<T, Args\ldots{}>, std::is\textsubscript{default}\textsubscript{constructible}\textsubscript{v}, std::is\textsubscript{copy}\textsubscript{constructible}\textsubscript{v}, std::is\textsubscript{move}\textsubscript{constructible}\textsubscript{v}
+\item std::is\textsubscript{assignable}\textsubscript{v}<LHS, RHS>, std::is\textsubscript{copy}\textsubscript{assignable}\textsubscript{v}, std::is\textsubscript{move}\textsubscript{assignable}\textsubscript{v}
+\item std::is\textsubscript{destructible}\textsubscript{v}, std::is\textsubscript{trivially}\textsubscript{destructible}\textsubscript{v}
+\item std::is\textsubscript{trivially}\textsubscript{copyable}\textsubscript{v}, std::is\textsubscript{trivially}\textsubscript{constructible}\textsubscript{v}<T, Args\ldots{}>
+\item std::is\textsubscript{nothrow}\textsubscript{constructible}\textsubscript{v}<T, Args\ldots{}>, std::is\textsubscript{nothrow}\textsubscript{move}\textsubscript{constructible}\textsubscript{v}, std::is\textsubscript{nothrow}\textsubscript{assignable}\textsubscript{v}<LHS, RHS>
+\item std::is\textsubscript{swappable}\textsubscript{v}, std::is\textsubscript{nothrow}\textsubscript{swappable}\textsubscript{v} (requer <type\textsubscript{traits}> e, em geral, presente para std::swap via ADL)
+\end{itemize}
+
+Exemplo 10 — escolhendo estratégia de cópia:
+\begin{verbatim}
+// arquivo: exemplo10.cpp
+#include <type_traits>
+#include <iostream>
+#include <vector>
+#include <utility>
+using namespace std;
+
+template <typename T>
+void copia_para(vector<T>& dst, const vector<T>& src) {
+    if constexpr (std::is_trivially_copyable_v<T>) {
+        // exemplo didático; na prática, você usaria memcpy apenas se coerente e seguro
+        dst = src; // assignment já é ótimo; a ideia é mostrar a decisão
+        cout << "Copia trivial (simples assignment aqui)\n";
+    } else {
+        dst.clear();
+        dst.reserve(src.size());
+        for (const auto& e : src) {
+            dst.push_back(e);
+        }
+        cout << "Copia elemento a elemento\n";
+    }
+}
+
+struct X {
+    int a;
+    X() = default;
+    X(const X&) { /* cópia não trivial */ }
+};
+
+int main() {
+    vector<int> a{1,2,3}, b;
+    copia_para(b, a);
+
+    vector<X> c(3), d;
+    copia_para(d, c);
+}
+\end{verbatim}
+\subsection{Conectivos lógicos prontos: conjunction, disjunction, negation}
+\label{sec:orgb63d74e}
+
+Combinar várias condições é comum. Você pode usar \&\&, || dentro de if constexpr, mas os traits oferecem meta-funções que avaliam curto-circuito em tempo de compilação:
+\begin{itemize}
+\item std::conjunction<A,B,C\ldots{}>
+\item std::disjunction<A,B,C\ldots{}>
+\item std::negation
+\end{itemize}
+
+Eles funcionam com traits “estilo antigo” (os que têm ::value). Nas versões “\textsubscript{v}”, você pode simplesmente combinar com operadores lógicos.
+
+Exemplo 11 — habilitando com múltiplas condições:
+\begin{verbatim}
+// arquivo: exemplo11.cpp
+#include <type_traits>
+#include <iostream>
+using namespace std;
+
+template <typename T>
+using EhNumeroPequeno =
+    std::conjunction<std::is_arithmetic<T>,
+                     std::bool_constant<(sizeof(T) <= sizeof(int))>>;
+
+template <typename T>
+std::enable_if_t<EhNumeroPequeno<T>::value, int>
+f(T x) { return static_cast<int>(x) + 1; }
+
+template <typename T>
+std::enable_if_t<!EhNumeroPequeno<T>::value, int>
+f(T) { return -1; }
+
+int main() {
+    cout << f(short{7}) << "\n";   // 8
+    cout << f(3.14) << "\n";       // tipicamente 8, double cabe em int? sizeof(double) costuma ser maior -> -1
+}
+\end{verbatim}
+
+Se preferir, use if constexpr com operadores lógicos normais — muitas vezes é mais legível.
+\subsection{Variants “\textsubscript{t}” e “\textsubscript{v}” para código mais limpo}
+\label{sec:org718e952}
+
+Para evitar “::type” e “::value”, use as formas modernas:
+\begin{itemize}
+\item std::remove\textsubscript{cv}\textsubscript{t}, std::invoke\textsubscript{result}\textsubscript{t}<F,Args\ldots{}> (tipos)
+\item std::is\textsubscript{integral}\textsubscript{v}, std::is\textsubscript{same}\textsubscript{v}<A,B> (valores)
+\end{itemize}
+
+Isso reduz ruído visual e evita erros de digitação com ::type e ::value.
+
+Exemplo 12 — reescrevendo algo mais limpo:
+\begin{verbatim}
+// arquivo: exemplo12.cpp
+#include <type_traits>
+#include <iostream>
+using namespace std;
+
+template <typename T>
+void g() {
+    using U = std::remove_cvref_t<T>;
+    cout << boolalpha << std::is_integral_v<U> << "\n";
+}
+
+int main() {
+    g<const int&>(); // true
+    g<double>();     // false
+}
+\end{verbatim}
+\subsection{Estudos de caso práticos}
+\label{sec:org2ff2b34}
+
+Agora vamos ver alguns problemas de verdade resolvidos com traits.
+
+Caso A — “serialize” genérico para diferentes tipos
+
+Queremos uma função “escreve” que:
+
+\begin{itemize}
+\item Para numéricos, imprime o valor.
+\item Para enums, imprime o valor subjacente (underlying).
+\item Para strings e coisas parecidas com string, imprime o texto.
+\item Para ponteiros, imprime o endereço (ou “null”).
+\item Para qualquer outra coisa, imprime “”.
+\end{itemize}
+
+\begin{verbatim}
+// arquivo: exemplo13.cpp
+#include <type_traits>
+#include <iostream>
+#include <string>
+#include <typeinfo>
+using namespace std;
+
+template <typename E>
+constexpr bool eh_enum(E) { return std::is_enum_v<E>; }
+
+template <typename T>
+void escreve_impl(const T& x, std::true_type) {
+    cout << x;
+}
+
+template <typename T>
+void escreve_impl(const T& x, std::false_type) {
+    cout << "<objeto tipo=" << typeid(T).name() << ">";
+}
+
+template <typename T>
+void escreve(const T& x) {
+    using U = std::remove_cvref_t<T>;
+    if constexpr (std::is_arithmetic_v<U>) {
+        cout << x;
+    } else if constexpr (std::is_enum_v<U>) {
+        using Base = std::underlying_type_t<U>;
+        cout << static_cast<Base>(x);
+    } else if constexpr (std::is_same_v<U, std::string>) {
+        cout << x;
+    } else if constexpr (std::is_pointer_v<U>) {
+        if (x) cout << x; else cout << "null";
+    } else {
+        escreve_impl(x, std::false_type{});
+    }
+}
+
+enum Cor { Vermelho=1, Verde=2, Azul=3 };
+struct Pessoa { int id; };
+
+int main() {
+    escreve(42); cout << "\n";
+    escreve(3.14); cout << "\n";
+    escreve(std::string("oi")); cout << "\n";
+    escreve(Verde); cout << "\n";
+    int v=10; escreve(&v); cout << "\n";
+    escreve((Pessoa{7})); cout << "\n";
+}
+\end{verbatim}
+
+Caso B — “reserve\textsubscript{if}\textsubscript{possible}”: chame reserve(n) apenas se o container tiver esse método
+\begin{verbatim}
+// arquivo: exemplo14.cpp
+#include <type_traits>
+#include <iostream>
+#include <vector>
+#include <list>
+#include <utility>
+using namespace std;
+
+template <typename, typename = void>
+struct has_reserve : std::false_type {};
+
+template <typename T>
+struct has_reserve<T, std::void_t<decltype(std::declval<T&>().reserve(size_t{}))>> : std::true_type {};
+
+template <typename C>
+void reserve_if_possible(C& c, size_t n) {
+    if constexpr (has_reserve<C>::value) {
+        c.reserve(n);
+        cout << "reserve chamado\n";
+    } else {
+        cout << "sem reserve\n";
+    }
+}
+
+int main() {
+    vector<int> v;
+    list<int> l;
+    reserve_if_possible(v, 1000); // tem reserve
+    reserve_if_possible(l, 1000); // não tem reserve
+}
+\end{verbatim}
+
+Caso C — Overloads selecionados com enable\textsubscript{if}: apenas para integrais
+\begin{verbatim}
+// arquivo: exemplo15.cpp
+#include <type_traits>
+#include <iostream>
+using namespace std;
+
+template <typename T>
+std::enable_if_t<std::is_integral_v<T>, T>
+duplica(T x) { return x * 2; }
+
+template <typename T>
+std::enable_if_t<!std::is_integral_v<T>, T>
+duplica(T x) { return x + x; }
+
+int main() {
+    cout << duplica(10) << "\n";   // 20
+    cout << duplica(1.5) << "\n";  // 3.0
+}
+\end{verbatim}
+
+Caso D — Checar noexcept/nothrow para escolher estratégia
+\begin{verbatim}
+// arquivo: exemplo16.cpp
+#include <type_traits>
+#include <iostream>
+#include <utility>
+using namespace std;
+
+struct A {
+    A() noexcept {}
+    A(const A&) noexcept {}
+};
+
+struct B {
+    B() {}
+    B(const B&) noexcept(false) {}
+};
+
+template <typename T>
+T cria() noexcept(std::is_nothrow_default_constructible_v<T>) {
+    return T{};
+}
+
+template <typename T>
+void copia_ou_move(T& dst, const T& src) {
+    if constexpr (std::is_nothrow_copy_constructible_v<T>) {
+        dst = T(src);
+        cout << "copiou sem exceção\n";
+    } else if constexpr (std::is_nothrow_move_constructible_v<T>) {
+        dst = T(std::move(T(src)));
+        cout << "move sem exceção\n";
+    } else {
+        dst = src;
+        cout << "copia normal\n";
+    }
+}
+
+int main() {
+    A a1, a2; copia_ou_move(a1, a2);
+    B b1, b2; copia_ou_move(b1, b2);
+}
+\end{verbatim}
+\subsection{Deteção de expressão (idioma detection) mais genérica}
+\label{sec:org7264daa}
+
+Dá para escrever um detector genérico para qualquer expressão usando decltype e void\textsubscript{t}. A seguir, um “is\textsubscript{detected}” simplificado (versão comum no ecossistema, ainda que não padrão na biblioteca principal):
+
+\begin{verbatim}
+// arquivo: exemplo17.cpp
+#include <type_traits>
+#include <iostream>
+#include <vector>
+#include <string>
+using namespace std;
+
+template <class...>
+using void_t = void;
+
+template <template<class...> class Op, class, class...>
+struct is_detected_impl : std::false_type {};
+
+template <template<class...> class Op, class... Args>
+struct is_detected_impl<Op, void_t<Op<Args...>>, Args...> : std::true_type {};
+
+template <template<class...> class Op, class... Args>
+using is_detected = is_detected_impl<Op, void, Args...>;
+
+template <class T>
+using has_begin_t = decltype(std::declval<T&>().begin());
+
+template <class T>
+using has_value_type_t = typename T::value_type;
+
+int main() {
+    cout << boolalpha;
+    cout << "vector<int> tem begin()? " << is_detected<has_begin_t, vector<int>>::value << "\n";
+    cout << "int tem begin()? " << is_detected<has_begin_t, int>::value << "\n";
+    cout << "vector<int> tem value_type? " << is_detected<has_value_type_t, vector<int>>::value << "\n";
+    cout << "int tem value_type? " << is_detected<has_value_type_t, int>::value << "\n";
+}
+\end{verbatim}
+
+Com esse padrão, você constrói “conceitos” antes mesmo de ter C++20, e seleciona sobrecargas de acordo com a presença de membros/métodos específicos.
+\subsection{Truques com enum, underlying\textsubscript{type} e make\textsubscript{signed}/unsigned}
+\label{sec:org68f8be0}
+
+Enums são comuns, e às vezes precisamos do “tipo base” inteiro para serialização ou interoperabilidade. Também é comum ajustar sinal de um tipo de dado.
+
+Exemplo 18 — imprimir enum como inteiro e alternar sinal de integrais:
+\begin{verbatim}
+// arquivo: exemplo18.cpp
+#include <type_traits>
+#include <iostream>
+using namespace std;
+
+enum class Status : unsigned short { Ok=0, Falha=1 };
+
+template <typename E>
+auto enum_para_inteiro(E e) {
+    static_assert(std::is_enum_v<E>, "Precisa ser enum");
+    using U = std::underlying_type_t<E>;
+    return static_cast<U>(e);
+}
+
+template <typename T>
+void mostra_sinal() {
+    using S = std::make_signed_t<T>;
+    using U = std::make_unsigned_t<T>;
+    cout << "Tamanho S e U: " << sizeof(S) << " " << sizeof(U) << "\n";
+}
+
+int main() {
+    cout << enum_para_inteiro(Status::Falha) << "\n"; // 1
+    mostra_sinal<unsigned int>();
+}
+\end{verbatim}
+\subsection{Dicas de projeto e boas práticas}
+\label{sec:org0237504}
+
+\begin{itemize}
+\item Prefira as versões “\textsubscript{v}” e “\textsubscript{t}” dos traits. O código fica muito mais limpo.
+\item Sempre que puder, use if constexpr em vez de especializações complicadas. O código fica mais linear e fácil de ler.
+\item Use static\textsubscript{assert} para mensagens claras quando uma condição de tipo for requisito de uso:
+\end{itemize}
+\begin{verbatim}
+static_assert(std::is_arithmetic_v<T>, "T precisa ser numérico");
+\end{verbatim}
+\begin{itemize}
+\item Para detectar métodos e membros, void\textsubscript{t} e decltype(std::declval().algo()) são seus melhores amigos.
+\item Para novas bases de código em C++20, concepts e requires ajudam a expressar intenções de forma direta, mas os type traits continuam necessários para compor as condições.
+\item Evite traits obsoletos como aligned\textsubscript{storage}/aligned\textsubscript{union} (depreciados). Prefira std::byte, alignas e estruturas modernas.
+\end{itemize}
+\subsection{Um mini-projeto integrando vários traits}
+\label{sec:orgd574631}
+
+Vamos construir uma “função de formatação” que recebe qualquer coisa e:
+\begin{itemize}
+\item Se for aritmético, imprime com sufixo “[num]”.
+\item Se for string, imprime entre aspas.
+\item Se for enum, imprime o integral subjacente com “[enum]”.
+\item Se for container com begin/end, imprime os elementos com chaves.
+\item Se for ponteiro, imprime endereço ou null.
+\item Se nada disso, imprime “”.
+\end{itemize}
+
+\begin{verbatim}
+// arquivo: exemplo19.cpp
+#include <type_traits>
+#include <iostream>
+#include <string>
+#include <vector>
+#include <list>
+#include <utility>
+#include <typeinfo>
+using namespace std;
+
+template <class...> using void_t = void;
+
+template <typename, typename = void>
+struct has_begin_end : std::false_type {};
+
+template <typename T>
+struct has_begin_end<T, void_t<
+    decltype(std::declval<T&>().begin()),
+    decltype(std::declval<T&>().end())
+>> : std::true_type {};
+
+template <typename T>
+void formatar(const T& x);
+
+template <typename It>
+void formatar_intervalo(It first, It last) {
+    cout << "{";
+    bool firstElem = true;
+    for (; first != last; ++first) {
+        if (!firstElem) cout << ", ";
+        formatar(*first);
+        firstElem = false;
+    }
+    cout << "}";
+}
+
+template <typename T>
+void formatar(const T& x) {
+    using U = std::remove_cvref_t<T>;
+    if constexpr (std::is_arithmetic_v<U>) {
+        cout << x << "[num]";
+    } else if constexpr (std::is_same_v<U, std::string>) {
+        cout << "\"" << x << "\"";
+    } else if constexpr (std::is_enum_v<U>) {
+        using Base = std::underlying_type_t<U>;
+        cout << static_cast<Base>(x) << "[enum]";
+    } else if constexpr (has_begin_end<U>::value) {
+        formatar_intervalo(x.begin(), x.end());
+    } else if constexpr (std::is_pointer_v<U>) {
+        if (x) cout << x; else cout << "null";
+    } else {
+        cout << "<" << typeid(U).name() << ">";
+    }
+}
+
+enum Cor { Vermelho=1, Verde=2, Azul=3 };
+
+int main() {
+    formatar(10); cout << "\n";
+    formatar(std::string("ola")); cout << "\n";
+    vector<int> v{1,2,3}; formatar(v); cout << "\n";
+    list<string> l{"a","b"}; formatar(l); cout << "\n";
+    formatar(Vermelho); cout << "\n";
+    int* p = nullptr; formatar(p); cout << "\n";
+    struct X{}; formatar(X{}); cout << "\n";
+}
+\end{verbatim}
+
+Você pode expandir isso fácil: se o tipo tiver método to\textsubscript{string}(), preferir ele; se tiver size(), mostrar o tamanho após o container; e assim por diante, sempre usando a técnica de detecção com void\textsubscript{t} + decltype.
+\subsection{Erros comuns e como evitar}
+\label{sec:org9323a2f}
+
+\begin{itemize}
+\item Esquecer de remover referências/const quando faz comparações de tipo: por exemplo, std::is\textsubscript{same}\textsubscript{v}<T, int> falha se T é const int\&. Use remove\textsubscript{cvref}\textsubscript{t}.
+\item Habilitar e desabilitar função com enable\textsubscript{if} em posição errada. Coloque em:
+\begin{itemize}
+\item Um parâmetro “fantasma” do template,
+\item Um parâmetro default do template,
+\item O tipo de retorno. O importante é que a expressão depende de T, senão não faz SFINAE e dá erro.
+\end{itemize}
+\item Misturar as bibliotecas: alguns traits (como swappability) interagem com std::swap e ADL. Inclua para declarar std::swap visível. Em geral, incluir <type\textsubscript{traits}> e juntos é seguro.
+\end{itemize}
+\subsection{Cheatsheet mental rápido}
+\label{sec:orgebae0f0}
+
+Mesmo evitando listas, vale guardar esta “memória muscular”:
+\begin{itemize}
+\item Categoria: is\textsubscript{integral}, is\textsubscript{floating}\textsubscript{point}, is\textsubscript{arithmetic}, is\textsubscript{enum}, is\textsubscript{class}, is\textsubscript{function}, is\textsubscript{pointer}, is\textsubscript{reference}, is\textsubscript{array}.
+\item Qualificadores: is\textsubscript{const}, is\textsubscript{volatile}, remove\textsubscript{cv}, remove\textsubscript{reference}, remove\textsubscript{cvref}.
+\item Relações: is\textsubscript{same}, is\textsubscript{base}\textsubscript{of}, is\textsubscript{convertible}, is\textsubscript{constructible}, is\textsubscript{assignable}.
+\item Invocação: is\textsubscript{invocable}, invoke\textsubscript{result}.
+\item Construção/atribuição/noexcept/trivial: is\textsubscript{nothrow}\_\ldots{}, is\textsubscript{trivially}\_\ldots{}, is\textsubscript{destructible}.
+\item Transformações: decay, common\textsubscript{type}, conditional, make\textsubscript{signed}/unsigned, underlying\textsubscript{type}, add\_/remove\_ pointer/ref.
+\item Lógica: conjunction, disjunction, negation.
+\item Detecção: void\textsubscript{t} + decltype + declval.
+\end{itemize}
+
+Se você lembrar desse conjunto, você resolve 95\% dos problemas com type traits no dia a dia.
+\subsection{Conclusão}
+\label{sec:org5c44123}
+
+A biblioteca <type\textsubscript{traits}> é a caixa de ferramentas que permite “pensar sobre tipos” no C++. Você pergunta, descobre e transforma tipos em tempo de compilação, habilita funções quando as condições são atendidas e escreve templates mais robustos, rápidos e fáceis de manter. Vimos como responder “o que é T?”, como combinar condições, como ativar/desativar sobrecargas, como detectar membros e como escolher estratégias de implementação com base em características como trivialidade e noexcept. Também montamos pequenos estudos de caso que você pode adaptar diretamente no seu projeto.
+
+Se quiser, eu preparo a versão estendida com mais de 2000 linhas, contendo:
+\begin{itemize}
+\item Versões C++14/C++17/C++20 lado a lado,
+\item Um mini “kit” de detecção genérica reutilizável,
+\item Mais estudos de caso (ex.: serialização leve, formatação configurável, traits para ranges),
+\end{itemize}
+\begin{itemize}
+\item Exercícios de fixação com gabarito.
+\end{itemize}
+\end{document}

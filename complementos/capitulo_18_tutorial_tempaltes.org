@@ -1,0 +1,857 @@
+* Tutorial prático e completo de C++ Templates para humanos
+
+Este guia é um “passeio guiado”, em linguagem simples, sobre templates em C++. A meta é você sair sabendo escrever seus próprios templates com segurança, entender o que o compilador está tentando fazer, e usar recursos modernos como if constexpr, SFINAE e concepts (C++20) sem dor de cabeça. Vou seguir um fluxo natural: do básico ao avançado, com exemplos compiláveis e explicações diretas, evitando listas longas e jargões acadêmicos sempre que possível.
+
+Observação sobre tamanho: se você quiser um material muito extenso (2000+ linhas), posso gerar uma versão em DOCX ou PDF com capítulos adicionais, exercícios e mais estudos de caso. É só dizer qual formato prefere que eu preparo.
+
+*O que são templates e por que eles existem*
+
+Templates são a forma do C++ escrever “código genérico”: funções e classes que funcionam para diferentes tipos, sem duplicar código. Em vez de criar uma função para int e outra para double, você escreve uma só função template que o compilador “instancia” automaticamente para cada tipo usado. Isso dá performance de código “específico”, mas com a flexibilidade de ser “genérico”.
+
+O ponto crucial: templates são resolvidos em tempo de compilação. O compilador escolhe qual versão instanciar com base nos tipos dos argumentos. Essa fase tem regras próprias que vamos destrinchar com calma.
+
+Em todos os exemplos, considere que cada trecho é um arquivo independente com sua própria função main. Para rodar, salve, compile e execute cada um separadamente.
+
+** Primeiro contato: function templates
+
+O exemplo canônico é uma função “max” genérica. Aqui está a ideia simples:
+
+#+begin_src cpp 
+// arquivo: exemplo1.cpp
+#include <iostream>
+using namespace std;
+
+template <typename T>
+T meu_max(T a, T b) {
+    return (a < b) ? b : a;
+}
+
+int main() {
+    cout << meu_max(10, 20) << "\n";        // T = int
+    cout << meu_max(3.14, 2.71) << "\n";    // T = double
+    // cout << meu_max(10, 2.5);            // erro: tipos diferentes
+}
+#+end_src 
+
+O compilador deduz T a partir dos argumentos. Para tipos diferentes, ou você ajuda com um cast, ou escreve outra forma que aceite tipos distintos. Vamos fazer isso já:
+
+#+begin_src cpp 
+// arquivo: exemplo2.cpp
+#include <iostream>
+#include <type_traits>
+using namespace std;
+
+template <typename A, typename B>
+auto meu_max2(A a, B b) {
+    using R = std::common_type_t<A, B>; // escolhe um tipo comum
+    return static_cast<R>(a < b ? b : a);
+}
+
+int main() {
+    cout << meu_max2(10, 2.5) << "\n";   // R = double
+    cout << meu_max2(3u, -1) << "\n";    // R = signed tipo comum
+}
+#+end_src
+
+Aqui já apareceu uma transformação de tipo comum no dia a dia. Não é “só template”, mas faz parte da vida com templates.
+
+** Class templates: tipos genéricos que você constrói
+
+Assim como funções, você pode ter classes genéricas. Exemplo minimalista:
+
+#+begin_src cpp 
+// arquivo: exemplo3.cpp
+#include <iostream>
+#include <string>
+using namespace std;
+
+template <typename T>
+struct Caixa {
+    T valor;
+    explicit Caixa(T v) : valor(v) {}
+    void imprime() const { cout << valor << "\n"; }
+};
+
+int main() {
+    Caixa<int> c1(42);
+    Caixa<string> c2(string("oi"));
+    c1.imprime();
+    c2.imprime();
+}
+#+end_src
+
+O “template ” declara que T é um parâmetro de tipo. Ao usar Caixa, você cria uma “Caixa de int”. Ao usar Caixa, outra instância de classe diferente.
+
+** Dedução de tipos e quando ela falha
+
+Para função template, o compilador tenta deduzir os tipos a partir dos argumentos. Para classe template, você normalmente precisa indicar o tipo entre “<>”. Em C++17/20, muitas bibliotecas oferecem dedução automática para classes (CTAD), mas você tem que organizar os construtores para isso.
+
+#+begin_src cpp 
+// arquivo: exemplo4.cpp
+#include <iostream>
+#include <utility>
+using namespace std;
+
+template <typename T>
+struct Par {
+    T a, b;
+    Par(T x, T y) : a(x), b(y) {}
+};
+
+int main() {
+    Par<int> p1(1, 2);   // ok
+    // Par p2(1, 2);     // sem CTAD não compila em C++14; com C++17 talvez falhe sem guia
+    cout << p1.a + p1.b << "\n";
+}
+#+end_src
+
+Se você quer “CTAD” (Class Template Argument Deduction), forneça um “deduction guide”:
+
+#+begin_src cpp
+// arquivo: exemplo5.cpp
+#include <iostream>
+using namespace std;
+
+template <typename T>
+struct Par {
+    T a, b;
+    Par(T x, T y) : a(x), b(y) {}
+};
+
+// guia de dedução (C++17)
+template <typename A, typename B>
+Par(A, B) -> Par<decltype(true ? A{} : B{})>; // tipo comum simplificado
+
+int main() {
+    Par p(1, 2.5); // deduz T para um tipo comum (aqui double)
+    cout << p.a + p.b << "\n";
+}
+#+end_src
+
+Esse guia é só para ilustrar. No mundo real, você provavelmente usaria std::common_type_t<A,B> para ficar correto.
+
+** Sobrecarga vs templates e regras de “qual sobrecarga ganha”
+
+Imagine que você tem uma versão “normal” e uma versão “genérica”. Na disputa, o compilador prefere a sobrecarga não-template quando “encaixa” perfeitamente.
+
+#+begin_src cpp 
+// arquivo: exemplo6.cpp
+#include <iostream>
+using namespace std;
+
+void imprime(int x) {
+    cout << "int: " << x << "\n";
+}
+
+template <typename T>
+void imprime(T x) {
+    cout << "template: " << x << "\n";
+}
+
+int main() {
+    imprime(10);     // chama a versão int (não-template)
+    imprime(3.14);   // chama a versão template
+}
+#+end_src
+
+Se houver duas funções template, o compilador “tenta” a mais especializada. Essas regras ficam mais claras com prática; o importante é saber que sobrecargas “específicas” tendem a ganhar da “genérica”.
+
+**  Especialização total e parcial (e a pegadinha das funções)
+
+Classes podem ter especialização total e parcial. Funções só podem ter especialização total; “parcial” para funções não existe — você usa sobrecarga no lugar.
+
+#+begin_src cpp 
+// arquivo: exemplo7.cpp
+#include <iostream>
+using namespace std;
+
+template <typename T>
+struct Info {
+    static void mostra() { cout << "Tipo geral\n"; }
+};
+
+// especialização total para int
+template <>
+struct Info<int> {
+    static void mostra() { cout << "Especializacao para int\n"; }
+};
+
+// especialização parcial: para ponteiros
+template <typename T>
+struct Info<T*> {
+    static void mostra() { cout << "Especializacao para ponteiros\n"; }
+};
+
+int main() {
+    Info<double>::mostra(); // geral
+    Info<int>::mostra();    // total
+    Info<char*>::mostra();  // parcial
+}
+#+end_src
+
+Para funções, use sobrecargas:
+
+#+begin_src cpp 
+// arquivo: exemplo8.cpp
+#include <iostream>
+using namespace std;
+
+template <typename T>
+void f(T) { cout << "geral\n"; }
+
+void f(int) { cout << "int\n"; } // “especialização” via sobrecarga
+
+int main() {
+    f(1);     // chama a sobrecarga int
+    f(1.0);   // template
+}
+#+end_src
+
+** Parâmetros de template “não-tipo” (non-type template parameters)
+
+Nem tudo precisa ser um “tipo”. Você pode passar números, ponteiros, referências, e desde C++17 até “auto” como parâmetro.
+
+#+begin_src cpp
+// arquivo: exemplo9.cpp
+#include <iostream>
+#include <array>
+using namespace std;
+
+template <typename T, size_t N>
+struct Vetor {
+    array<T, N> dados{};
+    void set(size_t i, const T& v) { dados[i] = v; }
+    void imprime() const { for (auto& x : dados) cout << x << " "; cout << "\n"; }
+};
+
+int main() {
+    Vetor<int, 5> v;
+    v.set(0, 42);
+    v.set(4, 7);
+    v.imprime();
+}
+#+end_src
+
+Com “auto” (C++17), você pode capturar uma constante de qualquer tipo literal:
+
+#+begin_src cpp 
+// arquivo: exemplo10.cpp
+#include <iostream>
+using namespace std;
+
+template <auto N>
+struct Constante {
+    static void imprime() { cout << N << "\n"; }
+};
+
+int main() {
+    Constante<42>::imprime();
+    Constante<'A'>::imprime();
+}
+#+end_src
+
+** Variadic templates e parameter packs
+
+Às vezes você quer aceitar “qualquer número de argumentos”. Variadic templates resolvem isso com “parameter packs”.
+
+#+begin_src cpp 
+// arquivo: exemplo11.cpp
+#include <iostream>
+using namespace std;
+
+void imprime_todos() {
+    cout << "\n";
+}
+
+template <typename T, typename... Resto>
+void imprime_todos(T primeiro, Resto... resto) {
+    cout << primeiro << " ";
+    imprime_todos(resto...);
+}
+
+int main() {
+    imprime_todos(1, "oi", 3.14, 'x');
+}
+#+end_src
+
+No C++17, “fold expressions” simplificam somas, conjunções lógicas, etc.
+
+#+begin_src cpp 
+// arquivo: exemplo12.cpp
+#include <iostream>
+using namespace std;
+
+template <typename... Ts>
+auto soma(Ts... xs) {
+    return (xs + ... + 0); // ((x1 + x2) + ... ) + 0
+}
+
+int main() {
+    cout << soma(1,2,3,4) << "\n";
+}
+#+end_src
+
+** Forwarding references e perfect forwarding
+
+Se você escreve uma função template “recebe qualquer coisa e repassa”, quer preservar o valor original (lvalue/rvalue). Isso se faz com “forwarding references” (um T&& deduzido) e std::forward.
+
+#+begin_src cpp 
+// arquivo: exemplo13.cpp
+#include <iostream>
+#include <utility>
+#include <string>
+using namespace std;
+
+void pega(const string& s) { cout << "lvalue: " << s << "\n"; }
+void pega(string&& s) { cout << "rvalue: " << s << "\n"; }
+
+template <typename T>
+void encaminha(T&& x) {
+    pega(std::forward<T>(x));
+}
+
+int main() {
+    string s = "oi";
+    encaminha(s);              // lvalue
+    encaminha(string("tchau")); // rvalue
+}
+#+end_src
+
+Se você tirar o std::forward, tudo vira lvalue no repasse, e você pode perder eficiência ou escolher a sobrecarga errada.
+
+** if constexpr e lógica em tempo de compilação
+
+if constexpr (C++17) deixa você ramificar o código com base em condições que dependem de tipos sem precisar de gambiarras.
+
+#+begin_src cpp
+// arquivo: exemplo14.cpp
+#include <iostream>
+#include <type_traits>
+#include <string>
+using namespace std;
+
+template <typename T>
+void describe(const T& x) {
+    if constexpr (std::is_integral_v<T>) {
+        cout << "inteiro: " << x << "\n";
+    } else if constexpr (std::is_floating_point_v<T>) {
+        cout << "ponto flutuante: " << x << "\n";
+    } else if constexpr (std::is_same_v<T, std::string>) {
+        cout << "string: " << x << "\n";
+    } else {
+        cout << "outro tipo\n";
+    }
+}
+
+int main() {
+    describe(10);
+    describe(3.14);
+    describe(string("oi"));
+}
+#+end_src
+
+** SFINAE com enable_if e a base para “templates inteligentes”
+
+SFINAE significa: se a dedução falhar, aquela sobrecarga “sai do jogo” sem erro. Enable_if é o canivete básico; concepts (C++20) é a versão “bonita”.
+
+#+begin_src cpp 
+// arquivo: exemplo15.cpp
+#include <iostream>
+#include <type_traits>
+using namespace std;
+
+template <typename T>
+std::enable_if_t<std::is_integral_v<T>, T>
+duplica(T x) {
+    return x * 2;
+}
+
+template <typename T>
+std::enable_if_t<!std::is_integral_v<T>, T>
+duplica(T x) {
+    return x + x;
+}
+
+int main() {
+    cout << duplica(10) << "\n";   // 20
+    cout << duplica(1.5) << "\n";  // 3.0
+}
+#+end_src
+
+Você pode colocar enable_if em:
+
+  - Um parâmetro “fantasma” do template,
+  - Um parâmetro default do template,
+  - O tipo de retorno (como acima).
+
+O importante é que a condição dependa de T (senão não aplica SFINAE).
+
+** Concepts e requires (C++20): as “condições legíveis”
+
+Se você pode usar C++20, prefira concepts/requires. O compilador emite erros mais amigáveis e o código fica claro.
+
+#+begin_src cpp 
+// arquivo: exemplo16.cpp (C++20)
+#include <iostream>
+#include <concepts>
+using namespace std;
+
+template <typename T>
+requires integral<T>
+T duplica(T x) { return x * 2; }
+
+template <typename T>
+requires floating_point<T>
+T duplica(T x) { return x + x; }
+
+int main() {
+    cout << duplica(10) << "\n";   // 20
+    cout << duplica(1.5) << "\n";  // 3.0
+    // duplica(string("oi"));      // erro legível
+}
+#+end_src
+
+Você pode definir seus próprios concepts:
+
+#+begin_src cpp 
+// arquivo: exemplo17.cpp (C++20)
+#include <iostream>
+#include <concepts>
+#include <type_traits>
+using namespace std;
+
+template <typename T>
+concept TemIncremento = requires(T x) {
+    { ++x } -> same_as<T&>;
+};
+
+template <TemIncremento T>
+void inc_e_mostra(T x) {
+    ++x;
+    cout << x << "\n";
+}
+
+int main() {
+    int a = 41;
+    inc_e_mostra(a); // ok
+    // string s="x"; inc_e_mostra(s); // não compila
+}
+#+end_src
+
+** Alias templates e “type wrappers”
+
+Às vezes você só quer dar um nome para um tipo “complexo” dependente de template. Alias templates ajudam.
+
+#+begin_src cpp 
+// arquivo: exemplo18.cpp
+#include <type_traits>
+#include <iostream>
+using namespace std;
+
+template <typename T>
+using SemCVRef = std::remove_cv_t<std::remove_reference_t<T>>;
+
+template <typename T>
+void mostra() {
+    cout << boolalpha << is_same_v<SemCVRef<const int&>, int> << "\n";
+}
+
+int main() {
+    mostra<int>();
+}
+#+end_src
+
+** Template template parameters: passar “templates” como argumento
+
+Você pode projetar estruturas que recebem outro template como parâmetro. Exemplo simples:
+
+#+begin_src cpp 
+// arquivo: exemplo19.cpp
+#include <iostream>
+#include <vector>
+#include <list>
+using namespace std;
+
+template <template<class...> class Container, typename T>
+struct UsaContainer {
+    Container<T> c;
+    void add(const T& x) { c.push_back(x); }
+    void print() const { for (auto& v : c) cout << v << " "; cout << "\n"; }
+};
+
+int main() {
+    UsaContainer<vector, int> a;
+    UsaContainer<list, int> b;
+    a.add(1); a.add(2);
+    b.add(3); b.add(4);
+    a.print(); b.print();
+}
+#+end_src
+
+** Dependent names: quando você precisa de “typename” e “template”
+
+Quando um nome depende de um parâmetro de template, o compilador às vezes precisa de ajuda para saber se é um tipo ou um membro. Use “typename” para dizer “isto é um tipo” e “template” para dizer “isto é um template”.
+
+#+begin_src cpp 
+// arquivo: exemplo20.cpp
+#include <iostream>
+using namespace std;
+
+template <typename T>
+struct Ex {
+    using tipo = T;
+    template <typename U> struct Inner { using tipo = U; };
+};
+
+template <typename X>
+void f() {
+    typename X::tipo valor{}; // “typename” necessário
+    (void)valor;
+    // para chamar um membro que é template:
+    using Y = typename X::template Inner<int>;
+    (void)sizeof(Y);
+}
+
+int main() {
+    f<Ex<double>>();
+    cout << "ok\n";
+}
+#+end_src
+
+Também é comum precisar de this-> quando herda de uma base dependente, para que o compilador encontre membros herdados.
+
+** Metaprogramação leve com index_sequence e tuplas
+
+Templates também servem para gerar “sequências” em tempo de compilação e destrinchar tuplas.
+
+#+begin_src cpp 
+// arquivo: exemplo21.cpp
+#include <iostream>
+#include <tuple>
+#include <utility>
+using namespace std;
+
+template <typename Tuple, size_t... Is>
+void imprime_tuple_impl(const Tuple& t, index_sequence<Is...>) {
+    ((cout << (Is ? ", " : "") << get<Is>(t)), ...);
+    cout << "\n";
+}
+
+template <typename... Ts>
+void imprime_tuple(const tuple<Ts...>& t) {
+    imprime_tuple_impl(t, index_sequence_for<Ts...>{});
+}
+
+int main() {
+    auto t = make_tuple(1, 2.5, "oi");
+    imprime_tuple(t); // 1, 2.5, oi
+}
+#+end_src
+
+Isso parece mágico, mas é padrão: uma “sequência de índices” dirige a expansão dos elementos da tupla.
+
+** Tag dispatching: escolhendo caminhos por “tags” de tipo
+
+Uma técnica antiga e valiosa: em vez de if, você chama sobrecargas diferentes passando um “tipo-tag” como argumento. Isso resolve em tempo de compilação.
+
+#+begin_src cpp 
+// arquivo: exemplo22.cpp
+#include <iostream>
+#include <type_traits>
+using namespace std;
+
+struct InteiroTag {};
+struct FlutuanteTag {};
+struct OutroTag {};
+
+template <typename T>
+auto tag_de_tipo() {
+    if constexpr (std::is_integral_v<T>) return InteiroTag{};
+    else if constexpr (std::is_floating_point_v<T>) return FlutuanteTag{};
+    else return OutroTag{};
+}
+
+void processa_impl(int x, InteiroTag) { cout << "inteiro: " << x*2 << "\n"; }
+void processa_impl(double x, FlutuanteTag) { cout << "float: " << x/2 << "\n"; }
+template <typename T>
+void processa_impl(const T&, OutroTag) { cout << "outro\n"; }
+
+template <typename T>
+void processa(const T& x) {
+    processa_impl(x, tag_de_tipo<T>());
+}
+
+int main() {
+    processa(10);
+    processa(3.14);
+    processa("oi");
+}
+#+end_src
+
+** Boas práticas: torne os erros legíveis e os intentos explícitos
+
+Mesmo evitando listas grandes, vale deixar um “jeito de pensar”:
+  - Prefira requires/concepts em C++20 para expressar condições de forma natural.
+  - Em C++17 para trás, use enable_if e if constexpr para ramificações limpas.
+  - Em funções genéricas, preserve a categoria de valor com forwarding references + std::forward.
+  - Em tipos genéricos, mantenha tudo em headers (templates normalmente são “header-only” porque o compilador precisa ver a definição para instanciar).
+  - Use static_assert com mensagens claras quando um template exige algo específico do tipo.
+
+Exemplo de static_assert amigável:
+#+begin_src cpp 
+// arquivo: exemplo23.cpp
+#include <type_traits>
+#include <iostream>
+using namespace std;
+
+template <typename T>
+T soma3(T a, T b, T c) {
+    static_assert(std::is_arithmetic_v<T>, "T precisa ser numerico");
+    return a + b + c;
+}
+
+int main() {
+    cout << soma3(1,2,3) << "\n";
+    // soma3(string("a"), string("b"), string("c")); // mensagem clara
+}
+#+end_src
+
+** Estudo de caso 1: um “print” genérico que sabe lidar com listas, strings, números e enums
+
+Aqui integramos vários pontos: if constexpr, traits e variadic.
+
+#+begin_src cpp 
+// arquivo: exemplo24.cpp
+#include <iostream>
+#include <string>
+#include <vector>
+#include <list>
+#include <type_traits>
+#include <typeinfo>
+using namespace std;
+
+template <typename T>
+void print1(const T& x);
+
+template <typename It>
+void print_range(It first, It last) {
+    cout << "{";
+    bool firstElem = true;
+    for (; first != last; ++first) {
+        if (!firstElem) cout << ", ";
+        print1(*first);
+        firstElem = false;
+    }
+    cout << "}";
+}
+
+template <typename T>
+void print1(const T& x) {
+    using U = std::remove_cv_t<std::remove_reference_t<T>>;
+    if constexpr (std::is_arithmetic_v<U>) {
+        cout << x;
+    } else if constexpr (std::is_same_v<U, std::string>) {
+        cout << "\"" << x << "\"";
+    } else if constexpr (std::is_enum_v<U>) {
+        using Base = std::underlying_type_t<U>;
+        cout << static_cast<Base>(x);
+    } else if constexpr (requires(U u){ u.begin(); u.end(); }) { // C++20
+        print_range(x.begin(), x.end());
+    } else if constexpr (std::is_pointer_v<U>) {
+        if (x) cout << x; else cout << "null";
+    } else {
+        cout << "<" << typeid(U).name() << ">";
+    }
+}
+
+enum Cor { Vermelho=1, Verde=2 };
+
+int main() {
+    print1(10); cout << "\n";
+    print1(std::string("ola")); cout << "\n";
+    vector<int> v{1,2,3}; print1(v); cout << "\n";
+    list<string> l{"a","b"}; print1(l); cout << "\n";
+    print1(Vermelho); cout << "\n";
+    int* p=nullptr; print1(p); cout << "\n";
+    struct X{}; print1(X{}); cout << "\n";
+}
+#+end_src
+
+Se você estiver em C++17, troque o requires por uma detecção via void_t/declval (como mostrei no tutorial de type_traits).
+
+** Estudo de caso 2: safe_call — chame se for invocável, senão retorne std::nullopt
+
+Vamos usar concepts (ou SFINAE em C++17) para permitir chamada apenas quando a expressão é válida.
+
+#+begin_src cpp 
+// arquivo: exemplo25.cpp (C++20)
+#include <iostream>
+#include <optional>
+#include <type_traits>
+#include <utility>
+using namespace std;
+
+template <typename F, typename... Args>
+requires requires(F&& f, Args&&... as) {
+    std::invoke(std::forward<F>(f), std::forward<Args>(as)...);
+}
+auto safe_call(F&& f, Args&&... as)
+{
+    using R = std::invoke_result_t<F, Args...>;
+    if constexpr (std::is_void_v<R>) {
+        std::invoke(std::forward<F>(f), std::forward<Args>(as)...);
+        return std::optional<int>{}; // nada a retornar; só indica sucesso
+    } else {
+        return std::optional<R>(std::invoke(std::forward<F>(f), std::forward<Args>(as)...));
+    }
+}
+
+int main() {
+    auto f1 = [](int x){ return x+1; };
+    auto f2 = [](double){};
+    auto ok = safe_call(f1, 41);
+    if (ok) cout << *ok << "\n";
+    auto ok2 = safe_call(f2, 3.14);
+    if (!ok2) cout << "void call feita\n";
+    // auto fail = safe_call(f1, string("x")); // não compila, não é invocável
+}
+#+end_src
+
+Em C++17, você pode permitir compilar sempre e retornar std::nullopt quando não invocável, usando detecção com is_invocable e um if constexpr que selecione o caminho.
+
+** Estudo de caso 3: um “StaticVector” com capacidade fixa em tempo de compilação
+
+Non-type parameter para a capacidade, e interface mínima para ilustrar.
+
+#+begin_src cpp 
+// arquivo: exemplo26.cpp
+#include <iostream>
+#include <stdexcept>
+#include <utility>
+using namespace std;
+
+template <typename T, size_t N>
+class StaticVector {
+    T dados[N];
+    size_t tam = 0;
+public:
+    constexpr size_t capacity() const { return N; }
+    size_t size() const { return tam; }
+    bool empty() const { return tam == 0; }
+
+    void push_back(const T& v) {
+        if (tam == N) throw runtime_error("sem espaço");
+        dados[tam++] = v;
+    }
+    void push_back(T&& v) {
+        if (tam == N) throw runtime_error("sem espaço");
+        dados[tam++] = std::move(v);
+    }
+
+    T& operator[](size_t i) { return dados[i]; }
+    const T& operator[](size_t i) const { return dados[i]; }
+
+    T* begin() { return dados; }
+    T* end() { return dados + tam; }
+    const T* begin() const { return dados; }
+    const T* end() const { return dados + tam; }
+};
+
+int main() {
+    StaticVector<int, 3> v;
+    v.push_back(1);
+    v.push_back(2);
+    v.push_back(3);
+    for (auto x : v) cout << x << " ";
+    cout << "\n";
+    // v.push_back(4); // lança exceção
+}
+#+end_src
+
+** Separação de código: onde ficam as definições de templates?
+
+Diferente de funções/classes normais, templates normalmente ficam 100% no header (.hpp/.h). Isso porque a instância é gerada quando o compilador “vê” a definição junto com os usos. Colocar a definição em um .cpp separado costuma dar “undefined reference” (o linker não acha a instância), a menos que você controle explicitamente as instâncias que quer gerar. Na prática, mantenha templates em headers.
+
+** Erros comuns e como evitá-los
+
+  - “Por que minha função template não compila com string?” — talvez sua expressão dependa de um operador que string não tem. Use static_assert ou concepts para mensagens melhores.
+  - “Por que minha especialização parcial de função não funciona?” — porque não existe. Use sobrecarga de função ou especialização de classe.
+  - “Perdi a categoria de valor ao repassar argumentos.” — lembre-se de forwarding references + std::forward.
+  - “Meu nome dependente não é reconhecido como tipo.” — use typename e, quando for um membro que é template, use a palavra-chave template antes do nome.
+
+** Um degrau a mais: constraints e ordem entre sobrecargas
+
+Várias sobrecargas podem “combinar”. Em C++20, quando você adiciona requires mais restritivos, eles tendem a ser preferidos (mais “constritos”). Em C++17 com enable_if, a questão vira quem é mais especializado. Como regra de bolso: comece simples, adicione constraints quando necessário, e tente não ter duas sobrecargas que aceitam exatamente os mesmos argumentos sem uma hierarquia clara.
+
+#+begin_src cpp 
+// arquivo: exemplo27.cpp (C++20)
+#include <iostream>
+#include <concepts>
+using namespace std;
+
+template <typename T>
+requires integral<T>
+void g(T) { cout << "inteiro\n"; }
+
+template <typename T>
+requires integral<T> && (sizeof(T) == sizeof(int))
+void g(T) { cout << "inteiro do tamanho de int\n"; }
+
+int main() {
+    g(short{1}); // "inteiro"
+    g(1);        // "inteiro do tamanho de int" (mais restrito)
+}
+#+end_src
+
+** Integração com a STL: iteradores, traits e algoritmos
+
+A STL foi construída com templates e “tag dispatching” (por exemplo, categorias de iteradores). Você pode escrever algoritmos que, dependendo da categoria do iterador, escolhem estratégia diferente. Isso é uma aplicação direta do que vimos.
+
+#+begin_src cpp 
+// arquivo: exemplo28.cpp
+#include <iostream>
+#include <vector>
+#include <list>
+#include <iterator>
+using namespace std;
+
+template <typename It>
+void distancia_impl(It first, It last, input_iterator_tag) {
+    size_t n = 0;
+    for (; first != last; ++first) ++n;
+    cout << "dist input: " << n << "\n";
+}
+
+template <typename It>
+void distancia_impl(It first, It last, random_access_iterator_tag) {
+    cout << "dist random: " << (last - first) << "\n";
+}
+
+template <typename It>
+void minha_distancia(It first, It last) {
+    using Cat = typename iterator_traits<It>::iterator_category;
+    distancia_impl(first, last, Cat{});
+}
+
+int main() {
+    vector<int> v{1,2,3,4};
+    list<int> l{1,2,3,4,5};
+    minha_distancia(v.begin(), v.end());
+    minha_distancia(l.begin(), l.end());
+}
+#+end_src
+
+Esse padrão é “tag dispatching” clássico: decide em tempo de compilação sem if runtime.
+
+** Dica final de projeto: comece simples, teste cedo, refine as constraints
+
+  - Escreva a versão genérica simples e funcionante.
+  - Teste com 2–3 tipos diferentes.
+  - Só então adicione condições (enable_if/concepts) para proibir usos indevidos ou escolher implementações mais eficientes.
+  - Quando a lógica depender de tipo, tente começar com if constexpr — frequentemente é o suficiente.
+
+** Conclusão
+
+Templates são o coração do C++ moderno: eles permitem escrever código genérico, com zero de custo extra em runtime, e adaptável a uma infinidade de usos. Você viu como criar function e class templates, como o compilador deduz tipos, como especializar e sobrecarregar, como usar parâmetros non-type, variadic templates, perfect forwarding, SFINAE, if constexpr e, no C++20, concepts e requires para deixar as intenções claras e os erros legíveis. Também passeamos por dependent names, index_sequence, CTAD e padrões práticos como tag dispatching.
+
+

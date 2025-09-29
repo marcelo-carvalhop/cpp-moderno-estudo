@@ -1,0 +1,107 @@
+* Capítulo 19: Concepts: um novo contrato para C++
+
+Por décadas, a programação com templates em C++ operou com base em um "contrato implícito". Um template, como std::sort, funcionava com qualquer tipo que, por acaso, satisfizesse os requisitos sintáticos esperados — ter um operador <, ser copiável, etc. Essa abordagem, conhecida como duck typing ("se anda como um pato e grasna como um pato, então deve ser um pato"), é flexível, mas extremamente frágil. A violação desse contrato implícito resultava em mensagens de erro notórias por sua complexidade, tornando a depuração de templates uma tarefa árdua.
+
+Os Concepts, introduzidos formalmente no C++20 após anos de pesquisa e desenvolvimento, são a resposta a esse problema fundamental. Eles representam a maior evolução na programação genérica desde a introdução dos próprios templates. Um concept é um predicado em tempo de compilação que avalia um conjunto de requisitos sobre um ou mais tipos. Em essência, eles permitem que o contrato implícito se torne um contrato explícito, verificado pelo compilador.
+
+** A Sintaxe da Clareza
+
+Um concept é definido usando a palavra-chave concept, seguida por uma série de requisitos (requires).
+
+#+begin_src cpp
+#include <concepts> // Para concepts padrão como std::integral
+#include <iostream>
+
+// Definição de um concept customizado.
+// Um tipo T satisfaz 'Hashable' se uma instância de std::hash<T>
+// puder ser chamada com um objeto do tipo T, e o resultado
+// puder ser convertido para size_t.
+template<typename T>
+concept Hashable = requires(T a) {
+    { std::hash<T>{}(a) } -> std::convertible_to<size_t>;
+};
+
+// Uso do concept para restringir um template de função.
+template<Hashable T>
+void imprimir_hash(const T& valor) {
+    std::cout << "Hash: " << std::hash<T>{}(valor) << "\n";
+}
+
+struct Pessoa {
+    std::string nome;
+};
+
+// Para que Pessoa satisfaça Hashable, precisamos especializar std::hash.
+namespace std {
+    template<> struct hash<Pessoa> {
+        size_t operator()(const Pessoa& p) const {
+            return hash<string>()(p.nome);
+        }
+    };
+}
+
+int main() {
+    imprimir_hash(42);                  // OK, int é Hashable.
+    imprimir_hash(std::string("olá"));  // OK, std::string é Hashable.
+    imprimir_hash(Pessoa{"Maria"});     // OK, após a especialização.
+
+    // struct SemHash {};
+    // imprimir_hash(SemHash{}); // ERRO DE COMPILAÇÃO.
+    // A mensagem de erro seria clara:
+    // "error: constraints not satisfied for function template 'imprimir_hash'
+    //  note: because 'SemHash' does not satisfy concept 'Hashable'"
+    
+    return 0;
+}
+#+end_src
+
+A diferença na qualidade do diagnóstico é transformadora. Em vez de uma falha de substituição obscura dentro de std::hash, o compilador informa precisamente que o tipo SemHash não satisfaz o contrato Hashable.
+
+** As Três Formas de Restringir Templates
+
+Os concepts podem ser aplicados para restringir templates de várias maneiras, oferecendo flexibilidade sintática.
+
+  1. Cláusula requires: A forma mais explícita, adicionada após a lista de parâmetros de template.
+
+#+begin_src cpp
+template<typename T>
+requires std::integral<T>
+T adicionar(T a, T b) { return a + b; }
+#+end_src
+
+  2. Sintaxe de Parâmetro Restrito: O concept é usado diretamente no lugar de typename ou class. É conciso e legível.
+
+#+begin_src  cpp
+template<std::integral T>
+T adicionar(T a, T b) { return a + b; }
+#+end_src
+
+  3. Sintaxe de auto Restrito (para funções): Para funções (não-membros de classe), podemos usar auto no lugar do tipo, com o concept atuando como um "adjetivo".
+
+#+begin_src cpp
+std::integral auto adicionar(std::integral auto a, std::integral auto b) {
+    return a + b;
+}
+#+end_src
+
+Esta forma é particularmente expressiva para funções simples, lendo-se quase como linguagem natural: "uma função adicionar que aceita dois parâmetros que são integrais e retorna algo que é integral".
+
+** Concepts vs. SFINAE e static_assert
+
+Os concepts não apenas substituem o SFINAE, mas o fazem de uma maneira fundamentalmente superior.
+  - Clareza de Intenção: SFINAE é um mecanismo, uma técnica de implementação. Concepts são uma ferramenta de design, focada em expressar a semântica e os requisitos.
+  - Composição: Concepts podem ser combinados usando operadores lógicos (&&, ||), permitindo a criação de requisitos complexos a partir de blocos de construção simples.
+  - Melhores Mensagens de Erro: Este é o benefício mais visível. O compilador pode verificar as restrições no ponto da chamada, fornecendo feedback direto e relevante.
+  - Sobrecarga: Funções e templates podem ser sobrecarregados com base nos concepts que seus parâmetros satisfazem. O compilador selecionará a sobrecarga mais específica, permitindo um dispatching estático poderoso e semântico.
+
+Comparado ao static_assert, a diferença é o "quando". Um static_assert dentro de um template dispara um erro após a instanciação, enquanto um concept impede a instanciação em primeiro lugar se o contrato não for cumprido.
+
+** O Impacto na Arquitetura de Bibliotecas
+
+Para desenvolvedores de bibliotecas genéricas, os concepts são revolucionários. Eles formam a documentação viva e compilável da interface de um componente. Ao ler a assinatura de uma função template, o usuário sabe imediatamente quais são os requisitos para os tipos que ele pode usar.
+
+Isso estabelece fronteiras claras em sistemas genéricos, análogas às interfaces de classes em programação orientada a objetos. A biblioteca padrão do C++20 foi extensivamente retroajustada com concepts, especialmente na biblioteca de Ranges, que é o principal exemplo do poder deste novo paradigma.
+
+** Conclusão:
+
+Os concepts elevam a programação com templates de uma arte de especialistas, dependente de idiomas complexos como SFINAE, para uma disciplina de engenharia robusta. Eles nos permitem construir contratos explícitos, claros e verificáveis pelo compilador para o nosso código genérico. Ao fazer isso, eles não apenas melhoram drasticamente as mensagens de erro, mas também nos forçam a pensar mais profundamente sobre os requisitos reais de nossos algoritmos e estruturas de dados, levando a um design de software mais limpo, seguro e expressivo. Eles são, de fato, o novo contrato para o C++ genérico.

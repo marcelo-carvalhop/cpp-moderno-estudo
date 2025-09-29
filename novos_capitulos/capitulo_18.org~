@@ -1,0 +1,122 @@
+* Capítulo 18: SFINAE — erros que viram design
+
+No universo da programação com templates, os erros de compilação são uma ocorrência comum e, historicamente, uma fonte de grande frustração. Mensagens de erro longas e aninhadas, originadas das profundezas da instanciação de um template, podem ser notoriamente difíceis de decifrar. No entanto, um princípio fundamental do C++ transforma um tipo específico de erro de um problema em uma solução: SFINAE, ou Substitution /Failure Is Not An Error/ (Falha na Substituição Não é um Erro).
+
+Este princípio, como o nome sugere, dita que se uma substituição de parâmetros de template em uma assinatura de função (ou classe) resultar em código inválido, o compilador não deve parar com um erro. Em vez disso, ele deve simplesmente remover aquela função do conjunto de candidatas para a resolução de sobrecarga e continuar tentando outras alternativas. SFINAE é a espinha dorsal da metaprogramação em C++ e a técnica que, antes dos Concepts do C++20, permitia a criação de código genérico que se adapta às capacidades dos tipos que manipula.
+
+** O Mecanismo de SFINAE
+
+Vamos considerar um cenário simples. Queremos escrever uma função avancar que se comporte de maneira diferente para diferentes tipos de iteradores. Para iteradores de acesso aleatório (como os de 'std::vector'), podemos avançar em tempo constante (it += n). Para outros, precisamos avançar em tempo linear (incrementando em um loop).
+
+O desafio é: como escrever uma única função template que seleciona a implementação correta em tempo de compilação? SFINAE é a resposta. Podemos criar duas versões da função, onde uma só será válida se o tipo do iterador tiver uma certa propriedade.
+
+#+begin_src cpp
+#include <iostream>
+#include <vector>
+#include <list>
+#include <type_traits> // Para std::enable_if e traits de iterador
+
+// Versão 1: Habilitada apenas se o iterador for de acesso aleatório.
+template<typename It>
+typename std::enable_if<
+    std::is_same_v<typename std::iterator_traits<It>::iterator_category,
+                   std::random_access_iterator_tag>
+>::type
+avancar(It& it, int n) {
+    std::cout << "Usando implementação de acesso aleatório (rápida).\n";
+    it += n;
+}
+
+// Versão 2: Habilitada apenas se o iterador NÃO for de acesso aleatório.
+template<typename It>
+typename std::enable_if<
+    !std::is_same_v<typename std::iterator_traits<It>::iterator_category,
+                    std::random_access_iterator_tag>
+>::type
+avancar(It& it, int n) {
+    std::cout << "Usando implementação de incremento (lenta).\n";
+    if (n > 0) { while (n-- > 0) ++it; }
+}
+
+int main() {
+    std::vector<int> v = {1, 2, 3, 4, 5};
+    auto v_it = v.begin();
+    avancar(v_it, 2); // Compilador seleciona a Versão 1.
+
+    std::list<int> l = {1, 2, 3, 4, 5};
+    auto l_it = l.begin();
+    avancar(l_it, 2); // Compilador seleciona a Versão 2.
+    
+    return 0;
+}
+#+end_src
+
+*Como funciona?*
+Quando chamamos 'avancar(v_it, 2)', o compilador tenta substituir It por 'std::vector<int>::iterator' em ambas as versões:
+
+  1. Na Versão 1: O 'std::enable_if' avalia para 'true', resultando em um tipo de retorno válido (void, por padrão). A função é adicionada ao conjunto de sobrecargas.
+
+  2. Na Versão 2: O 'std::enable_if' avalia para 'false'. A tentativa de acessar ::type dentro de 'std::enable_if<false>' falha. Isso é uma falha de substituição. Graças ao SFINAE, em vez de gerar um erro, o compilador simplesmente descarta esta versão.
+
+O resultado é que apenas a Versão 1 é uma candidata viável, e o compilador a seleciona. O oposto acontece para o iterador de 'std::list'.
+
+** Onde a Substituição Acontece
+
+SFINAE só se aplica a falhas que ocorrem durante a substituição de parâmetros de template na assinatura imediata da função. Erros dentro do corpo da função não acionam SFINAE e resultarão em um erro de compilação se a função for selecionada.
+
+Isso significa que, para usar SFINAE, precisamos colocar nossas "sondas" de tipo em locais estratégicos:
+
+  - No tipo de retorno (como no exemplo acima).
+  - Nos parâmetros da função.
+  - Nos parâmetros de template.
+    
+#+begin_src cpp
+// Usando um parâmetro de template padrão
+template<typename T,
+         typename = std::enable_if_t<std::is_integral_v<T>>>
+void processar_integral(T valor) { /* ... */ }
+
+// Usando um parâmetro de função
+template<typename T>
+void alguma_funcao(T valor, std::enable_if_t<std::is_class_v<T>>* = nullptr) { /* ... */ }
+#+end_src
+
+** De SFINAE para if constexpr e Concepts
+
+Embora poderoso, o SFINAE baseado em 'std::enable_if' é notoriamente verboso e pode levar a assinaturas de função complexas. O C++ moderno introduziu duas alternativas que resolvem muitos dos mesmos problemas de forma mais limpa.
+
+  1. *'if constexpr' (C++17)*: Permite que o compilador descarte ramos de uma instrução if em tempo de compilação. Isso permite combinar múltiplas lógicas em uma única função, em vez de usar múltiplas sobrecargas.
+
+#+begin_src cpp
+template<typename It>
+void avancar_cpp17(It& it, int n) {
+    if constexpr (std::is_same_v<typename std::iterator_traits<It>::iterator_category,
+                                 std::random_access_iterator_tag>) {
+        std::cout << "Usando implementação de acesso aleatório (rápida).\n";
+        it += n;
+    } else {
+        std::cout << "Usando implementação de incremento (lenta).\n";
+        if (n > 0) { while (n-- > 0) ++it; }
+    }
+}
+#+end_src
+
+O if constexpr é mais legível para selecionar implementações dentro de uma função. SFINAE ainda é necessário para remover uma função inteira do conjunto de sobrecargas.
+
+  2. *Concepts (C++20)*: Como vimos, os Concepts são a evolução final do SFINAE. Eles formalizam os requisitos de um template em uma sintaxe limpa e declarativa, gerando mensagens de erro muito superiores.
+
+#+begin_src cpp
+// Requer C++20 e a definição do concept 'RandomAccessIterator'
+/*
+template<RandomAccessIterator It>
+void avancar_cpp20(It& it, int n) { ... }
+*/
+#+end_src
+
+*Conclusão*:
+
+SFINAE é um dos idiomas mais profundos e engenhosos do C++. Ele representa uma mudança de paradigma: em vez de ver o compilador como um validador passivo, nós o usamos como um motor de execução em tempo de compilação, sondando as propriedades dos tipos e usando falhas de substituição para guiar a geração de código. Embora 'if constexpr' e Concepts ofereçam uma sintaxe superior para muitos casos de uso, entender SFINAE é crucial para compreender a história e os fundamentos da metaprogramação em C++ e para trabalhar com bases de código que antecedem o C++17/20. É a arte de transformar erros em design.
+
+*Leituras Complementares*:
+
+[[../complementos/capitulo_18_tutorial_type-straits.org][Tutorial prático e completo de C++ <type_traits> para humanos]]

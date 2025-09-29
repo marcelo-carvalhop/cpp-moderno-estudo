@@ -137,3 +137,5 @@ A dedução de tipos não é um processo arbitrário. É um algoritmo preciso que form
 [[../complementos/capitulo_17_auto.org][auto como espelho da dedução de tipos]]
 
 [[../complementos/capitulo_17_complemento.org][Complemento extra]]
+
+[[../complementos/capitulo_17_nota-técnica-ponteiros-referencias.org][Nota técnica: ponteiros e referências em C++ com *, & e &&]]

@@ -1,0 +1,133 @@
+* Nota técnica: ponteiros e referências em C++ com *, & e &&
+
+Em C++, o mesmo símbolo pode significar coisas diferentes dependendo do contexto. Em declarações de variáveis e parâmetros, *, & e && formam novos tipos. Em expressões, * é o operador que desreferencia um ponteiro (acessa o objeto apontado) e & pega o endereço de um objeto (produzindo um ponteiro). Distinguir esses dois papéis elimina muitas confusões.
+
+**  T* — ponteiro para T
+
+Um T* é um valor que guarda o endereço de um objeto do tipo T. Ele pode apontar para algum T válido ou ser nulo (nullptr). É possível “reseatar” um ponteiro a qualquer momento (fazer com que passe a apontar para outro objeto), fazer aritmética de ponteiros em contextos de array e testar se está nulo. Para acessar o objeto apontado, usa-se o operador * em uma expressão.
+
+Exemplo básico:
+
+#+begin_src cpp
+T obj{};
+T* p = &obj;    // p recebe o endereço de obj
+*p = T{};       // desreferencia p e escreve no objeto apontado
+p = nullptr;    // um ponteiro pode ser nulo
+#+end_src
+
+Ponteiros são ideais quando você precisa de nulabilidade (opcionalidade leve), quando o alvo pode mudar ao longo do tempo (reseat) e para interoperar com APIs em estilo C (por exemplo, arrays e parâmetros de saída). Por outro lado, não são bons para gerenciar a posse de memória manualmente; em C++ moderno, prefira smart pointers para posse (como std::unique_ptr<T> e std::shared_ptr<T>) e use T* cru apenas como “observador” (não-dono).
+
+Sobre “const” em ponteiros, a posição do const importa. const T* (equivalente a T const*) significa “ponteiro para T constante”, então você não pode modificar \*p, mas pode reseatar p. Já T\* const significa “ponteiro constante para T”: o ponteiro não pode ser reseatado, mas o objeto apontado pode ser modificado. É possível combinar ambos: T const* const.
+
+** T** — ponteiro para ponteiro para T
+
+Um T** aponta para um T*. A desreferência dupla **pp chega ao T subjacente. Esse padrão surge em APIs em C que precisam modificar um ponteiro passado pelo chamador (um “parâmetro de saída” que é, ele mesmo, um ponteiro). Em C++ moderno, muitas vezes a intenção fica mais clara usando “referência a ponteiro” (T*&), que mantém a semântica desejada sem empilhar níveis de indireção.
+
+Exemplo com ambos os estilos:
+
+#+begin_src cpp
+void reset_via_double_ptr(T** pp) { *pp = nullptr; } // estilo C
+void reset_via_ref_to_ptr(T*&  p) {  p  = nullptr; } // estilo C++ mais claro
+
+T obj{};
+T* p = &obj;
+reset_via_double_ptr(&p);
+reset_via_ref_to_ptr(p);
+#+end_src
+
+T** permanece útil em casos como vetores de ponteiros (por exemplo, char** argv) e em interfaces estritamente C. Porém, quando a intenção é “modificar o próprio ponteiro do chamador”, T*& tende a ser mais legível e menos propenso a erros de constness.
+
+** T& — referência lvalue para T
+
+Uma referência T& é um alias obrigatório para um objeto existente: deve ser inicializada na criação, não pode ser nula e não pode ser reseatada para outro objeto. Por isso, referências são ótimas para parâmetros de função quando você quer operar diretamente sobre o objeto do chamador sem cópia. Quando a função não deve modificar, usa-se const T&, que também permite ligar a temporários e estender sua vida dentro da função.
+
+Exemplo:
+
+#+begin_src cpp
+void incrementa(T& x) { /* modifica x */ }
+void imprime(const T& x) { /* só lê x */ }
+
+T v{};
+incrementa(v); // atua diretamente sobre v
+imprime(v);    // lê v sem copiar
+#+end_src
+
+É possível referenciar um ponteiro, isto é, criar uma “referência a ponteiro” (T*&). Esse padrão é muito útil quando você precisa que uma função altere qual objeto um ponteiro passa a apontar, sem usar T**.
+
+Tenha cuidado ao retornar referências: só retorne T& se você tem certeza de que o objeto referenciado continuará existindo após a chamada. Não retorne referência a variáveis locais, pois elas morrem ao sair da função, levando a comportamento indefinido.
+
+** T&& — referência rvalue para T
+
+Uma referência T&& liga-se a valores temporários (rvalues) e a objetos que estão “expirando”, possibilitando move semantics: em vez de copiar recursos, você pode “movê-los” de um temporário para o destino com custo menor. Um detalhe importante é que, após receber um parâmetro T&& com nome, esse nome passa a ser um lvalue nas expressões; por isso, é preciso usar std::move para manifestar a intenção de mover a partir dele.
+
+Exemplo básico de “função sumidouro” (sink):
+
+#+begin_src cpp
+struct S {
+    T value;
+
+    void set_value(T&& v) {        // aceita rvalues
+        value = std::move(v);      // move de v para value
+    }
+};
+#+end_src
+
+Em templates, quando um parâmetro tem tipo U&& e U é deduzido, esse && vira uma “forwarding reference” (também chamada “universal reference”). Isso permite encaminhar o valor com sua categoria original (lvalue ou rvalue) usando std::forward, preservando a intenção do chamador.
+
+Exemplo de perfect forwarding:
+
+#+begin_src cpp
+template <class F, class... Args>
+auto call(F&& f, Args&&... args)
+    -> decltype(std::forward<F>(f)(std::forward<Args>(args)...))
+{
+    return std::forward<F>(f)(std::forward<Args>(args)...);
+}
+#+end_src
+
+Evite armazenar T&& como membro de classe; prefira armazenar por valor, por ponteiro estável ou por referência comum (T&) com gerenciamento de vida claro. Na maioria dos retornos de função modernos, retornar por valor é simples e eficiente; o compilador aplicará otimizações e movimentos conforme necessário.
+
+** T&* — inválido, e o que fazer no lugar
+
+“Ponteiro para referência” não existe em C++. Referências não são objetos independentes e não podem ser endereçadas como tal. Se a intenção é “uma referência a um ponteiro” — isto é, você quer operar sobre o próprio ponteiro do chamador — use T*&. Isso permite, por exemplo, reseatar um ponteiro dentro de uma função sem recorrer a T**.
+
+Exemplo:
+
+#+begin_src cpp
+void abre_ou_nulo(T*& ptr) {
+    // se falhar:
+    ptr = nullptr;
+}
+#+end_src
+
+** Operadores em expressões e leitura de declarações
+
+Em expressões, \*p desreferencia um ponteiro para acessar o objeto e &x produz o endereço de x. Em declarações, T*, T& e T&& formam novos tipos. Para ler tipos compostos, comece do identificador e expanda para fora, respeitando parênteses. Por exemplo, T* const* p diz que “p é um ponteiro para ponteiro constante para T”; o const mais próximo do * torna aquele nível constante.
+
+** Como escolher, na prática
+
+Quando o objetivo é apenas ler um argumento potencialmente caro de copiar, const T& oferece eficiência sem abrir mão da segurança. Para modificar o objeto do chamador diretamente, T& comunica bem essa intenção. Se a função pretende “consumir” um argumento temporário, T&& combinado com std::move evita cópias desnecessárias. Se você precisa de opcionalidade leve ou de um identificador que possa passar a apontar para outra coisa ao longo do tempo, um T* é apropriado, desde que você garanta sua validade e lide com nullptr. Quando a função precisa modificar o próprio ponteiro do chamador (e não apenas o objeto apontado), prefira T*& em vez de T**, a menos que uma interface C exija o contrário.
+
+Para posse de recursos, evite “raw pointers” que fazem new/delete diretamente. Em C++ moderno, a regra prática é: posse exclusiva com std::unique_ptr<T>, posse compartilhada com std::shared_ptr<T>, e ponteiros crus apenas como observadores temporários.
+
+** Glossário
+
+  - Alias: outro nome para o mesmo objeto; referência (T&) é um alias obrigatório.
+  - API em estilo C: interface de função tradicional em C (não C++), frequentemente usando ponteiros, arrays e parâmetros de saída via ponteiros.
+  - Aritmética de ponteiros: operações como p + n para navegar em arrays contíguos na memória.
+  - Categoria de valor (lvalue/rvalue/xvalue): classificação de uma expressão quanto à sua “localidade” e possibilidade de mover; lvalue tem identidade e endereço estável, rvalue é tipicamente temporário, xvalue é um lvalue “expirando”.
+  - Comportamento indefinido: situações em que o padrão C++ não define o resultado (por exemplo, desreferenciar ponteiro pendente); pode causar falhas imprevisíveis.
+  - Const-correctness: prática de marcar o que é somente leitura com const para refletir e impor intenções corretas de imutabilidade.
+  - Desreferenciar: usar *p para acessar o objeto apontado por um ponteiro.
+  - Forwarding reference (universal reference): parâmetro de template na forma U&& com dedução, capaz de ligar a lvalues e rvalues e ser encaminhado com std::forward.
+  - Lvalue: expressão que se refere a um objeto com identidade persistente (pode tirar endereço com &).
+  - Move semantics: estratégia de transferir recursos de um objeto para outro sem cópia profunda, geralmente usando T&& e std::move.
+  - Nulabilidade: capacidade de um ponteiro ser “nulo” (nullptr), indicando ausência de alvo.
+  - Out-parameter (parâmetro de saída): parâmetro passado para que a função escreva um resultado de volta (muitas vezes via ponteiro ou referência).
+  - Perfect forwarding: técnica para encaminhar argumentos preservando sua categoria (lvalue/rvalue) e qualificação de const, usando std::forward.
+  - Ponteiro pendente (dangling pointer): ponteiro que ficou apontando para memória que já não é mais válida.
+  - Reseat: alterar para onde um ponteiro aponta (atribuir novo endereço a um T*).
+  - Smart pointer: wrappers da biblioteca padrão para posse de objetos dinâmicos (std::unique_ptr, std::shared_ptr).
+  - Temporário (rvalue típico): objeto sem nome criado durante uma expressão e que vive até o fim da expressão ou escopo estendido por const T&.
+  - xvalue: “expiring value”, categoria intermediária usada em contextos de movimentação (por exemplo, resultado de std::move(obj)).
+  - NRVO (Named Return Value Optimization): otimização do compilador que elimina cópia ao retornar um objeto por valor.

@@ -177,19 +177,23 @@ Ao longo de mais de cem capítulos, cada seção é organizada em torno de temas
 [[./novos_capitulos/capitulo_15.org][15. Filosofia da complexidade em C++]]
 
 /Leituras complementares/:
+
 *Livros:*
-Bjarne Stroustrup — The Design and Evolution of C++
-Scott Meyers — Effective Modern C++
-Anthony Williams — Professional C++
+
+  - Bjarne Stroustrup — The Design and Evolution of C++
+  - Scott Meyers — Effective Modern C++
+  - Anthony Williams — Professional C++
 
 *Artigos e papers:*
-ISO C++ Committee papers (WG21) sobre evolução da linguagem.
-Herb Sutter — Trip Reports from WG21 Meetings (publicados regularmente).
-Journal of Object Technology: artigos sobre RAII e exception safety.
+
+  - ISO C++ Committee papers (WG21) sobre evolução da linguagem.
+  - Herb Sutter — Trip Reports from WG21 Meetings (publicados regularmente).
+  - Journal of Object Technology: artigos sobre RAII e exception safety.
 
 *Revistas e conferências:*
-ACM SIGPLAN Notices (papers sobre semântica e linguagem).
-CppCon (talks sobre RAII, move semantics, constexpr).
+
+  - ACM SIGPLAN Notices (papers sobre semântica e linguagem).
+  - CppCon (talks sobre RAII, move semantics, constexpr).
 
 
 
@@ -202,8 +206,11 @@ CppCon (talks sobre RAII, move semantics, constexpr).
 [[./novos_capitulos/capitulo_16.org][16. Templates como alicerce de arquitetura]]
 
 [[./novos_capitulos/capitulo_17.org][17. Dedução de tipos: o compilador como aliado]]
-[./novos_capitulos/capitulo_18.org]18. SFINAE — erros que viram design
-[./novos_capitulos/capitulo_19.org]19. Concepts: um novo contrato para C++
+
+[[./novos_capitulos/capitulo_18.org][18. SFINAE — erros que viram design]]
+
+[[./novos_capitulos/capitulo_19.org][19. Concepts: um novo contrato para C++]]
+
 [./novos_capitulos/capitulo_20.org]20. Constraints expressivas
 [./novos_capitulos/capitulo_21.org]21. Tipos dependentes e contexto de compilação
 [./novos_capitulos/capitulo_22.org]22. Especialização de templates: arte e armadilhas
@@ -216,20 +223,24 @@ CppCon (talks sobre RAII, move semantics, constexpr).
 [./novos_capitulos/capitulo_29.org]29. Bibliotecas genéricas: elegância vs. usabilidade
 [./novos_capitulos/capitulo_30.org]30. Templates como linguagem própria
 
-/Leituras complementares/: 
+/Leituras complementares/:
+
 *Livros:*
-David Vandevoorde, Nicolai Josuttis, Douglas Gregor — C++ Templates: The Complete Guide
-Andrei Alexandrescu — Modern C++ Design
-Matthew Austern — Generic Programming and the STL
+
+  - David Vandevoorde, Nicolai Josuttis, Douglas Gregor — C++ Templates: The Complete Guide
+  - Andrei Alexandrescu — Modern C++ Design
+  - Matthew Austern — Generic Programming and the STL
 
 *Artigos e papers*:
-Stepanov & Musser — Generic Programming (artigo seminal, 1989).
-Research papers sobre concepts em ACM Transactions on Programming Languages and Systems (TOPLAS).
-Eric Niebler — artigos sobre Ranges e design genérico.
+
+  - Stepanov & Musser — Generic Programming (artigo seminal, 1989).
+  - Research papers sobre concepts em ACM Transactions on Programming Languages and Systems (TOPLAS).
+  - Eric Niebler — artigos sobre Ranges e design genérico.
 
 *Revistas e conferências*:
-Dr. Dobb’s Journal (arquivo de artigos clássicos de templates).
-CppNow (palestras sobre concepts, SFINAE e CRTP).
+
+  - Dr. Dobb’s Journal (arquivo de artigos clássicos de templates).
+  - CppNow (palestras sobre concepts, SFINAE e CRTP).
 
 
 ** Parte III — Metaprogramação e Compile-Time Magic
