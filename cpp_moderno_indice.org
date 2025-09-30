@@ -124,7 +124,7 @@
 
 [[./antigos/capitulo_51.org][Capítulo 51: Testes Expressivos com Catch2 — A Filosofia e a Prática]]
 
-vi[[./antigos/capitulo_52.org][Capítulo 52: Forjando Ferramentas — Construindo um Micro-Framework de Testes]]
+[[./antigos/capitulo_52.org][Capítulo 52: Forjando Ferramentas — Construindo um Micro-Framework de Testes]]
 
 [[./antigos/capitulo_53.org][Capítulo 53: Forjando Ferramentas — A Arte da Asserção]]
 
@@ -211,9 +211,11 @@ Ao longo de mais de cem capítulos, cada seção é organizada em torno de temas
 
 [[./novos_capitulos/capitulo_19.org][19. Concepts: um novo contrato para C++]]
 
-[./novos_capitulos/capitulo_20.org]20. Constraints expressivas
-[./novos_capitulos/capitulo_21.org]21. Tipos dependentes e contexto de compilação
-[./novos_capitulos/capitulo_22.org]22. Especialização de templates: arte e armadilhas
+[[./novos_capitulos/capitulo_20.org][20. Constraints expressivas]]
+
+[[./novos_capitulos/capitulo_21.org][21. Tipos dependentes e contexto de compilação]]
+
+[[./novos_capitulos/capitulo_22.org][22. Especialização de templates: arte e armadilhas]]
 [./novos_capitulos/capitulo_23.org]23. Polimorfismo estático com CRTP
 [./novos_capitulos/capitulo_24.org]24. Variadic templates e abstrações poderosas
 [./novos_capitulos/capitulo_25.org]25. Templates recursivos: design em cascata
@@ -227,7 +229,7 @@ Ao longo de mais de cem capítulos, cada seção é organizada em torno de temas
 
 *Livros:*
 
-  - David Vandevoorde, Nicolai Josuttis, Douglas Gregor — C++ Templates: The Complete Guide
+  - [[./arquivos/C++ Templates_ The Complete Guide.pdf][David Vandevoorde, Nicolai Josuttis, Douglas Gregor — C++ Templates: The Complete Guide]]
   - Andrei Alexandrescu — Modern C++ Design
   - Matthew Austern — Generic Programming and the STL
 

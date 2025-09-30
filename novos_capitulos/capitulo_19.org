@@ -105,3 +105,7 @@ Isso estabelece fronteiras claras em sistemas genéricos, análogas às interfac
 ** Conclusão:
 
 Os concepts elevam a programação com templates de uma arte de especialistas, dependente de idiomas complexos como SFINAE, para uma disciplina de engenharia robusta. Eles nos permitem construir contratos explícitos, claros e verificáveis pelo compilador para o nosso código genérico. Ao fazer isso, eles não apenas melhoram drasticamente as mensagens de erro, mas também nos forçam a pensar mais profundamente sobre os requisitos reais de nossos algoritmos e estruturas de dados, levando a um design de software mais limpo, seguro e expressivo. Eles são, de fato, o novo contrato para o C++ genérico.
+
+*Leitruas Complementares*:
+
+*** TODO Estudo sobre criação de biblitoecas.

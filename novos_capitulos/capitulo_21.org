@@ -1,0 +1,96 @@
+* Capítulo 21: Tipos dependentes e contexto de compilação
+
+A compilação de templates em C++ não é um processo monolítico. O compilador opera em (pelo menos) duas fases distintas, um modelo conhecido como two-phase name lookup (resolução de nomes em duas fases). Este modelo é a chave para entender uma classe de erros de compilação que frequentemente confunde os programadores e para dominar o uso de nomes que dependem de parâmetros de template. O contexto do que o compilador sabe sobre o seu código muda drasticamente entre essas duas fases.
+
+Na Fase 1, que ocorre quando o template é definido, o compilador analisa o código do template sem conhecer os tipos concretos que serão usados para seus parâmetros. Nesta fase, ele pode verificar a sintaxe geral e resolver nomes que não dependem de um parâmetro de template (nomes não-dependentes).
+
+Na Fase 2, que ocorre quando o template é instanciado com tipos concretos (e.g., MeuTemplate<int>), o compilador substitui os parâmetros de template e realiza uma segunda passagem de análise. Apenas nesta fase ele pode verificar a validade de nomes que dependem de um parâmetro de template (nomes dependentes).
+
+Essa separação é a fonte de uma ambiguidade fundamental que precisamos resolver explicitamente.
+
+** Nomes Dependentes e a Necessidade de typename
+
+Um nome dependente é um identificador cujo tipo ou valor não pode ser conhecido até que os parâmetros do template sejam especificados. O exemplo mais clássico é um tipo aninhado dentro de um parâmetro de template.
+
+Considere a expressão T::value_type. Quando o compilador a encontra na Fase 1, ele não tem como saber o que value_type significa. T é apenas um placeholder. T::value_type poderia ser:
+  - Um tipo aninhado (como em std::vector<int>::value_type).
+  - Um membro de dados estático.
+  - Um enumerador.
+
+Por padrão, para resolver essa ambiguidade, o C++ assume que um nome dependente que acessa um membro com :: não é um tipo. Se quisermos informar ao compilador que ele deve tratar o nome como um tipo, precisamos usar a palavra-chave typename.
+
+#+begin_src cpp
+#include <vector>
+#include <iostream>
+
+template<typename Container>
+void imprimir_primeiro_elemento(const Container& c) {
+    // ERRO DE COMPILAÇÃO SEM 'typename'.
+    // O compilador não sabe que Container::value_type é um tipo.
+    // Ele assume que é um valor, e a declaração de 'primeiro' se torna inválida.
+    typename Container::value_type primeiro = c.front();
+    
+    std::cout << "Primeiro elemento: " << primeiro << "\n";
+}
+
+int main() {
+    std::vector<int> v = {10, 20, 30};
+    imprimir_primeiro_elemento(v);
+    return 0;
+}
+#+end_src
+
+A palavra-chave typename é uma promessa que fazemos ao compilador: "Confie em mim, quando este template for instanciado, este nome dependente será um tipo". Sem essa promessa, o código é considerado malformado na Fase 1.
+
+** Templates Dependentes e a Necessidade de template
+
+Uma ambiguidade semelhante surge quando um nome dependente é, ele mesmo, um template. Considere a expressão obj.metodo<int>().
+
+Se o tipo de obj não for dependente, o compilador sabe que metodo é um template e interpreta o < como o início de uma lista de argumentos de template. No entanto, se o tipo de obj for dependente de um parâmetro de template T, o compilador na Fase 1 enfrenta um problema.
+
+A expressão p->metodo<T>() é ambígua. O compilador não sabe se metodo é um template. A expressão poderia ser interpretada como (p->metodo < T) > (), ou seja, uma comparação de p->metodo com T.
+
+Para resolver essa ambiguidade, usamos a palavra-chave template para informar ao compilador que o nome que se segue é, de fato, um template.
+
+#+begin_src cpp
+#include <iostream>
+
+template<int N>
+struct Exemplo {
+    template<int M>
+    int obter_valor() const {
+        return N + M;
+    }
+};
+
+template<typename T>
+void chamar_obter_valor(const T& obj) {
+    // ERRO DE COMPILAÇÃO SEM 'template'.
+    // O compilador analisaria 'obj.obter_valor<10>' como uma comparação.
+    int valor = obj.template obter_valor<10>();
+    
+    std::cout << "Valor obtido: " << valor << "\n";
+}
+
+int main() {
+    Exemplo<5> e;
+    chamar_obter_valor(e); // Instancia chamar_obter_valor com T = Exemplo<5>
+    return 0;
+}
+#+end_src
+
+A palavra-chave template é outra promessa ao compilador: "Confie em mim, este nome dependente é um template, então interprete o < que se segue como o início de seus argumentos".
+
+** O Contexto de Compilação e o Design de Templates
+
+Compreender o modelo de duas fases e os nomes dependentes muda a forma como projetamos com templates.
+
+  - *Minimizar Dependências na Interface*: Interfaces de templates devem, sempre que possível, evitar expor nomes dependentes complexos. Quanto mais a lógica puder ser expressa em termos não-dependentes, mais fácil será para o compilador e para o programador raciocinar sobre o código.
+
+  - */if constexpr/ e o Contexto da Fase 2*: A condição de um if constexpr é avaliada durante a Fase 2, quando os tipos são conhecidos. Isso permite que o código dependa de propriedades de tipos que só podem ser conhecidas na instanciação, descartando ramos de código que seriam malformados para um determinado tipo.
+
+  - *Concepts como Verificação na Fase 1*: Os Concepts agem como uma barreira na Fase 1. Eles verificam se os requisitos são satisfeitos antes mesmo de a instanciação (Fase 2) começar, fornecendo erros antecipados e claros e garantindo que qualquer tipo que passe pela barreira não causará falhas de substituição relacionadas àquele concept na Fase 2.
+
+** Conclusão:
+
+O contexto de compilação em C++ não é estático. O conhecimento do compilador sobre o código de um template evolui da definição para a instanciação. Os nomes dependentes criam ambiguidades que devem ser resolvidas com as palavras-chave typename e template. Longe de serem ruído sintático, essas palavras-chave são ferramentas de precisão, permitindo-nos comunicar nossa intenção ao compilador e navegar com segurança pelo processo de compilação em duas fases. Dominá-las é um passo crucial para escrever código genérico robusto e complexo.

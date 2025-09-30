@@ -1,0 +1,150 @@
+* Capítulo 20: Constraints expressivas
+
+A introdução dos Concepts no C++20 nos deu a capacidade de nomear e aplicar requisitos a templates. No entanto, o verdadeiro poder desta funcionalidade não reside apenas em usar os concepts pré-definidos pela biblioteca padrão, como std::integral ou std::movable, mas em nossa capacidade de definir constraints expressivas que capturem a semântica exata de nossos próprios componentes de software.
+
+Uma constraint é a aplicação de um requisito a um template. A expressividade de uma constraint é a medida de quão precisamente ela descreve as operações e propriedades que um tipo deve ter para ser usado com um determinado template. Uma constraint bem escrita serve a múltiplos propósitos: valida o uso, melhora as mensagens de erro, guia a resolução de sobrecarga e, o mais importante, documenta a intenção do design.
+
+** A Anatomia de uma Cláusula requires
+
+A palavra-chave requires é o coração da definição de concepts. Ela pode ser usada de duas formas: como uma cláusula requires para introduzir um conjunto de constraints, ou como uma expressão requires para definir os requisitos em si. É dentro da expressão requires que a expressividade ganha vida.
+
+Uma expressão requires pode conter quatro tipos de requisitos:
+
+  1. *Requisitos Simples*: Apenas verifica se uma expressão é bem-formada.
+
+#+begin_src cpp
+template<typename T>
+concept Incrementable = requires(T x) {
+    x++; // A expressão x++ deve ser válida.
+};
+#+end_src
+
+  2. *Requisitos de Tipo*: Verifica se um nome de tipo é válido. É útil para garantir que um tipo possui tipos aninhados específicos, uma característica comum em type traits e contêineres.
+
+#+begin_src cpp
+template<typename T>
+concept HasValueType = requires {
+    typename T::value_type; // T deve ter um tipo aninhado chamado value_type.
+};
+#+end_src
+
+  3. *Requisitos Compostos*: Combina a verificação de uma expressão com uma constraint sobre o resultado dessa expressão. Usa a sintaxe { expression } -> Concept;.
+
+#+begin_src cpp
+#include <concepts>
+
+template<typename T>
+concept SignedIntegral = std::integral<T> && requires(T x) {
+    { x } -> std::signed_integral; // O próprio tipo T deve satisfazer std::signed_integral.
+};
+#+end_src
+
+Este exemplo mostra a composição: SignedIntegral requer que T seja integral e que também seja um integral com sinal.
+
+  4. *Requisitos /noexcept/*: Verifica se uma expressão é garantida como noexcept. Isso é crucial para escrever código genérico com garantias fortes de exceção.
+
+#+begin_src cpp
+template<typename T>
+concept Swappable = requires(T a, T b) {
+    // A operação de troca não deve lançar exceções.
+    { std::swap(a, b) } noexcept;
+};
+#+end_src
+
+** Combinando Requisitos para Expressar Semântica
+
+A verdadeira expressividade emerge quando combinamos esses blocos de construção para descrever não apenas a sintaxe, mas a semântica de uma interface. Vamos definir um concept para um Serializable. Um objeto é serializável se puder ser escrito e lido de um fluxo de bytes.
+
+#+begin_src cpp
+#include <concepts>
+#include <ostream>
+#include <istream>
+
+// Um 'Archive' é algo que se comporta como um fluxo de entrada/saída.
+// (Simplificação para o exemplo)
+template<typename T>
+concept Archive = std::derived_from<T, std::ostream> && std::derived_from<T, std::istream>;
+
+// Um tipo 'T' é 'Serializable' se ele pode ser salvo e carregado de um 'Archive'.
+template<typename T, typename A>
+concept Serializable = requires(T obj, A archive) {
+    // 1. Requisito de Tipo: O Archive deve ser válido.
+    requires Archive<A>;
+
+    // 2. Requisitos Compostos: As operações devem ser válidas e retornar
+    //    referências ao archive, permitindo encadeamento (chaining).
+    { archive << obj } -> std::same_as<A&>;
+    { archive >> obj } -> std::same_as<A&>;
+};
+
+// Uma função genérica que usa o concept.
+template<typename T, typename A>
+requires Serializable<T, A>
+void salvar_e_carregar(T& obj, A& archive) {
+    std::cout << "Salvando objeto...\n";
+    archive << obj;
+    
+    std::cout << "Carregando objeto...\n";
+    archive >> obj;
+}
+#+end_src
+
+Este concept Serializable é muito mais expressivo do que um simples comentário. Ele garante em tempo de compilação que:
+  - O tipo A é de fato um fluxo de E/S.
+  - Existem operadores << e >> definidos para os tipos T e A.
+  - Esses operadores retornam o tipo correto para permitir operações encadeadas, como archive << obj1 << obj2;.
+
+** Constraints e Resolução de Sobrecarga
+
+Um dos benefícios mais poderosos das constraints é sua capacidade de guiar a resolução de sobrecarga. O compilador sempre preferirá a função cujo conjunto de constraints é mais específico (ou um subconjunto) do que o de outra função.
+
+Isso nos permite refinar o comportamento de algoritmos genéricos de uma forma que era extremamente verbosa com SFINAE.
+
+#+begin_src cpp
+#include <iostream>
+#include <vector>
+#include <list>
+#include <iterator>
+
+// Concepts para categorias de iteradores (simplificados)
+template<typename I> concept BidirectionalIterator = 
+    requires { typename std::iterator_traits<I>::iterator_category; } &&
+    std::is_base_of_v<std::bidirectional_iterator_tag, typename std::iterator_traits<I>::iterator_category>;
+
+template<typename I> concept RandomAccessIterator = 
+    requires { typename std::iterator_traits<I>::iterator_category; } &&
+    std::is_base_of_v<std::random_access_iterator_tag, typename std::iterator_traits<I>::iterator_category>;
+
+// Implementação genérica (menos específica)
+template<BidirectionalIterator It>
+void meu_advance(It& it, int n) {
+    std::cout << "Usando advance bidirecional (lento).\n";
+    if (n > 0) { while (n-- > 0) ++it; }
+}
+
+// Sobrecarga (mais específica) para iteradores de acesso aleatório
+template<RandomAccessIterator It>
+void meu_advance(It& it, int n) {
+    std::cout << "Usando advance de acesso aleatório (rápido).\n";
+    it += n;
+}
+
+int main() {
+    std::list<int> l = {1, 2, 3};
+    auto l_it = l.begin();
+    meu_advance(l_it, 2); // Chama a versão BidirectionalIterator
+
+    std::vector<int> v = {1, 2, 3};
+    auto v_it = v.begin();
+    meu_advance(v_it, 2); // Chama a versão RandomAccessIterator
+    
+    return 0;
+}
+#+end_src
+
+Como RandomAccessIterator é uma categoria mais específica que BidirectionalIterator, o compilador seleciona automaticamente a sobrecarga otimizada para o iterador de std::vector, sem ambiguidade.
+
+** Conclusão:
+
+Escrever constraints expressivas é a arte de traduzir a intenção do design em código que o compilador pode entender e verificar. Ao ir além dos requisitos sintáticos simples e capturar a semântica das operações, criamos componentes genéricos que não são apenas reutilizáveis, mas também seguros, auto-documentados e capazes de se adaptar de forma inteligente aos tipos com os quais operam. É o ponto onde a programação genérica se torna verdadeiramente uma disciplina de engenharia de software.
+
