@@ -1,0 +1,110 @@
+* Capítulo 23: Polimorfismo estático com CRTP
+
+Polimorfismo — a capacidade de uma interface se comportar de maneiras diferentes para diferentes tipos — é um pilar do design de software. Em C++, a forma mais conhecida é o polimorfismo dinâmico, habilitado por funções virtuais. Ele oferece grande flexibilidade em tempo de execução, mas vem com um custo: a indireção de uma v-table para cada chamada de função virtual, que pode impedir otimizações como o inlining e introduzir uma pequena, mas por vezes significativa, sobrecarga de performance.
+
+Existe, no entanto, uma outra forma de polimorfismo, resolvida inteiramente em tempo de compilação: o polimorfismo estático. A principal técnica para alcançá-lo em C++ é um idioma de design com um nome peculiar: o Curiously Recurring Template Pattern (CRTP). O CRTP nos permite obter muitos dos benefícios de reutilização de código de uma hierarquia de herança, mas sem qualquer custo em tempo de execução.
+
+23.1 A Estrutura Curiosamente Recorrente
+O padrão recebe seu nome de sua estrutura única: uma classe base é um template que recebe a própria classe derivada como um de seus parâmetros de template.
+
+cpp
+Copy
+// A estrutura do CRTP
+template <typename Derivada>
+class Base {
+    // ...
+};
+
+class MinhaClasseDerivada : public Base<MinhaClasseDerivada> {
+    // ...
+};
+À primeira vista, isso parece circular e confuso. No entanto, é perfeitamente válido. A definição do template Base não requer que seu parâmetro Derivada seja um tipo completo. Apenas quando os métodos de Base são instanciados (o que acontece após a definição completa de MinhaClasseDerivada) é que o tipo Derivada precisa ser completo.
+
+23.2 O Mecanismo Central: Acesso à Classe Derivada
+A "mágica" do CRTP reside na capacidade da classe base de, com segurança, converter seu próprio ponteiro this para um ponteiro para a classe derivada. Como a classe base Base<MinhaClasseDerivada> só será instanciada como parte de um objeto MinhaClasseDerivada, seu this sempre apontará para uma instância da classe derivada. Isso permite que a base chame métodos da derivada usando um static_cast.
+
+cpp
+Copy
+template <typename Derivada>
+class Base {
+public:
+    void interfacePublica() {
+        // ... código comum antes ...
+
+        // Despacha para a implementação específica da derivada.
+        static_cast<Derivada*>(this)->implementacao();
+
+        // ... código comum depois ...
+    }
+};
+
+class DerivadaConcreta : public Base<DerivadaConcreta> {
+public:
+    void implementacao() {
+        std::cout << "Executando a implementação específica da derivada.\n";
+    }
+};
+Quando interfacePublica é chamada em um objeto DerivadaConcreta, a chamada para implementacao é resolvida em tempo de compilação. Não há v-table. O compilador sabe exatamente qual função chamar e pode até mesmo embuti-la (inline), eliminando completamente a sobrecarga da chamada de função.
+
+23.3 Exemplo Prático: Reutilização de Código com Mixins
+O CRTP é ideal para criar "mixins" — classes que injetam funcionalidades em uma classe derivada. Um exemplo clássico é fornecer operadores de comparação. Se uma classe implementa operator== e operator<, todos os outros operadores relacionais (!=, >, <=, >=) podem ser implementados em termos desses dois.
+
+cpp
+Copy
+#include <iostream>
+
+template <typename T>
+class ComparisonOperators {
+public:
+    // Implementado em termos do operator== da derivada
+    bool operator!=(const T& outro) const {
+        const T& self = static_cast<const T&>(*this);
+        return !(self == outro);
+    }
+    // E assim por diante para >, <=, >= em termos de <
+};
+
+class Pessoa : public ComparisonOperators<Pessoa> {
+public:
+    Pessoa(std::string nome, int idade) : nome_(nome), idade_(idade) {}
+
+    // A derivada precisa fornecer a implementação base.
+    bool operator==(const Pessoa& outro) const {
+        return idade_ == outro.idade_;
+    }
+    bool operator<(const Pessoa& outro) const {
+        return idade_ < outro.idade_;
+    }
+
+private:
+    std::string nome_;
+    int idade_;
+};
+
+int main() {
+    Pessoa p1("Ana", 30);
+    Pessoa p2("Beto", 40);
+    Pessoa p3("Carlos", 30);
+
+    // operator== e operator< foram implementados em Pessoa.
+    std::cout << std::boolalpha;
+    std::cout << "p1 == p3: " << (p1 == p3) << "\n"; // true
+
+    // operator!= foi "injetado" pela classe base CRTP.
+    std::cout << "p1 != p2: " << (p1 != p2) << "\n"; // true
+    
+    return 0;
+}
+A classe ComparisonOperators fornece funcionalidade genérica sem conhecer nenhum detalhe sobre Pessoa, exceto que ela cumprirá o contrato de fornecer operator== e operator<.
+
+23.4 Vantagens e Limitações
+Vantagens:
+
+Performance: Zero sobrecarga em tempo de execução. As chamadas são resolvidas estaticamente e podem ser embutidas.
+Reutilização de Código: Permite que a lógica comum seja fatorada em uma classe base, assim como na herança tradicional.
+Verificação Estática: O contrato entre a base e a derivada (os métodos que a derivada deve implementar) é verificado em tempo de compilação.
+Limitações:
+
+Não há Base Comum: Diferentes classes que herdam da base CRTP (e.g., Derivada1 : Base<Derivada1> e Derivada2 : Base<Derivada2>) não compartilham um tipo base comum. Você não pode armazená-las em um std::vector<Base*> como faria com polimorfismo dinâmico. O CRTP é para reutilizar a implementação, não para agrupar tipos heterogêneos.
+Conclusão:
+O CRTP é um dos idiomas mais elegantes do C++. Ele encapsula perfeitamente a filosofia de abstração de custo zero da linguagem. Ao inverter a direção da dependência — fazendo a base depender da derivada através de um parâmetro de template — ele nos permite construir hierarquias de classes que são resolvidas inteiramente em tempo de compilação. É a ferramenta ideal para quando a performance é crítica e o polimorfismo necessário pode ser determinado estaticamente, oferecendo uma alternativa poderosa e eficiente à herança virtual tradicional.

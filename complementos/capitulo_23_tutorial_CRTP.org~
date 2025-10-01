@@ -1,0 +1,614 @@
+* Tutorial prático e completo de C++ CRTP (Curiously Recurring Template Pattern) para humanos
+
+Este é um guia narrativo, em linguagem simples, sobre o padrão CRTP em C++. A meta é você sair entendendo o que é, quando usar, como implementar com segurança e como combiná-lo com ferramentas modernas (if constexpr, concepts, detecção de membros), além de muitos exemplos compiláveis de usos práticos: polimorfismo estático, mixins, operadores via Barton–Nackman, expression templates, EBO, designs com policies e mais.
+
+O foco é explicar passo a passo, reduzindo jargões e evitando listas longas, privilegiando a fluidez do texto e exemplos reais. Cada bloco de código é independente, e você pode compilar isoladamente. Comentários indicam variações C++17/C++20 quando relevante.
+
+1) O que é CRTP e por que usar
+CRTP significa Curiously Recurring Template Pattern. A forma básica é ter uma classe base template que recebe a classe derivada como parâmetro de template. Assim, a base “conhece” o tipo derivado em tempo de compilação e pode chamá-lo diretamente via static_cast. Isso elimina custo de dispatch virtual e permite polimorfismo estático: a ligação da chamada ocorre em compile-time, viabilizando inline e otimizações agressivas do compilador.
+
+Forma canônica:
+
+cpp
+Copy
+// arquivo: crtp_ex1.cpp
+#include <iostream>
+using namespace std;
+
+template <typename Derived>
+struct Base {
+    void interface() {
+        // Chama implementação específica do derivado em tempo de compilação
+        static_cast<Derived*>(this)->impl();
+    }
+    // Opcionalmente, uma implementação default
+    void impl() { cout << "Base::impl default\n"; }
+};
+
+struct Derivada : Base<Derivada> {
+    void impl() { cout << "Derivada::impl\n"; }
+};
+
+int main() {
+    Derivada d;
+    d.interface(); // chama Derivada::impl sem custo de virtual
+}
+A “mágica” está no static_cast<Derived*>(this). Como Base conhece Derived, o compilador resolve a chamada para o método do derivado sem vtable. Isso é seguro se você sempre herdar Base na própria Derivada (contrato do CRTP).
+
+2) CRTP vs polimorfismo dinâmico (virtual)
+Quando você usa polimorfismo dinâmico (virtual), chama-se via ponteiros ou referências para uma classe base, e o método virtual é resolvido em runtime via vtable. Isso dá flexibilidade e substituição tardia, mas tem um custo de indireção, mais restrições para inline e, de modo geral, cria uma “barreira” de otimização.
+
+No CRTP (polimorfismo estático), a resolução é em compile-time, não há vtable e as chamadas podem ser inlined sem custo dinâmico. O trade-off é que você não consegue manipular facilmente coleções heterogêneas por um único ponteiro base comum; em vez disso, usa-se variações como std::variant, type erasure ou designs baseados em templates/concepts.
+
+Exemplo com virtual, para comparar mentalmente:
+
+cpp
+Copy
+// arquivo: crtp_ex2_virtual.cpp
+#include <iostream>
+using namespace std;
+
+struct Forma {
+    virtual ~Forma() = default;
+    virtual double area() const = 0;
+};
+
+struct Ret : Forma {
+    double w, h; Ret(double W,double H):w(W),h(H){}
+    double area() const override { return w*h; }
+};
+
+struct Circ : Forma {
+    double r; explicit Circ(double R):r(R){}
+    double area() const override { return 3.14159*r*r; }
+};
+
+int main(){
+    Forma* f1 = new Ret(3,4);
+    Forma* f2 = new Circ(2);
+    cout << f1->area() << "\n";
+    cout << f2->area() << "\n";
+    delete f1; delete f2;
+}
+Versão CRTP: sem virtual, foco em chamadas diretas, com performance e inlining:
+
+cpp
+Copy
+// arquivo: crtp_ex3_estatico.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct FormaCrtp {
+    double area() const { return static_cast<const D*>(this)->area_impl(); }
+};
+
+struct Ret : FormaCrtp<Ret> {
+    double w,h; Ret(double W,double H):w(W),h(H){}
+    double area_impl() const { return w*h; }
+};
+
+struct Circ : FormaCrtp<Circ> {
+    double r; explicit Circ(double R):r(R){}
+    double area_impl() const { return 3.14159*r*r; }
+};
+
+int main(){
+    Ret a(3,4); Circ b(2);
+    cout << a.area() << "\n";
+    cout << b.area() << "\n";
+}
+3) Contrato do CRTP, segurança e armadilhas comuns
+O contrato fundamental: a classe derivada X deve herdar Base. Se você herdar Base, o static_cast resultará em comportamento indefinido. Por isso, é comum reforçar com static_asserts e concepts para garantir que Derived realmente cumpre as expectativas.
+
+Exemplo didático com uma verificação (ilustrativa):
+
+cpp
+Copy
+// arquivo: crtp_ex4_contrato.cpp
+#include <type_traits>
+#include <iostream>
+using namespace std;
+
+template <typename Derived>
+struct Base {
+    // Checagem didática (não “à prova de tudo”, mas ilustra a intenção de garantir o contrato)
+    void interface(){ static_cast<Derived*>(this)->impl(); }
+};
+
+struct Errada {}; // não herda de Base<Errada>
+struct Certa : Base<Certa> { void impl(){ cout << "ok\n"; } };
+
+int main(){ Certa c; c.interface(); }
+Em C++20, fica melhor expressar o contrato com requires/concepts:
+
+cpp
+Copy
+// arquivo: crtp_ex5_requires.cpp (C++20)
+#include <concepts>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+concept TemImpl = requires(D d){ d.impl(); };
+
+template <TemImpl Derived>
+struct Base {
+    void interface(){ static_cast<Derived*>(this)->impl(); }
+};
+
+struct X : Base<X> {
+    void impl(){ cout << "X::impl\n"; }
+};
+
+int main(){ X x; x.interface(); }
+4) CRTP como mixin: adicionando comportamentos reutilizáveis
+CRTP é excelente para mixins: classes que injetam funcionalidades em derivadas sem custo de virtual. Um exemplo comum é um mixin de contagem de instâncias por tipo concreto.
+
+cpp
+Copy
+// arquivo: crtp_ex6_counting_mixin.cpp
+#include <iostream>
+using namespace std;
+
+template <typename Derived>
+struct ContadorInstancias {
+    inline static size_t vivos = 0; // um contador por Derived
+    ContadorInstancias(){ ++vivos; }
+    ContadorInstancias(const ContadorInstancias&){ ++vivos; }
+    ContadorInstancias(ContadorInstancias&&){ ++vivos; }
+    ~ContadorInstancias(){ --vivos; }
+    static size_t count(){ return vivos; }
+};
+
+struct A : ContadorInstancias<A> {};
+struct B : ContadorInstancias<B> {};
+
+int main(){
+    A a1; A a2; B b1;
+    cout << A::count() << " " << B::count() << "\n"; // tipicamente 2 1
+}
+Outro mixin útil: logging simples parametrizado pelo tipo.
+
+cpp
+Copy
+// arquivo: crtp_ex7_logging.cpp
+#include <iostream>
+#include <string>
+#include <typeinfo>
+using namespace std;
+
+template <typename Derived>
+struct Logavel {
+    void log(const string& msg) const {
+        cout << "[" << typeid(Derived).name() << "] " << msg << "\n";
+    }
+};
+
+struct Usuario : Logavel<Usuario> {
+    void salva(){ log("salvando usuario"); }
+};
+
+int main(){ Usuario u; u.salva(); }
+5) Operadores via CRTP (Barton–Nackman) e geração de boilerplate
+O truque de Barton–Nackman usa CRTP para definir operadores amigos em termos de funções implementadas no derivado, reduzindo boilerplate e mantendo simetria. Um exemplo com igualdade:
+
+cpp
+Copy
+// arquivo: crtp_ex8_barton_nackman_eq.cpp
+#include <iostream>
+using namespace std;
+
+template <typename Derived>
+struct Igualdade {
+    friend bool operator==(const Derived& a, const Derived& b){
+        return a.equal_to(b);
+    }
+    friend bool operator!=(const Derived& a, const Derived& b){
+        return !(a==b);
+    }
+};
+
+struct Ponto : Igualdade<Ponto> {
+    int x,y;
+    bool equal_to(const Ponto& o) const { return x==o.x && y==o.y; }
+};
+
+int main(){
+    Ponto a{1,2}, b{1,2}, c{2,3};
+    cout << boolalpha << (a==b) << " " << (a!=c) << "\n";
+}
+E um exemplo para ordem total com um único compare:
+
+cpp
+Copy
+// arquivo: crtp_ex9_barton_nackman_ord.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct Ordenacao {
+    friend bool operator<(const D& a, const D& b){ return a.compare(b) < 0; }
+    friend bool operator>(const D& a, const D& b){ return b < a; }
+    friend bool operator<=(const D& a, const D& b){ return !(b < a); }
+    friend bool operator>=(const D& a, const D& b){ return !(a < b); }
+};
+
+struct Versao : Ordenacao<Versao> {
+    int major, minor, patch;
+    int compare(const Versao& o) const {
+        if (major!=o.major) return (major<o.major)?-1:1;
+        if (minor!=o.minor) return (minor<o.minor)?-1:1;
+        if (patch!=o.patch) return (patch<o.patch)?-1:1;
+        return 0;
+    }
+};
+
+int main(){
+    Versao v1{1,2,0}, v2{1,3,0};
+    cout << boolalpha << (v1<v2) << " " << (v1>=v2) << "\n";
+}
+6) Method chaining fluente com CRTP (retornando Derived&)
+CRTP simplifica o padrão “builder” ou APIs fluidas em que métodos da base devem retornar Derived& para continuar a cadeia no tipo concreto.
+
+cpp
+Copy
+// arquivo: crtp_ex10_fluent.cpp
+#include <iostream>
+#include <string>
+using namespace std;
+
+template <typename D>
+struct BuilderBase {
+    D& self(){ return *static_cast<D*>(this); }
+
+    D& nome(const string& s){ static_cast<D*>(this)->nome_ = s; return self(); }
+    D& idade(int i){ static_cast<D*>(this)->idade_ = i; return self(); }
+};
+
+struct PessoaBuilder : BuilderBase<PessoaBuilder> {
+    string nome_{}; int idade_{};
+    PessoaBuilder& cidade(const string& c){ cidade_ = c; return *this; }
+    string cidade_{};
+    void imprime() const { cout << nome_ << ", " << idade_ << ", " << cidade_ << "\n"; }
+};
+
+int main(){
+    PessoaBuilder pb;
+    pb.nome("Ana").idade(30).cidade("Lisboa").imprime();
+}
+7) Policies com CRTP: compondo comportamentos
+Você pode compor políticas (comportamentos) como bases CRTP, criando classes concretas que herdam de múltiplos mixins.
+
+cpp
+Copy
+// arquivo: crtp_ex11_policies.cpp
+#include <iostream>
+#include <string>
+using namespace std;
+
+template <typename D>
+struct Printable {
+    void print() const { static_cast<const D*>(this)->print_impl(); }
+};
+
+template <typename D>
+struct JsonSerializable {
+    string to_json() const { return static_cast<const D*>(this)->json_impl(); }
+};
+
+struct User : Printable<User>, JsonSerializable<User> {
+    string name; int id;
+    void print_impl() const { cout << name << " (" << id << ")\n"; }
+    string json_impl() const { return string("{\"name\":\"") + name + "\",\"id\":" + to_string(id) + "}"; }
+};
+
+int main(){ User u{"Ana",7}; u.print(); cout << u.to_json() << "\n"; }
+8) Expression templates (visão geral) com CRTP
+Expression templates representam expressões como tipos temporários, permitindo avaliação preguiçosa e minimizando alocações temporárias. Um exemplo minimalista para vetores de double:
+
+cpp
+Copy
+// arquivo: crtp_ex12_expr_templates.cpp
+#include <iostream>
+#include <vector>
+using namespace std;
+
+template <typename E>
+struct VecExpr {
+    const E& self() const { return *static_cast<const E*>(this); }
+    size_t size() const { return self().size(); }
+    double operator[](size_t i) const { return self()[i]; }
+};
+
+struct Vec : VecExpr<Vec> {
+    vector<double> data;
+    explicit Vec(size_t n): data(n){}
+    size_t size() const { return data.size(); }
+    double operator[](size_t i) const { return data[i]; }
+    double& operator[](size_t i) { return data[i]; }
+};
+
+template <typename L, typename R>
+struct SumExpr : VecExpr<SumExpr<L,R>> {
+    const L& l; const R& r;
+    SumExpr(const L& a,const R& b):l(a),r(b){}
+    size_t size() const { return l.size(); }
+    double operator[](size_t i) const { return l[i] + r[i]; }
+};
+
+template <typename L, typename R>
+SumExpr<L,R> operator+(const VecExpr<L>& a, const VecExpr<R>& b){
+    return SumExpr<L,R>(a.self(), b.self());
+}
+
+int main(){
+    Vec x(3), y(3), z(3);
+    x[0]=1; x[1]=2; x[2]=3;
+    y[0]=4; y[1]=5; y[2]=6;
+    auto e = x + y + x; // expressão não avaliada ainda
+    for (size_t i=0;i<z.size();++i) z[i] = e[i];
+    for (size_t i=0;i<z.size();++i) cout << z[i] << ' ';
+    cout << '\n';
+}
+9) EBO (Empty Base Optimization) e CRTP
+Quando seus mixins são classes vazias, o compilador pode aplicar EBO: eles não aumentam o tamanho do objeto ao herdar. Isso é ótimo para acumular capacidades sem custo de memória.
+
+cpp
+Copy
+// arquivo: crtp_ex13_ebo.cpp
+#include <iostream>
+using namespace std;
+
+struct Vazia {};
+
+template <typename D>
+struct MixinVazio : Vazia {};
+
+struct X : MixinVazio<X> { int a; };
+
+int main(){
+    cout << sizeof(Vazia) << " " << sizeof(X) << "\n"; // normalmente 1 e 4/8 etc.
+}
+10) Garantindo a interface do derivado (detecção + static_assert)
+Você pode exigir que Derived forneça certos métodos. Antes de C++20, use detecção com decltype/void_t e static_assert; em C++20, use concepts.
+
+Exemplo em C++17 com void_t e declval:
+
+cpp
+Copy
+// arquivo: crtp_ex14_detection.cpp (C++17)
+#include <type_traits>
+#include <utility>
+#include <iostream>
+using namespace std;
+
+template <typename, typename=void>
+struct has_run : false_type {};
+
+template <typename T>
+struct has_run<T, decltype(void( decltype(declval<T&>().run()){} ))> : true_type {};
+
+template <typename D>
+struct Runner {
+    void start(){
+        static_assert(has_run<D>::value, "Derived precisa fornecer run()");
+        static_cast<D*>(this)->run();
+    }
+};
+
+struct Job : Runner<Job> { void run(){ cout << "rodando\n"; } };
+
+int main(){ Job j; j.start(); }
+E com C++20, mais direto:
+
+cpp
+Copy
+// arquivo: crtp_ex14b_detection_concepts.cpp (C++20)
+#include <concepts>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+concept HasRun = requires(D d){ d.run(); };
+
+template <HasRun D>
+struct Runner2 {
+    void start(){ static_cast<D*>(this)->run(); }
+};
+
+struct Job2 : Runner2<Job2> { void run(){ cout << "rodando\n"; } };
+
+int main(){ Job2 j; j.start(); }
+11) Template Method com CRTP (hooks antes/depois)
+CRTP facilita escrever um esqueleto de algoritmo na base, chamando ganchos (hooks) implementados pelo derivado. O padrão lembra “Template Method”, só que sem virtual.
+
+cpp
+Copy
+// arquivo: crtp_ex15_template_method.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct AlgoritmoBase {
+    void executar(){
+        static_cast<D*>(this)->pre();
+        passo1();
+        passo2();
+        static_cast<D*>(this)->pos();
+    }
+private:
+    void passo1(){ cout << "passo1\n"; }
+    void passo2(){ cout << "passo2\n"; }
+};
+
+struct MeuAlg : AlgoritmoBase<MeuAlg> {
+    void pre(){ cout << "pre\n"; }
+    void pos(){ cout << "pos\n"; }
+};
+
+int main(){ MeuAlg a; a.executar(); }
+12) Visitantes estáticos inspirados em CRTP
+Você pode simular um “visitante” estático onde cada tipo concreto oferece handle() e a base chama sem virtual.
+
+cpp
+Copy
+// arquivo: crtp_ex16_static_visitor.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct Visitavel {
+    void accept(){ static_cast<D*>(this)->handle(); }
+};
+
+struct A : Visitavel<A> { void handle(){ cout << "A\n"; } };
+struct B : Visitavel<B> { void handle(){ cout << "B\n"; } };
+
+int main(){ A a; B b; a.accept(); b.accept(); }
+13) Contagem de referência intrusiva com CRTP (didático)
+Um exemplo didático de reference counting intrusivo por tipo concreto. Em produção, prefira smart pointers prontos (shared_ptr, etc.); aqui é para ilustrar composição via CRTP.
+
+cpp
+Copy
+// arquivo: crtp_ex17_intrusive_rc.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct RC {
+    mutable int rc_ = 0;
+    void add_ref() const { ++rc_; }
+    void release() const { if(--rc_==0) delete static_cast<const D*>(this); }
+protected:
+    virtual ~RC() = default; // apenas para exemplo; não precisamos virtual de verdade
+};
+
+struct Recurso : RC<Recurso> {
+    void uso(){ cout << "recurso em uso\n"; }
+};
+
+int main(){
+    auto* r = new Recurso;
+    r->add_ref(); r->uso();
+    r->release(); // auto delete quando chegar a zero
+}
+14) Armadilhas, dicas e quando evitar CRTP
+CRTP não é um substituto universal para virtual. Se você precisa de heterogeneidade real em runtime, com um mesmo ponteiro base apontando para muitos tipos não relacionados, o virtual brilha. CRTP ajuda quando a hierarquia é conhecida e fechada em compile-time, e você quer desempenho e zero custo de despacho. Garanta que Derived realmente implementa o que a base espera; concepts (C++20) deixam os erros mais legíveis. Em heranças múltiplas com mixins, use this-> quando membros herdados são “nomes dependentes” e o compilador não resolve sozinho. Aproveite EBO quando seus mixins forem vazios para não pagar custo de memória.
+
+15) Estudos de caso adicionais e padrões combinados
+Primeiro, operadores aritméticos gerados a partir de métodos de soma/subtração no derivado:
+
+cpp
+Copy
+// arquivo: crtp_ex18_arith_ops.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct AddSub {
+    friend D operator+(D a, const D& b){ a.add_assign(b); return a; }
+    friend D operator-(D a, const D& b){ a.sub_assign(b); return a; }
+};
+
+struct IntBox : AddSub<IntBox> {
+    int v{};
+    void add_assign(const IntBox& o){ v += o.v; }
+    void sub_assign(const IntBox& o){ v -= o.v; }
+};
+
+int main(){ IntBox a{5}, b{2}; auto c = a + b - b; cout << c.v << "\n"; }
+Depois, uma API imutável que retorna cópias do tipo concreto:
+
+cpp
+Copy
+// arquivo: crtp_ex19_immutable_api.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct Imutavel {
+    D with_x(int nv) const { D c = *static_cast<const D*>(this); c.x = nv; return c; }
+};
+
+struct P2 : Imutavel<P2> { int x{}; };
+
+int main(){ P2 a{1}; auto b = a.with_x(5); cout << a.x << " " << b.x << "\n"; }
+E por fim, um pipeline de filtros com chaining eficiente:
+
+cpp
+Copy
+// arquivo: crtp_ex20_pipeline.cpp
+#include <iostream>
+#include <string>
+using namespace std;
+
+template <typename D>
+struct FilterBase {
+    D& self(){ return *static_cast<D*>(this); }
+    D& trim(){ static_cast<D*>(this)->trim_impl(); return self(); }
+    D& lower(){ static_cast<D*>(this)->lower_impl(); return self(); }
+};
+
+struct StrFilter : FilterBase<StrFilter> {
+    string s;
+    explicit StrFilter(string v):s(move(v)){}
+    void trim_impl(){
+        while(!s.empty() && isspace((unsigned char)s.front())) s.erase(s.begin());
+        while(!s.empty() && isspace((unsigned char)s.back())) s.pop_back();
+    }
+    void lower_impl(){ for(auto& c:s) c=char(tolower((unsigned char)c)); }
+};
+
+int main(){ StrFilter f("  Ola Mundo  "); f.trim().lower(); cout << f.s << "\n"; }
+16) Detalhes avançados: lookup, dependent names e this->
+Quando herda de múltiplos mixins via CRTP, nomes dependentes podem exigir this-> para que o compilador encontre membros de bases template. Exemplo didático:
+
+cpp
+Copy
+// arquivo: crtp_ex21_dependent_names.cpp
+// nota: exemplo conceitual
+template <typename D>
+struct M1 { void foo(){ /*...*/ } };
+
+template <typename D>
+struct M2 : M1<D> {
+    void bar(){ this->foo(); /* sem this-> pode falhar em alguns contextos */ }
+};
+
+struct T : M2<T> {};
+int main(){ T t; t.bar(); }
+17) Integração com concepts para mensagens melhores
+Com concepts, você expressa o contrato do CRTP de forma legível e evita mensagens crípticas:
+
+cpp
+Copy
+// arquivo: crtp_ex22_concepts_contract.cpp (C++20)
+#include <concepts>
+
+template <typename D>
+concept HasImpl = requires(D d){ d.impl(); };
+
+template <HasImpl D>
+struct Base2 { void call(){ static_cast<D*>(this)->impl(); } };
+
+struct Ok : Base2<Ok> { void impl(){} };
+int main(){ Ok x; x.call(); }
+18) Performance: por que o CRTP pode ser mais rápido
+O compilador vê o corpo exato a ser chamado (via static_cast para Derived) e pode inline, propagar constantes, desenrolar loops e aplicar outras otimizações que, em chamadas virtuais, costumam ser mais difíceis devido à indireção e menor previsibilidade. Em códigos críticos de desempenho, isso faz diferença. Em contrapartida, se você precisa de extensibilidade em runtime e arquitetura plugável com tipos desconhecidos no momento da compilação, virtual ainda é o caminho natural.
+
+19) Quando NÃO usar CRTP
+Se você precisa de heterogeneidade dinâmica (uma coleção de objetos de tipos diferentes tratada via um ponteiro base comum em runtime), CRTP não resolve diretamente. Nesse contexto, use virtual, std::variant (com visitors), ou type erasure (como std::function e padrões semelhantes). CRTP é ideal quando o conjunto de tipos é conhecido em compile-time e você quer zero overhead de despacho.
+
+20) Checklist mental do CRTP (em parágrafos)
+Pense se o polimorfismo pode ser estático e se a hierarquia é fechada em compile-time. Confirme que o derivado pretende herdar diretamente da base parametrizada por si mesmo. Garanta que os métodos esperados existem e prefira concepts para mensagens amigáveis. Em heranças múltiplas, lembre-se de this-> para nomes dependentes e da possibilidade de EBO em mixins vazios. Não espere que ponteiros para Base funcionem como uma interface virtual tradicional para tipos heterogêneos.
+
+Apêndice: Notas e microexemplos adicionais de CRTP (amostra)
+Um microexemplo para reforçar a forma canônica:
+
+// arquivo: crtp_ex23_micro.cpp
+template <typename D>
+struct XBase { void call(){ static_cast<D*>(this)->impl(); } };
+
+struct X : XBase<X> { void impl(){} };
+int main(){ X x; x.call(); }

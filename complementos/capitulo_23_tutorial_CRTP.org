@@ -1,0 +1,5878 @@
+* Tutorial prático e completo de C++ CRTP (Curiously Recurring Template Pattern) para humanos
+
+Este é um guia narrativo, em linguagem simples, sobre o padrão CRTP em C++. A meta é você sair entendendo o que é, quando usar, como implementar com segurança e como combiná-lo com ferramentas modernas (if constexpr, concepts, detecção de membros), além de muitos exemplos compiláveis de usos práticos: polimorfismo estático, mixins, operadores via Barton–Nackman, expression templates, EBO, designs com policies e mais.
+
+O foco é explicar passo a passo, reduzindo jargões e evitando listas longas, privilegiando a fluidez do texto e exemplos reais. Cada bloco de código é independente, e você pode compilar isoladamente. Comentários indicam variações C++17/C++20 quando relevante.
+
+** O que é CRTP e por que usar
+
+CRTP significa Curiously Recurring Template Pattern. A forma básica é ter uma classe base template que recebe a classe derivada como parâmetro de template. Assim, a base “conhece” o tipo derivado em tempo de compilação e pode chamá-lo diretamente via static_cast. Isso elimina custo de dispatch virtual e permite polimorfismo estático: a ligação da chamada ocorre em compile-time, viabilizando inline e otimizações agressivas do compilador.
+
+Forma canônica:
+
+#+begin_src cpp
+// arquivo: crtp_ex1.cpp
+#include <iostream>
+using namespace std;
+
+template <typename Derived>
+struct Base {
+    void interface() {
+        // Chama implementação específica do derivado em tempo de compilação
+        static_cast<Derived*>(this)->impl();
+    }
+    // Opcionalmente, uma implementação default
+    void impl() { cout << "Base::impl default\n"; }
+};
+
+struct Derivada : Base<Derivada> {
+    void impl() { cout << "Derivada::impl\n"; }
+};
+
+int main() {
+    Derivada d;
+    d.interface(); // chama Derivada::impl sem custo de virtual
+}
+#+end_src
+
+A “mágica” está no static_cast<Derived*>(this). Como Base conhece Derived, o compilador resolve a chamada para o método do derivado sem vtable. Isso é seguro se você sempre herdar Base na própria Derivada (contrato do CRTP).
+
+** CRTP vs polimorfismo dinâmico (virtual)
+
+Quando você usa polimorfismo dinâmico (virtual), chama-se via ponteiros ou referências para uma classe base, e o método virtual é resolvido em runtime via vtable. Isso dá flexibilidade e substituição tardia, mas tem um custo de indireção, mais restrições para inline e, de modo geral, cria uma “barreira” de otimização.
+
+No CRTP (polimorfismo estático), a resolução é em compile-time, não há vtable e as chamadas podem ser inlined sem custo dinâmico. O trade-off é que você não consegue manipular facilmente coleções heterogêneas por um único ponteiro base comum; em vez disso, usa-se variações como std::variant, type erasure ou designs baseados em templates/concepts.
+
+Exemplo com virtual, para comparar mentalmente:
+
+#+begin_src cpp
+// arquivo: crtp_ex2_virtual.cpp
+#include <iostream>
+using namespace std;
+
+struct Forma {
+    virtual ~Forma() = default;
+    virtual double area() const = 0;
+};
+
+struct Ret : Forma {
+    double w, h; Ret(double W,double H):w(W),h(H){}
+    double area() const override { return w*h; }
+};
+
+struct Circ : Forma {
+    double r; explicit Circ(double R):r(R){}
+    double area() const override { return 3.14159*r*r; }
+};
+
+int main(){
+    Forma* f1 = new Ret(3,4);
+    Forma* f2 = new Circ(2);
+    cout << f1->area() << "\n";
+    cout << f2->area() << "\n";
+    delete f1; delete f2;
+}
+#+end_src
+
+Versão CRTP: sem virtual, foco em chamadas diretas, com performance e inlining:
+
+#+begin_src cpp
+// arquivo: crtp_ex3_estatico.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct FormaCrtp {
+    double area() const { return static_cast<const D*>(this)->area_impl(); }
+};
+
+struct Ret : FormaCrtp<Ret> {
+    double w,h; Ret(double W,double H):w(W),h(H){}
+    double area_impl() const { return w*h; }
+};
+
+struct Circ : FormaCrtp<Circ> {
+    double r; explicit Circ(double R):r(R){}
+    double area_impl() const { return 3.14159*r*r; }
+};
+
+int main(){
+    Ret a(3,4); Circ b(2);
+    cout << a.area() << "\n";
+    cout << b.area() << "\n";
+}
+#+end_src
+
+** Contrato do CRTP, segurança e armadilhas comuns
+
+O contrato fundamental: a classe derivada X deve herdar Base. Se você herdar Base, o static_cast resultará em comportamento indefinido. Por isso, é comum reforçar com static_asserts e concepts para garantir que Derived realmente cumpre as expectativas.
+
+Exemplo didático com uma verificação (ilustrativa):
+
+#+begin_src cpp
+// arquivo: crtp_ex4_contrato.cpp
+#include <type_traits>
+#include <iostream>
+using namespace std;
+
+template <typename Derived>
+struct Base {
+    // Checagem didática (não “à prova de tudo”, mas ilustra a intenção de garantir o contrato)
+    void interface(){ static_cast<Derived*>(this)->impl(); }
+};
+
+struct Errada {}; // não herda de Base<Errada>
+struct Certa : Base<Certa> { void impl(){ cout << "ok\n"; } };
+
+int main(){ Certa c; c.interface(); }
+#+end_src
+
+Em C++20, fica melhor expressar o contrato com requires/concepts:
+
+#+begin_src cpp
+// arquivo: crtp_ex5_requires.cpp (C++20)
+#include <concepts>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+concept TemImpl = requires(D d){ d.impl(); };
+
+template <TemImpl Derived>
+struct Base {
+    void interface(){ static_cast<Derived*>(this)->impl(); }
+};
+
+struct X : Base<X> {
+    void impl(){ cout << "X::impl\n"; }
+};
+
+int main(){ X x; x.interface(); }
+#+end_src
+
+** CRTP como mixin: adicionando comportamentos reutilizáveis
+
+CRTP é excelente para mixins: classes que injetam funcionalidades em derivadas sem custo de virtual. Um exemplo comum é um mixin de contagem de instâncias por tipo concreto.
+
+#+begin_src cpp
+// arquivo: crtp_ex6_counting_mixin.cpp
+#include <iostream>
+using namespace std;
+
+template <typename Derived>
+struct ContadorInstancias {
+    inline static size_t vivos = 0; // um contador por Derived
+    ContadorInstancias(){ ++vivos; }
+    ContadorInstancias(const ContadorInstancias&){ ++vivos; }
+    ContadorInstancias(ContadorInstancias&&){ ++vivos; }
+    ~ContadorInstancias(){ --vivos; }
+    static size_t count(){ return vivos; }
+};
+
+struct A : ContadorInstancias<A> {};
+struct B : ContadorInstancias<B> {};
+
+int main(){
+    A a1; A a2; B b1;
+    cout << A::count() << " " << B::count() << "\n"; // tipicamente 2 1
+}
+#+end_src
+
+Outro mixin útil: logging simples parametrizado pelo tipo.
+
+#+begin_src cpp
+// arquivo: crtp_ex7_logging.cpp
+#include <iostream>
+#include <string>
+#include <typeinfo>
+using namespace std;
+
+template <typename Derived>
+struct Logavel {
+    void log(const string& msg) const {
+        cout << "[" << typeid(Derived).name() << "] " << msg << "\n";
+    }
+};
+
+struct Usuario : Logavel<Usuario> {
+    void salva(){ log("salvando usuario"); }
+};
+
+int main(){ Usuario u; u.salva(); }
+#+end_src
+
+** Operadores via CRTP (Barton–Nackman) e geração de boilerplate
+
+O truque de Barton–Nackman usa CRTP para definir operadores amigos em termos de funções implementadas no derivado, reduzindo boilerplate e mantendo simetria. Um exemplo com igualdade:
+
+#+begin_src cpp
+// arquivo: crtp_ex8_barton_nackman_eq.cpp
+#include <iostream>
+using namespace std;
+
+template <typename Derived>
+struct Igualdade {
+    friend bool operator==(const Derived& a, const Derived& b){
+        return a.equal_to(b);
+    }
+    friend bool operator!=(const Derived& a, const Derived& b){
+        return !(a==b);
+    }
+};
+
+struct Ponto : Igualdade<Ponto> {
+    int x,y;
+    bool equal_to(const Ponto& o) const { return x==o.x && y==o.y; }
+};
+
+int main(){
+    Ponto a{1,2}, b{1,2}, c{2,3};
+    cout << boolalpha << (a==b) << " " << (a!=c) << "\n";
+}
+#+end_src
+
+E um exemplo para ordem total com um único compare:
+
+#+begin_src cpp
+// arquivo: crtp_ex9_barton_nackman_ord.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct Ordenacao {
+    friend bool operator<(const D& a, const D& b){ return a.compare(b) < 0; }
+    friend bool operator>(const D& a, const D& b){ return b < a; }
+    friend bool operator<=(const D& a, const D& b){ return !(b < a); }
+    friend bool operator>=(const D& a, const D& b){ return !(a < b); }
+};
+
+struct Versao : Ordenacao<Versao> {
+    int major, minor, patch;
+    int compare(const Versao& o) const {
+        if (major!=o.major) return (major<o.major)?-1:1;
+        if (minor!=o.minor) return (minor<o.minor)?-1:1;
+        if (patch!=o.patch) return (patch<o.patch)?-1:1;
+        return 0;
+    }
+};
+
+int main(){
+    Versao v1{1,2,0}, v2{1,3,0};
+    cout << boolalpha << (v1<v2) << " " << (v1>=v2) << "\n";
+}
+#+end_src
+
+** Method chaining fluente com CRTP (retornando Derived&)
+
+CRTP simplifica o padrão “builder” ou APIs fluidas em que métodos da base devem retornar Derived& para continuar a cadeia no tipo concreto.
+
+#+begin_src cpp
+// arquivo: crtp_ex10_fluent.cpp
+#include <iostream>
+#include <string>
+using namespace std;
+
+template <typename D>
+struct BuilderBase {
+    D& self(){ return *static_cast<D*>(this); }
+
+    D& nome(const string& s){ static_cast<D*>(this)->nome_ = s; return self(); }
+    D& idade(int i){ static_cast<D*>(this)->idade_ = i; return self(); }
+};
+
+struct PessoaBuilder : BuilderBase<PessoaBuilder> {
+    string nome_{}; int idade_{};
+    PessoaBuilder& cidade(const string& c){ cidade_ = c; return *this; }
+    string cidade_{};
+    void imprime() const { cout << nome_ << ", " << idade_ << ", " << cidade_ << "\n"; }
+};
+
+int main(){
+    PessoaBuilder pb;
+    pb.nome("Ana").idade(30).cidade("Lisboa").imprime();
+}
+#+end_src
+
+** Policies com CRTP: compondo comportamentos
+
+Você pode compor políticas (comportamentos) como bases CRTP, criando classes concretas que herdam de múltiplos mixins.
+
+#+begin_src cpp
+// arquivo: crtp_ex11_policies.cpp
+#include <iostream>
+#include <string>
+using namespace std;
+
+template <typename D>
+struct Printable {
+    void print() const { static_cast<const D*>(this)->print_impl(); }
+};
+
+template <typename D>
+struct JsonSerializable {
+    string to_json() const { return static_cast<const D*>(this)->json_impl(); }
+};
+
+struct User : Printable<User>, JsonSerializable<User> {
+    string name; int id;
+    void print_impl() const { cout << name << " (" << id << ")\n"; }
+    string json_impl() const { return string("{\"name\":\"") + name + "\",\"id\":" + to_string(id) + "}"; }
+};
+
+int main(){ User u{"Ana",7}; u.print(); cout << u.to_json() << "\n"; }
+#+end_src
+
+** Expression templates (visão geral) com CRTP
+
+Expression templates representam expressões como tipos temporários, permitindo avaliação preguiçosa e minimizando alocações temporárias. Um exemplo minimalista para vetores de double:
+
+#+begin_src cpp
+// arquivo: crtp_ex12_expr_templates.cpp
+#include <iostream>
+#include <vector>
+using namespace std;
+
+template <typename E>
+struct VecExpr {
+    const E& self() const { return *static_cast<const E*>(this); }
+    size_t size() const { return self().size(); }
+    double operator[](size_t i) const { return self()[i]; }
+};
+
+struct Vec : VecExpr<Vec> {
+    vector<double> data;
+    explicit Vec(size_t n): data(n){}
+    size_t size() const { return data.size(); }
+    double operator[](size_t i) const { return data[i]; }
+    double& operator[](size_t i) { return data[i]; }
+};
+
+template <typename L, typename R>
+struct SumExpr : VecExpr<SumExpr<L,R>> {
+    const L& l; const R& r;
+    SumExpr(const L& a,const R& b):l(a),r(b){}
+    size_t size() const { return l.size(); }
+    double operator[](size_t i) const { return l[i] + r[i]; }
+};
+
+template <typename L, typename R>
+SumExpr<L,R> operator+(const VecExpr<L>& a, const VecExpr<R>& b){
+    return SumExpr<L,R>(a.self(), b.self());
+}
+
+int main(){
+    Vec x(3), y(3), z(3);
+    x[0]=1; x[1]=2; x[2]=3;
+    y[0]=4; y[1]=5; y[2]=6;
+    auto e = x + y + x; // expressão não avaliada ainda
+    for (size_t i=0;i<z.size();++i) z[i] = e[i];
+    for (size_t i=0;i<z.size();++i) cout << z[i] << ' ';
+    cout << '\n';
+}
+#+end_src
+
+** EBO (Empty Base Optimization) e CRTP
+
+Quando seus mixins são classes vazias, o compilador pode aplicar EBO: eles não aumentam o tamanho do objeto ao herdar. Isso é ótimo para acumular capacidades sem custo de memória.
+
+#+begin_src cpp
+// arquivo: crtp_ex13_ebo.cpp
+#include <iostream>
+using namespace std;
+
+struct Vazia {};
+
+template <typename D>
+struct MixinVazio : Vazia {};
+
+struct X : MixinVazio<X> { int a; };
+
+int main(){
+    cout << sizeof(Vazia) << " " << sizeof(X) << "\n"; // normalmente 1 e 4/8 etc.
+}
+#+end_src
+
+** Garantindo a interface do derivado (detecção + static_assert)
+
+Você pode exigir que Derived forneça certos métodos. Antes de C++20, use detecção com decltype/void_t e static_assert; em C++20, use concepts.
+
+Exemplo em C++17 com void_t e declval:
+
+#+begin_src cpp
+// arquivo: crtp_ex14_detection.cpp (C++17)
+#include <type_traits>
+#include <utility>
+#include <iostream>
+using namespace std;
+
+template <typename, typename=void>
+struct has_run : false_type {};
+
+template <typename T>
+struct has_run<T, decltype(void( decltype(declval<T&>().run()){} ))> : true_type {};
+
+template <typename D>
+struct Runner {
+    void start(){
+        static_assert(has_run<D>::value, "Derived precisa fornecer run()");
+        static_cast<D*>(this)->run();
+    }
+};
+
+struct Job : Runner<Job> { void run(){ cout << "rodando\n"; } };
+
+int main(){ Job j; j.start(); }
+#+end_src
+
+E com C++20, mais direto:
+
+#+begin_src cpp
+// arquivo: crtp_ex14b_detection_concepts.cpp (C++20)
+#include <concepts>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+concept HasRun = requires(D d){ d.run(); };
+
+template <HasRun D>
+struct Runner2 {
+    void start(){ static_cast<D*>(this)->run(); }
+};
+
+struct Job2 : Runner2<Job2> { void run(){ cout << "rodando\n"; } };
+
+int main(){ Job2 j; j.start(); }
+#+end_src
+
+** Template Method com CRTP (hooks antes/depois)
+
+CRTP facilita escrever um esqueleto de algoritmo na base, chamando ganchos (hooks) implementados pelo derivado. O padrão lembra “Template Method”, só que sem virtual.
+
+#+begin_src cpp
+// arquivo: crtp_ex15_template_method.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct AlgoritmoBase {
+    void executar(){
+        static_cast<D*>(this)->pre();
+        passo1();
+        passo2();
+        static_cast<D*>(this)->pos();
+    }
+private:
+    void passo1(){ cout << "passo1\n"; }
+    void passo2(){ cout << "passo2\n"; }
+};
+
+struct MeuAlg : AlgoritmoBase<MeuAlg> {
+    void pre(){ cout << "pre\n"; }
+    void pos(){ cout << "pos\n"; }
+};
+
+int main(){ MeuAlg a; a.executar(); }
+#+end_src
+
+** Visitantes estáticos inspirados em CRTP
+
+Você pode simular um “visitante” estático onde cada tipo concreto oferece handle() e a base chama sem virtual.
+
+#+begin_src cpp
+// arquivo: crtp_ex16_static_visitor.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct Visitavel {
+    void accept(){ static_cast<D*>(this)->handle(); }
+};
+
+struct A : Visitavel<A> { void handle(){ cout << "A\n"; } };
+struct B : Visitavel<B> { void handle(){ cout << "B\n"; } };
+
+int main(){ A a; B b; a.accept(); b.accept(); }
+#+end_src
+
+** Contagem de referência intrusiva com CRTP (didático)
+
+Um exemplo didático de reference counting intrusivo por tipo concreto. Em produção, prefira smart pointers prontos (shared_ptr, etc.); aqui é para ilustrar composição via CRTP.
+
+#+begin_src cpp
+// arquivo: crtp_ex17_intrusive_rc.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct RC {
+    mutable int rc_ = 0;
+    void add_ref() const { ++rc_; }
+    void release() const { if(--rc_==0) delete static_cast<const D*>(this); }
+protected:
+    virtual ~RC() = default; // apenas para exemplo; não precisamos virtual de verdade
+};
+
+struct Recurso : RC<Recurso> {
+    void uso(){ cout << "recurso em uso\n"; }
+};
+
+int main(){
+    auto* r = new Recurso;
+    r->add_ref(); r->uso();
+    r->release(); // auto delete quando chegar a zero
+}
+#+end_src
+
+** Armadilhas, dicas e quando evitar CRTP
+
+CRTP não é um substituto universal para virtual. Se você precisa de heterogeneidade real em runtime, com um mesmo ponteiro base apontando para muitos tipos não relacionados, o virtual brilha. CRTP ajuda quando a hierarquia é conhecida e fechada em compile-time, e você quer desempenho e zero custo de despacho. Garanta que Derived realmente implementa o que a base espera; concepts (C++20) deixam os erros mais legíveis. Em heranças múltiplas com mixins, use this-> quando membros herdados são “nomes dependentes” e o compilador não resolve sozinho. Aproveite EBO quando seus mixins forem vazios para não pagar custo de memória.
+
+** Estudos de caso adicionais e padrões combinados
+
+Primeiro, operadores aritméticos gerados a partir de métodos de soma/subtração no derivado:
+
+#+begin_src cpp
+// arquivo: crtp_ex18_arith_ops.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct AddSub {
+    friend D operator+(D a, const D& b){ a.add_assign(b); return a; }
+    friend D operator-(D a, const D& b){ a.sub_assign(b); return a; }
+};
+
+struct IntBox : AddSub<IntBox> {
+    int v{};
+    void add_assign(const IntBox& o){ v += o.v; }
+    void sub_assign(const IntBox& o){ v -= o.v; }
+};
+
+int main(){ IntBox a{5}, b{2}; auto c = a + b - b; cout << c.v << "\n"; }
+#+end_src
+
+Depois, uma API imutável que retorna cópias do tipo concreto:
+
+#+begin_src cpp
+// arquivo: crtp_ex19_immutable_api.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct Imutavel {
+    D with_x(int nv) const { D c = *static_cast<const D*>(this); c.x = nv; return c; }
+};
+
+struct P2 : Imutavel<P2> { int x{}; };
+
+int main(){ P2 a{1}; auto b = a.with_x(5); cout << a.x << " " << b.x << "\n"; }
+#+end_src
+
+E por fim, um pipeline de filtros com chaining eficiente:
+
+#+begin_src cpp
+// arquivo: crtp_ex20_pipeline.cpp
+#include <iostream>
+#include <string>
+using namespace std;
+
+template <typename D>
+struct FilterBase {
+    D& self(){ return *static_cast<D*>(this); }
+    D& trim(){ static_cast<D*>(this)->trim_impl(); return self(); }
+    D& lower(){ static_cast<D*>(this)->lower_impl(); return self(); }
+};
+
+struct StrFilter : FilterBase<StrFilter> {
+    string s;
+    explicit StrFilter(string v):s(move(v)){}
+    void trim_impl(){
+        while(!s.empty() && isspace((unsigned char)s.front())) s.erase(s.begin());
+        while(!s.empty() && isspace((unsigned char)s.back())) s.pop_back();
+    }
+    void lower_impl(){ for(auto& c:s) c=char(tolower((unsigned char)c)); }
+};
+
+int main(){ StrFilter f("  Ola Mundo  "); f.trim().lower(); cout << f.s << "\n"; }
+#+end_src
+
+** Detalhes avançados: lookup, dependent names e this->
+
+Quando herda de múltiplos mixins via CRTP, nomes dependentes podem exigir this-> para que o compilador encontre membros de bases template. Exemplo didático:
+
+#+begin_src cpp
+// arquivo: crtp_ex21_dependent_names.cpp
+// nota: exemplo conceitual
+template <typename D>
+struct M1 { void foo(){ /*...*/ } };
+
+template <typename D>
+struct M2 : M1<D> {
+    void bar(){ this->foo(); /* sem this-> pode falhar em alguns contextos */ }
+};
+
+struct T : M2<T> {};
+int main(){ T t; t.bar(); }
+#+end_src
+
+** Integração com concepts para mensagens melhores
+
+Com concepts, você expressa o contrato do CRTP de forma legível e evita mensagens crípticas:
+
+#+begin_src cpp
+// arquivo: crtp_ex22_concepts_contract.cpp (C++20)
+#include <concepts>
+
+template <typename D>
+concept HasImpl = requires(D d){ d.impl(); };
+
+template <HasImpl D>
+struct Base2 { void call(){ static_cast<D*>(this)->impl(); } };
+
+struct Ok : Base2<Ok> { void impl(){} };
+int main(){ Ok x; x.call(); }
+#+end_src
+
+** Performance: por que o CRTP pode ser mais rápido
+
+O compilador vê o corpo exato a ser chamado (via static_cast para Derived) e pode inline, propagar constantes, desenrolar loops e aplicar outras otimizações que, em chamadas virtuais, costumam ser mais difíceis devido à indireção e menor previsibilidade. Em códigos críticos de desempenho, isso faz diferença. Em contrapartida, se você precisa de extensibilidade em runtime e arquitetura plugável com tipos desconhecidos no momento da compilação, virtual ainda é o caminho natural.
+
+** Quando NÃO usar CRTP
+
+Se você precisa de heterogeneidade dinâmica (uma coleção de objetos de tipos diferentes tratada via um ponteiro base comum em runtime), CRTP não resolve diretamente. Nesse contexto, use virtual, std::variant (com visitors), ou type erasure (como std::function e padrões semelhantes). CRTP é ideal quando o conjunto de tipos é conhecido em compile-time e você quer zero overhead de despacho.
+
+** Checklist mental do CRTP (em parágrafos)
+
+Pense se o polimorfismo pode ser estático e se a hierarquia é fechada em compile-time. Confirme que o derivado pretende herdar diretamente da base parametrizada por si mesmo. Garanta que os métodos esperados existem e prefira concepts para mensagens amigáveis. Em heranças múltiplas, lembre-se de this-> para nomes dependentes e da possibilidade de EBO em mixins vazios. Não espere que ponteiros para Base funcionem como uma interface virtual tradicional para tipos heterogêneos.
+
+*Apêndice: Notas e microexemplos adicionais de CRTP (amostra)*
+Um microexemplo para reforçar a forma canônica:
+
+#+begin_src cpp
+// arquivo: crtp_ex23_micro.cpp
+template <typename D>
+struct XBase { void call(){ static_cast<D*>(this)->impl(); } };
+
+struct X : XBase<X> { void impl(){} };
+int main(){ X x; x.call(); }
+#+end_src
+
+** Encadeamento em CRTP com forwarding references e retorno do tipo correto
+Bases CRTP muitas vezes criam métodos que “embrulham” chamadas ao derivado e retornam Derived& para chaining. Para não perder valor-categoria (lvalue/rvalue), podemos usar forwarding no retorno, preservando fluência e eficiência.
+
+#+begin_src cpp
+// arquivo: crtp_ex24_forwarding_chain.cpp
+#include <utility>
+#include <string>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct ChainBase {
+    // self() que preserva valor-categoria
+    D& self_l() { return *static_cast<D*>(this); }
+    D&& self_r() { return std::move(*static_cast<D*>(this)); }
+
+    // Métodos que retornam Derived& ou Derived&& conforme o receptor
+    D&& nome(string s) && { self_l().nome_ = std::move(s); return std::move(self_l()); }
+    D&  nome(string s)  & { self_l().nome_ = std::move(s); return self_l(); }
+
+    D&& idade(int i) && { self_l().idade_ = i; return std::move(self_l()); }
+    D&  idade(int i)  & { self_l().idade_ = i; return self_l(); }
+};
+
+struct Pessoa : ChainBase<Pessoa> {
+    string nome_;
+    int idade_{};
+    void show() const { cout << nome_ << " " << idade_ << "\n"; }
+};
+
+int main() {
+    Pessoa p;
+    p.nome("Ana").idade(30).show();
+
+    // Em contexto temporário (rvalue), preserva movimento no retorno
+    Pessoa().nome("Bob").idade(25).show();
+}
+#+end_src
+
+Benefício: você permite cadeias eficientes tanto para objetos existentes (lvalues) quanto para temporários (rvalues), evitando cópias desnecessárias.
+
+** Construtores e wrappers com perfect forwarding em CRTP
+
+Às vezes a base CRTP fornece helpers que “encaminham” argumentos para o derivado, preservando tipos e referências.
+
+#+begin_src cpp
+// arquivo: crtp_ex25_perfect_forwarding.cpp
+#include <utility>
+#include <iostream>
+#include <string>
+using namespace std;
+
+template <typename D>
+struct ForwardBase {
+    template <typename... Args>
+    static D make(Args&&... args) {
+        // Encaminha os argumentos para o construtor de D
+        return D(std::forward<Args>(args)...);
+    }
+
+    template <typename F, typename... Args>
+    auto call(F&& f, Args&&... args) {
+        // Chama f(this_derived, args...), preservando forwarding
+        return std::invoke(std::forward<F>(f),
+                           *static_cast<D*>(this),
+                           std::forward<Args>(args)...);
+    }
+};
+
+struct Pessoa : ForwardBase<Pessoa> {
+    string n; int i{};
+    Pessoa(string s, int x): n(std::move(s)), i(x) {}
+    void hi(const string& to) { cout << "Oi " << to << ", sou " << n << "\n"; }
+};
+
+int main() {
+    auto p = Pessoa::make("Ana", 30);
+    p.call([](Pessoa& self, string x){ self.hi(x); }, "Bob");
+}
+#+end_src
+
+Se a base CRTP precisar construir o próprio derivado (fábricas estáticas), use forwarding para não “achatar” tipos e qualifiers.
+
+** Adaptadores de interface com CRTP (Static Adapter)
+
+Podemos criar uma base que “adapta” o derivado a uma interface comum estática, mapeando nomes diferentes para um conjunto padrão.
+
+#+begin_src cpp
+// arquivo: crtp_ex26_static_adapter.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct AreaAdapter {
+    double area() const {
+        // Mapeia para nomes esperados no derivado
+        return static_cast<const D*>(this)->area_impl();
+    }
+};
+
+struct Retangulo : AreaAdapter<Retangulo> {
+    double w, h;
+    Retangulo(double W, double H): w(W), h(H) {}
+    double area_impl() const { return w*h; }
+};
+
+struct Circulo : AreaAdapter<Circulo> {
+    double r;
+    explicit Circulo(double R): r(R) {}
+    double area_impl() const { return 3.14159 * r * r; }
+};
+
+template <typename S>
+double total_area(const S& shape) { return shape.area(); }
+
+int main(){
+    Retangulo a(3,4); Circulo b(2);
+    cout << total_area(a) + total_area(b) << "\n";
+}
+#+end_src
+
+Você ganha uniformidade sem virtual, aplicando o “adaptador” como base CRTP.
+
+** Erros comuns e como domar mensagens de template
+
+  - static_cast<Derived*>(this) errado quando herda Base: comportamento indefinido. Garanta o contrato com concepts.
+  - Falta de this-> em bases dependentes: resolva ambiguidades com this-> ou usando declarações usando.
+  - ODR e One-Definition Rule: mantenha implementações em headers com inline/templated para evitar múltiplas definições.
+  - Mensagens enigmáticas: use concepts com mensagens estáveis, e crie traits de detecção pequenos para apontar o problema certo.
+
+Exemplo de concept que produz erro legível:
+#+begin_src cpp
+// arquivo: crtp_ex27_error_messages.cpp
+#include <concepts>
+#include <type_traits>
+
+template <typename D>
+concept HasImpl = requires(D d) {
+    { d.impl() } -> std::same_as<void>;
+};
+
+template <typename D>
+requires HasImpl<D>
+struct Base {
+    void call(){ static_cast<D*>(this)->impl(); }
+};
+#+end_src
+
+** Onde CRTP aparece no “mundo real”
+
+  - Expression templates em bibliotecas numéricas (por exemplo, projetos que otimizam operações em vetores/matrizes).
+  - Mixins para logging, contagem de instâncias, serialização, políticas de sincronização.
+  - Operadores e comparações geradas (Barton–Nackman).
+  - DSLs internas com avaliação preguiçosa.
+
+O padrão é popular porque: zero custo em runtime, ótima oportunidade de inlining e composição de comportamentos via herança múltipla controlada.
+
+** Multi-CRTP: ordem de bases, sombras e resolução de nomes
+Com várias bases CRTP, a ordem de herança interfere em lookup e resolução de sobrecarga. Evite conflitos nominais entre mixins; se necessário, exponha nomes com using.
+
+#+begin_src cpp
+// arquivo: crtp_ex28_multi_crtp_order.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct M1 { void f(){ cout << "M1\n"; } };
+
+template <typename D>
+struct M2 { void f(){ cout << "M2\n"; } };
+
+struct X : M1<X>, M2<X> {
+    // Sem qualificação, f() é ambígua. Resolva com using:
+    using M1<X>::f; // escolhe a implementação de M1
+};
+
+int main(){ X x; x.f(); } // imprime "M1"
+#+end_src
+
+Se você precisa combinar comportamentos, considere dar nomes distintos ou criar uma base de “coordenação” que invoque os dois em sequência.
+
+** Visibilidade: herança private/protected em CRTP e ‘using’ para expor
+
+Nem sempre você quer expor APIs de um mixin. Use herança private/protected para conter a superfície pública e exponha seletivamente com using.
+
+#+begin_src cpp
+// arquivo: crtp_ex29_private_inheritance.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct DebugMixin {
+    void dbg() const { cout << "dbg\n"; }
+};
+
+struct T : private DebugMixin<T> {
+    // expõe seletivamente
+    using DebugMixin<T>::dbg;
+};
+
+int main(){ T t; t.dbg(); }
+#+end_src
+
+Isso ajuda a manter a API limpa, evitando “vazamento” de métodos internos dos mixins.
+
+** Friend injection: bases CRTP amigas do derivado
+
+Uma base CRTP pode precisar acessar detalhes privados do derivado. Use friend declarations com template para conceder acesso.
+
+#+begin_src cpp
+// arquivo: crtp_ex30_friend_injection.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct Inspector {
+    void show_secret(const D& d) {
+        cout << d.secret_ << "\n"; // acessa dado privado, pois é friend
+    }
+};
+
+struct Obj : Inspector<Obj> {
+private:
+    int secret_ = 42;
+    friend struct Inspector<Obj>;
+};
+
+int main(){ Obj o; o.show_secret(o); }
+#+end_src
+
+Use com parcimônia: friend aumenta acoplamento.
+
+** Comparadores e hashing com CRTP
+
+Gerar comparadores e hash padronizados ajuda a manter consistência. A base pode exigir que o derivado forneça uma visão estável de seus campos.
+
+#+begin_src cpp
+// arquivo: crtp_ex31_hash_compare.cpp
+#include <tuple>
+#include <functional>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct TupleComparable {
+    // Derivado deve fornecer tie() com os campos relevantes
+    auto tie_() const { return static_cast<const D*>(this)->tie(); }
+
+    friend bool operator==(const D& a, const D& b) { return a.tie_() == b.tie_(); }
+    friend bool operator<(const D& a, const D& b)  { return a.tie_() <  b.tie_(); }
+};
+
+template <typename D>
+struct TupleHashable : TupleComparable<D> {
+    friend struct std::hash<D>;
+};
+
+struct P : TupleHashable<P> {
+    int x; int y;
+    auto tie() const { return std::tie(x,y); }
+};
+
+namespace std {
+template <>
+struct hash<P> {
+    size_t operator()(const P& p) const noexcept {
+        auto [x,y] = p.tie();
+        size_t h1 = std::hash<int>{}(x);
+        size_t h2 = std::hash<int>{}(y);
+        return h1 ^ (h2 + 0x9e3779b97f4a7c15ULL + (h1<<6) + (h1>>2));
+    }
+};
+}
+
+int main(){
+    P a{1,2}, b{1,2};
+    cout << boolalpha << (a==b) << "\n"; // true
+    cout << std::hash<P>{}(a) << "\n";
+}
+#+end_src
+
+Padronize a política de comparação/hash em muitos tipos com pouco boilerplate.
+
+** Mixins thread-safe: contador atômico por tipo
+
+Ao contar instâncias por tipo em código concorrente, use atomics na base CRTP.
+
+#+begin_src cpp
+// arquivo: crtp_ex32_atomic_counter.cpp
+#include <atomic>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct AtomicCounter {
+    inline static atomic<size_t> vivos{0};
+    AtomicCounter(){ vivos.fetch_add(1, memory_order_relaxed); }
+    AtomicCounter(const AtomicCounter&){ vivos.fetch_add(1, memory_order_relaxed); }
+    AtomicCounter(AtomicCounter&&){ vivos.fetch_add(1, memory_order_relaxed); }
+    ~AtomicCounter(){ vivos.fetch_sub(1, memory_order_relaxed); }
+    static size_t count(){ return vivos.load(memory_order_relaxed); }
+};
+
+struct A : AtomicCounter<A> {};
+struct B : AtomicCounter<B> {};
+
+int main(){
+    A a1; A a2; B b1;
+    cout << A::count() << " " << B::count() << "\n";
+}
+#+end_src
+
+** Policies de alocação com CRTP
+
+Forneça políticas de alocação como mixins CRTP, substituindo new/delete no derivado sem virtual.
+
+#+begin_src cpp
+// arquivo: crtp_ex33_alloc_policy.cpp
+#include <cstdlib>
+#include <new>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct MallocAlloc {
+    static void* operator new(size_t sz){
+        if (void* p = std::malloc(sz)) return p;
+        throw bad_alloc();
+    }
+    static void operator delete(void* p) noexcept {
+        std::free(p);
+    }
+};
+
+struct Node : MallocAlloc<Node> {
+    int v;
+    explicit Node(int x): v(x) {}
+};
+
+int main(){
+    auto* n = new Node(7);
+    cout << n->v << "\n";
+    delete n;
+}
+#+end_src
+
+Você pode compor várias policies (tracing, pools, arenas) por herança múltipla.
+
+** Pequena máquina de estados com CRTP
+
+Estados concretos expõem o mesmo protocolo; a base orquestra transições sem virtual.
+
+#+begin_src cpp
+// arquivo: crtp_ex34_state_machine.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct State {
+    void enter(){ static_cast<D*>(this)->enter_impl(); }
+    void handle(){ static_cast<D*>(this)->handle_impl(); }
+    void exit(){ static_cast<D*>(this)->exit_impl(); }
+};
+
+struct Idle : State<Idle> {
+    void enter_impl(){ cout << "Idle.enter\n"; }
+    void handle_impl(){ cout << "Idle.handle\n"; }
+    void exit_impl(){ cout << "Idle.exit\n"; }
+};
+
+struct Running : State<Running> {
+    void enter_impl(){ cout << "Running.enter\n"; }
+    void handle_impl(){ cout << "Running.handle\n"; }
+    void exit_impl(){ cout << "Running.exit\n"; }
+};
+
+template <typename S>
+struct Machine {
+    S s;
+    template <typename NewS>
+    void transition() {
+        s.exit();
+        s = NewS{};
+        s.enter();
+    }
+    void tick(){ s.handle(); }
+};
+
+int main(){
+    Machine<Idle> m;
+    m.s.enter();
+    m.tick();
+    m.transition<Running>();
+    m.tick();
+}
+#+end_src
+
+Essa é uma VM didática, mas mostra como padronizar protocolos com CRTP.
+
+**  Registro estático de “plugins” com CRTP
+
+Um registro estático por tipo concreto, sem virtual, facilita fábricas compiladas.
+
+#+begin_src cpp
+// arquivo: crtp_ex35_static_registry.cpp
+#include <map>
+#include <string>
+#include <functional>
+#include <iostream>
+using namespace std;
+
+struct Registry {
+    static map<string, function<void()>>& get() {
+        static map<string, function<void()>> R;
+        return R;
+    }
+};
+
+template <typename D>
+struct Registrable {
+    static bool registered;
+    static bool reg() {
+        Registry::get()[D::name()] = []{ D::run(); };
+        return true;
+    }
+};
+
+template <typename D>
+bool Registrable<D>::registered = Registrable<D>::reg();
+
+struct TaskA : Registrable<TaskA> {
+    static string name(){ return "taskA"; }
+    static void run(){ cout << "TaskA\n"; }
+};
+
+struct TaskB : Registrable<TaskB> {
+    static string name(){ return "taskB"; }
+    static void run(){ cout << "TaskB\n"; }
+};
+
+int main(){
+    for (auto& [k,f] : Registry::get()) {
+        cout << "exec " << k << ": ";
+        f();
+    }
+}
+#+end_src
+
+Evite dependências de ordem de inicialização cruzando múltiplas TUs; centralize o registro.
+
+** Ponte para heterogeneidade: CRTP com type erasure
+Quando você precisa de runtime-polymorphism, pode compor CRTP para a parte estática e um “invólucro” type-erased para as passagens dinâmicas.
+
+#+begin_src cpp
+// arquivo: crtp_ex36_erasure_bridge.cpp
+#include <memory>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct DrawCrtp {
+    void draw() const { static_cast<const D*>(this)->draw_impl(); }
+};
+
+struct Square : DrawCrtp<Square> {
+    void draw_impl() const { cout << "[]\n"; }
+};
+struct Circle : DrawCrtp<Circle> {
+    void draw_impl() const { cout << "o\n"; }
+};
+
+struct Drawable {
+    struct concept_t {
+        virtual ~concept_t()=default;
+        virtual void draw() const = 0;
+    };
+    template <typename T>
+    struct model_t : concept_t {
+        T obj;
+        model_t(T o):obj(std::move(o)){}
+        void draw() const override { obj.draw(); }
+    };
+    unique_ptr<concept_t> self;
+    template <typename T>
+    Drawable(T t): self(make_unique<model_t<T>>(std::move(t))) {}
+    void draw() const { self->draw(); }
+};
+
+int main(){
+    Drawable a = Square{};
+    Drawable b = Circle{};
+    a.draw(); b.draw();
+}
+#+end_src
+
+O core desenha via CRTP; o invólucro permite heterogeneidade.
+
+** Benchmarking e diretrizes de medição
+
+  - Meça com -O2/-O3 e LTO, e compare versões virtuais vs. CRTP em hot paths.
+  - Use microbenchmarks realistas: loops quentes, cache effects, e evite elisão pelo compilador (consumindo resultados).
+  - Ferramentas: std::chrono, Google Benchmark, perf.
+
+Exemplo simples:
+#+begin_src cpp
+// arquivo: crtp_ex37_bench_skeleton.cpp
+#include <chrono>
+#include <iostream>
+using namespace std;
+
+template <typename F>
+long long time_it(F&& f, int iters=1'000'000){
+    auto t0 = chrono::high_resolution_clock::now();
+    f(iters);
+    auto t1 = chrono::high_resolution_clock::now();
+    return chrono::duration_cast<chrono::microseconds>(t1 - t0).count();
+}
+
+int main(){
+    volatile int sink = 0;
+    auto t = time_it([&](int n){
+        for(int i=0;i<n;++i) sink += i;
+    });
+    cout << t << "us\n";
+}
+#+end_src
+
+** Concepts detalhados e requires-clauses expressivas
+
+Crie contracts explícitos e compostos:
+
+#+begin_src cpp
+// arquivo: crtp_ex38_concepts_combo.cpp
+#include <concepts>
+#include <type_traits>
+
+template <typename D>
+concept HasBeginEnd = requires(D d) {
+    { d.begin() } -> std::input_iterator;
+    { d.end()   } -> std::sentinel_for<decltype(d.begin())>;
+};
+
+template <typename D>
+concept Sized = requires(D d) {
+    { d.size() } -> std::convertible_to<std::size_t>;
+};
+
+template <typename D>
+concept RangeLike = HasBeginEnd<D> && Sized<D>;
+
+template <RangeLike D>
+struct RangeBase {
+    auto first() { return static_cast<D*>(this)->begin(); }
+    auto last()  { return static_cast<D*>(this)->end(); }
+    auto size()  { return static_cast<D*>(this)->size(); }
+};
+#+end_src
+
+Erros ficam legíveis e o contrato fica “auto-documentado”.
+
+**  Exceções e CRTP
+
+CRTP não impõe custo extra a exceções. Você pode padronizar políticas de tratamento em bases mixins.
+
+#+begin_src cpp
+// arquivo: crtp_ex39_exception_policy.cpp
+#include <iostream>
+#include <stdexcept>
+using namespace std;
+
+template <typename D>
+struct ThrowingPolicy {
+    void must(bool cond, const char* msg) const {
+        if(!cond) throw runtime_error(msg);
+    }
+};
+
+struct Service : ThrowingPolicy<Service> {
+    void run(int x){
+        must(x >= 0, "x must be non-negative");
+        cout << "ok\n";
+    }
+};
+
+int main(){
+    Service s;
+    try { s.run(-1); } catch(const exception& e){ cout << e.what() << "\n"; }
+}
+#+end_src
+
+** Diretrizes de design de API pública usando CRTP
+
+  - Esconda detalhes em bases privadas e exponha apenas o necessário com using.
+  - Dê nomes claros para métodos “impl” no derivado e “interface” na base.
+  - Evite dependências circulares entre mixins; mantenha cada mixin coeso.
+  - Documente o contrato dos mixins (o que o derivado precisa prover).
+
+** Portabilidade, warnings e diagnóstico
+
+  - Habilite warnings agressivos: -Wall -Wextra -Wpedantic, e trate warnings como erros em CI.
+  - Teste com múltiplos compiladores (GCC, Clang, MSVC) para diferenças de lookup e EBO.
+  - Em MSVC, alguns padrões de EBO podem se comportar diferente; valide tamanhos com static_assert(sizeof(...)) quando crítico.
+
+** Checklist final estendido (narrativo)
+
+Antes de aplicar CRTP, pergunte-se: o conjunto de tipos é conhecido em compile-time? Preciso realmente de uma “interface comum” dinâmica? Os derivadas implementam consistentemente os métodos esperados? Consigo descrever o contrato em um concept? Meus mixins são coesos e pequenos? Há conflitos de nomes que exigem this-> ou using? Posso aproveitar EBO? A API pública está limpa, sem “vazamento” de métodos internos dos mixins? Meus testes cobrem as combinações de mixins e preservam comportamento?
+
+*Apêndice B: Variações e microexemplos (amostra)*
+  1. Mixin de “habilitar/desabilitar” recurso com bitflag no derivado:
+#+begin_src cpp
+// arquivo: crtp_ex40_enable_flag.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct EnableFlag {
+    bool enabled_{true};
+    D& enable(bool v){ enabled_ = v; return *static_cast<D*>(this); }
+    bool enabled() const { return enabled_; }
+};
+
+struct Tool : EnableFlag<Tool> {
+    void run(){ if (enabled()) cout << "run\n"; }
+};
+
+int main(){ Tool t; t.enable(false).run(); t.enable(true).run(); }
+#+end_src
+
+  2. Base CRTP com “adiamento” de inicialização do derivado:
+#+begin_src cpp
+// arquivo: crtp_ex41_lazy_init.cpp
+#include <iostream>
+#include <optional>
+using namespace std;
+
+template <typename D>
+struct LazyInit {
+    mutable bool init_{false};
+    void ensure() const {
+        if (!init_) { const_cast<D*>(static_cast<const D*>(this))->init_impl(); init_ = true; }
+    }
+};
+
+struct Repo : LazyInit<Repo> {
+    int data_{};
+    void init_impl(){ data_ = 123; }
+    int get(){ ensure(); return data_; }
+};
+
+int main(){ Repo r; cout << r.get() << "\n"; }
+#+end_src
+
+  3. Encadeamento com policies orthogonais:
+#+begin_src cpp
+// arquivo: crtp_ex42_policy_chain.cpp
+#include <iostream>
+#include <string>
+using namespace std;
+
+template <typename D>
+struct TrimPolicy {
+    D& trim(){ static_cast<D*>(this)->trim_impl(); return *static_cast<D*>(this); }
+};
+
+template <typename D>
+struct UpperPolicy {
+    D& upper(){ static_cast<D*>(this)->upper_impl(); return *static_cast<D*>(this); }
+};
+
+struct S : TrimPolicy<S>, UpperPolicy<S> {
+    string s;
+    void trim_impl(){
+        while(!s.empty() && isspace((unsigned char)s.front())) s.erase(s.begin());
+        while(!s.empty() && isspace((unsigned char)s.back())) s.pop_back();
+    }
+    void upper_impl(){ for(auto& c:s) c = char(toupper((unsigned char)c)); }
+};
+
+int main(){ S x{"  hello  "}; x.trim().upper(); cout << x.s << "\n"; }
+#+end_src
+
+  4. Reuso de CRTP para reutilizar “contratos” sem duplicar implementações:
+#+begin_src cpp
+// arquivo: crtp_ex43_contract_reuse.cpp
+#include <concepts>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+concept HasStep = requires(D d){ d.step(); };
+
+template <HasStep D>
+struct StepRunner {
+    void runN(int n){ while(n--) static_cast<D*>(this)->step(); }
+};
+
+struct Counter : StepRunner<Counter> {
+    int v{};
+    void step(){ ++v; }
+};
+
+int main(){ Counter c; c.runN(5); cout << c.v << "\n"; }
+#+end_src
+
+  5. CRTP e move-only types:
+#+begin_src cpp
+// arquivo: crtp_ex44_move_only.cpp
+#include <memory>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct MoveBase {
+    unique_ptr<int> up_;
+    D& set_unique(int x){ up_ = make_unique<int>(x); return *static_cast<D*>(this); }
+    int get() const { return up_ ? *up_ : -1; }
+};
+
+struct Obj : MoveBase<Obj> {};
+
+int main(){ Obj o; o.set_unique(7); cout << o.get() << "\n"; }
+#+end_Ssrc
+
+** Adaptadores de iteradores com CRTP (esqueleto didático)
+
+Iteradores “caseiros” precisam implementar um conjunto de operações. Podemos usar CRTP para gerar operadores padrão a partir de um núcleo mínimo definido no derivado.
+
+#+begin_src cpp
+// arquivo: crtp_ex45_iter_crtp.cpp
+#include <iterator>
+#include <cstddef>
+#include <iostream>
+using namespace std;
+
+template <typename D, typename T>
+struct FwdIterBase {
+    // Convenções: o derivado deve fornecer:
+    // - void inc()
+    // - T& deref()
+    // - bool eq(const D&) const
+    // - D clone() const (opcional, aqui usamos cópia padrão)
+
+    D& self() { return *static_cast<D*>(this); }
+    const D& self() const { return *static_cast<const D*>(this); }
+
+    // typedefs básicos (C++17/20 costumam inferir via iterator_traits)
+    using value_type = T;
+    using difference_type = std::ptrdiff_t;
+    using iterator_category = std::forward_iterator_tag;
+    using reference = T&;
+    using pointer = T*;
+
+    D& operator++() { self().inc(); return self(); }
+    D operator++(int) { D tmp = self(); self().inc(); return tmp; }
+    T& operator*() { return self().deref(); }
+    const T& operator*() const { return self().deref(); }
+    T* operator->() { return &self().deref(); }
+    const T* operator->() const { return &self().deref(); }
+
+    friend bool operator==(const D& a, const D& b){ return a.eq(b); }
+    friend bool operator!=(const D& a, const D& b){ return !(a==b); }
+};
+
+// Um iterador simples sobre um array (ponteiro + tamanho) só para ilustração
+template <typename T>
+struct ArrIter : FwdIterBase<ArrIter<T>, T> {
+    T* p{}; T* end_{};
+    ArrIter() = default;
+    ArrIter(T* first, T* last): p(first), end_(last) {}
+    void inc(){ if (p != end_) ++p; }
+    T& deref(){ return *p; }
+    bool eq(const ArrIter& o) const { return p == o.p; }
+};
+
+int main(){
+    int a[3] = {1,2,3};
+    ArrIter<int> it(a, a+3), last(a+3, a+3);
+    for(; it != last; ++it) std::cout << *it << " ";
+    std::cout << "\n";
+}
+#+end_src
+
+Pontos: este é um esqueleto didático. Para iteradores de produção, siga rigorosamente os requisitos de Iterator e use std::iterator_traits, concepts (std::input_iterator, etc.), além de testes extensos.
+
+** Uma “view” transform simples com CRTP
+
+CRTP pode ajudar a padronizar a interface de “views” (faixas não-donas) com transformação elementar.
+
+#+begin_src cpp
+// arquivo: crtp_ex46_transform_view.cpp
+#include <vector>
+#include <iostream>
+#include <functional>
+using namespace std;
+
+template <typename D>
+struct ViewBase {
+    const D& self() const { return *static_cast<const D*>(this); }
+    size_t size() const { return self().size_impl(); }
+    auto operator[](size_t i) const { return self()[i]; } // delega para impl
+};
+
+template <typename R, typename F>
+struct TransformView : ViewBase<TransformView<R,F>> {
+    const R* r_; F f_;
+    TransformView(const R& r, F f): r_(&r), f_(std::move(f)) {}
+    size_t size_impl() const { return r_->size(); }
+    auto operator[](size_t i) const { return f_((*r_)[i]); }
+};
+
+int main(){
+    vector<int> v{1,2,3,4};
+    auto square = [](int x){ return x*x; };
+    TransformView tv(v, square);
+    for (size_t i=0;i<tv.size();++i) cout << tv[i] << " ";
+    cout << "\n";
+}
+#+end_src
+
+A base ViewBase dá uma interface uniforme. O derivado fornece a “impl” concreta.
+
+** Padrão híbrido: CRTP + “fallback” dinâmico
+
+Em alguns cenários, você quer um caminho rápido estático quando conhece o tipo e um fallback dinâmico para heterogeneidade.
+
+#+begin_src cpp
+// arquivo: crtp_ex47_hibrido.cpp
+#include <iostream>
+#include <memory>
+using namespace std;
+
+template <typename D>
+struct DrawStatic {
+    void draw_fast() const { static_cast<const D*>(this)->draw_impl(); }
+};
+
+struct Square : DrawStatic<Square> { void draw_impl() const { cout << "[]\n"; } };
+struct Circle : DrawStatic<Circle> { void draw_impl() const { cout << "o\n"; } };
+
+// Fallback dinâmico
+struct Drawable {
+    virtual ~Drawable() = default;
+    virtual void draw() const = 0;
+};
+
+template <typename T>
+struct DrawableModel : Drawable {
+    T obj;
+    DrawableModel(T t): obj(std::move(t)) {}
+    void draw() const override { obj.draw_fast(); }
+};
+
+int main(){
+    // Caminho estático:
+    Square s; s.draw_fast();
+
+    // Fallback dinâmico:
+    unique_ptr<Drawable> p = make_unique<DrawableModel<Circle>>(Circle{});
+    p->draw();
+}
+#+end_src
+
+Assim, o miolo performático é estático; o “cap” dinâmico só envolve quando necessário.
+
+** Migração gradual de virtual → CRTP
+
+Crie uma base virtual legada e uma base CRTP nova que implementa a mesma interface; então, um adaptador concreta faz ponte.
+
+#+begin_src cpp
+// arquivo: crtp_ex48_migracao.cpp
+#include <iostream>
+#include <memory>
+using namespace std;
+
+struct LegacyBase {
+    virtual ~LegacyBase()=default;
+    virtual void run() = 0;
+};
+
+template <typename D>
+struct NewBase {
+    void run(){ static_cast<D*>(this)->run_impl(); }
+};
+
+struct Algo : NewBase<Algo>, LegacyBase {
+    void run_impl(){ cout << "run_impl rapido\n"; }
+    void run() override { run_impl(); } // ponte para legado
+};
+
+unique_ptr<LegacyBase> make_legacy() {
+    return std::make_unique<Algo>();
+}
+
+int main(){
+    // Novo estilo (estático):
+    Algo a; a.run();
+
+    // Legado (dinâmico), mesma implementação:
+    auto p = make_legacy();
+    p->run();
+}
+#+end_src
+
+Isso permite conviver com o legado enquanto migra consumidores para a interface estática.
+
+** Compondo mixins a partir de uma lista (metaprogramação leve)
+
+Podemos “reduzir” uma lista de mixins para gerar uma classe composta, tudo em headers.
+
+#+begin_src cpp
+// arquivo: crtp_ex49_compose_mixins.cpp
+#include <iostream>
+using namespace std;
+
+template <template <typename> class... Mixins>
+struct Compose;
+
+template <template <typename> class M, template <typename> class... Rest>
+struct Compose<M, Rest...> {
+    template <typename D>
+    struct type : M<typename Compose<Rest...>::template type<D>> {};
+};
+
+template <>
+struct Compose<> {
+    template <typename D>
+    struct type { /* vazio */ };
+};
+
+// Exemplo de mixins:
+template <typename D>
+struct Hello {
+    void hello(){ cout << "hello "; }
+};
+
+template <typename D>
+struct World {
+    void world(){ cout << "world\n"; }
+};
+
+// Cria uma classe concreta compondo mixins
+struct Greeter : Compose<Hello, World>::type<Greeter> {
+    // Pode usar métodos dos mixins
+};
+
+int main(){
+    Greeter g;
+    g.hello(); g.world();
+}
+#+end_src
+
+Em projetos grandes, isso ajuda a montar “tipos de produto” a partir de blocos ortogonais.
+
+** CRTP com NTTP (non-type template parameters) para configurar comportamento
+
+Parâmetros não-tipo calibram a base em compile-time.
+
+#+begin_src cpp
+// arquivo: crtp_ex50_nttp_config.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D, int Scale>
+struct Scaled {
+    int scaled(int x) const { return static_cast<const D*>(this)->raw(x) * Scale; }
+};
+
+struct SensorA : Scaled<SensorA, 2> {
+    int raw(int x) const { return x + 1; }
+};
+
+struct SensorB : Scaled<SensorB, 5> {
+    int raw(int x) const { return x - 1; }
+};
+
+int main(){
+    SensorA a; SensorB b;
+    cout << a.scaled(10) << " " << b.scaled(10) << "\n"; // 22 45
+}
+#+end_src
+
+NTTPs dão versatilidade sem custo em runtime.
+
+** [\[no_unique_address]] vs EBO com CRTP
+
+C++20 introduz [\[no_unique_address]] que permite otimização similar ao EBO para membros. Compare com mixins CRTP: às vezes, em vez de herdar de um mixin vazio, você usa um membro com esse atributo.
+
+#+begin_src cpp
+// arquivo: crtp_ex51_no_unique_address.cpp
+#include <iostream>
+using namespace std;
+
+struct Empty {};
+
+struct Holder {
+   [[no_unique_address]] Empty e; // pode não ocupar espaço adicional
+    int x;
+};
+
+int main(){
+    cout << sizeof(Empty) << " " << sizeof(Holder) << "\n";
+}
+#+end_src
+
+Quando usar? Se o “comportamento” não precisa ser herdado, um membro com [\[no_unique_address]] pode ser suficiente. Se precisa de interface polimórfica estática (chamar self()), CRTP continua sendo natural.
+
+** Ergonomia: alias para Derived dentro da base
+
+Reduz repetição e melhora legibilidade:
+
+#+begin_src cpp
+// arquivo: crtp_ex52_alias_derived.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct Base {
+    using Derived = D;
+    Derived& self(){ return *static_cast<Derived*>(this); }
+    const Derived& self() const { return *static_cast<const Derived*>(this); }
+
+    void call(){ self().impl(); }
+};
+
+struct X : Base<X> {
+    void impl(){ cout << "ok\n"; }
+};
+
+int main(){ X x; x.call(); }
+#+end_src
+
+Esse padrão também ajuda em depuração e leitura de mensagens de erro.
+
+** Testes de contrato com static_assert
+
+Além de concepts, escreva asserts específicos sobre o “shape” da API do derivado.
+
+#+begin_src cpp
+// arquivo: crtp_ex53_static_contract.cpp
+#include <type_traits>
+#include <utility>
+
+template <typename T>
+using impl_t = decltype(std::declval<T&>().impl());
+
+template <typename T, typename = void>
+struct has_impl : std::false_type {};
+
+template <typename T>
+struct has_impl<T, std::void_t<impl_t<T>>> : std::true_type {};
+
+template <typename D>
+struct Base {
+    void call(){
+        static_assert(has_impl<D>::value, "Derived deve definir impl()");
+        static_cast<D*>(this)->impl();
+    }
+};
+#+end_src
+
+Isso pega regressões cedo, no compile-time.
+
+** Ponto de personalização: CRTP vs ADL
+
+Você pode preferir delegar a implementação a uma função livre encontrada por ADL (customization point), mantendo CRTP como “casca”.
+
+#+begin_src cpp
+// arquivo: crtp_ex54_cpo_adl.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct CpoBase {
+    void run(){ run_impl(*static_cast<D*>(this)); }
+};
+
+// Implementação padrão (namespace default)
+template <typename T>
+void run_impl(T& t){ t.fallback(); }
+
+// Tipo com personalização via ADL em seu namespace
+namespace app {
+struct Task : CpoBase<Task> {
+    void fallback(){ cout << "default\n"; }
+};
+void run_impl(Task&){ cout << "custom via ADL\n"; }
+}
+
+int main(){
+    app::Task t;
+    t.run(); // resolve run_impl(Task&) via ADL
+}
+#+end_src
+
+Vantagem: extensibilidade sem modificar a base.
+
+** Serialização com mixins CRTP (ilustrativo)
+
+Separar “protocolo” de serialização da lógica do tipo:
+
+#+begin_src cpp
+// arquivo: crtp_ex55_serialize_mixin.cpp
+#include <string>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct JsonLike {
+    string to_json() const { return static_cast<const D*>(this)->json_impl(); }
+};
+
+struct User : JsonLike<User> {
+    string name; int id;
+    string json_impl() const {
+        return string("{\"name\":\"") + name + "\",\"id\":" + to_string(id) + "}";
+    }
+};
+
+int main(){
+    User u{"Ana", 7};
+    cout << u.to_json() << "\n";
+}
+#+end_src
+
+Misture com outros mixins (log, contagem, validação) sem custo dinâmico.
+
+** “Final” estático: desestimular heranças além do CRTP planejado
+
+Para evitar “hierarquias profundas” inesperadas, documente que os concretos devem ser final e não servir de base para outros. Em C++11+, você pode marcar a classe derivada como final:
+
+#+begin_src cpp
+// arquivo: crtp_ex56_final_hint.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct Base {
+    void call(){ static_cast<D*>(this)->impl(); }
+};
+
+struct Tool final : Base<Tool> {
+    void impl(){ cout << "ok\n"; }
+};
+
+// struct SubTool : Tool {}; // erro: Tool é final
+
+int main(){ Tool t; t.call(); }
+#+end_src
+
+Isso evita “deslocar” o contrato do CRTP para netos que não foram considerados.
+
+** Controlando bloat de código
+
+  - Centralize implementações em headers apenas quando necessário.
+  - Prefira funções pequenas inline na base CRTP e mova lógica pesada para funções livres reutilizáveis (para compartilhar instâncias).
+  - Consolide templates com parâmetros idênticos; revise deduções desnecessárias.
+  - Avalie -fvisibility, LTO e PGO para reduzir binários.
+
+** Guia rápido de depuração de erros comuns no CRTP
+
+  - “invalid static_cast”: verifique se Derivada herda Base corretamente.
+  - “no member named ‘impl’”: adicione concept/deteção e cheque se o nome está certo (const-qualifiers!).
+  - Ambiguidade em múltiplas bases: qualifique com this-> ou usando MixinX<...>::nome.
+  - Comportamento UB ao acessar Derived antes de construído: evite usar a base antes da conclusão do construtor da derivada para chamar métodos do derivado (ainda não inicializados).
+
+** Exemplo integrado: “pipeline” de texto com políticas, chaining e ADL
+
+Combina CRTP para chaining, policies e ponto de personalização.
+
+#+begin_src cpp
+// arquivo: crtp_ex57_integrated_example.cpp
+#include <string>
+#include <cctype>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct Chain {
+    D& self(){ return *static_cast<D*>(this); }
+    const D& self() const { return *static_cast<const D*>(this); }
+
+    D& trim(){ static_cast<D*>(this)->trim_impl(); return self(); }
+    D& lower(){ static_cast<D*>(this)->lower_impl(); return self(); }
+    D& custom(){ customize(self()); return self(); } // CPO via ADL
+};
+
+// CPO default
+template <typename T>
+void customize(T& t){ t.default_custom(); }
+
+struct Text : Chain<Text> {
+    string s;
+    explicit Text(string v): s(std::move(v)) {}
+    void trim_impl(){
+        while(!s.empty() && isspace((unsigned char)s.front())) s.erase(s.begin());
+        while(!s.empty() && isspace((unsigned char)s.back())) s.pop_back();
+    }
+    void lower_impl(){ for (auto& c: s) c = char(tolower((unsigned char)c)); }
+    void default_custom(){ s += " [default]"; }
+};
+
+// Personalização via ADL no mesmo namespace de FancyText
+namespace app {
+struct FancyText : Chain<FancyText> {
+    string s;
+    explicit FancyText(string v): s(std::move(v)) {}
+    void trim_impl(){
+        while(!s.empty() && isspace((unsigned char)s.front())) s.erase(s.begin());
+        while(!s.empty() && isspace((unsigned char)s.back())) s.pop_back();
+    }
+    void lower_impl(){ for (auto& c: s) c = char(tolower((unsigned char)c)); }
+};
+// ADL customization point
+void customize(FancyText& t){ t.s = "[" + t.s + "]"; }
+}
+
+int main(){
+    Text a{"  Ola CRTP  "};
+    a.trim().lower().custom();
+    cout << a.s << "\n"; // "ola crtp [default]"
+
+    app::FancyText b{"  Ola Mundo  "};
+    b.trim().lower().custom();
+    cout << b.s << "\n"; // "[ola mundo]"
+}
+#+end_src
+
+** Checklist prático (reforço final desta parte)
+  - O conjunto de tipos é conhecido em compile-time? Prefira CRTP.
+  - Precisa de heterogeneidade? Use virtual, type erasure ou std::variant; CRTP pode coexistir como caminho otimizado.
+  - Expresse contratos com concepts e detecção para mensagens claras.
+  - Em múltiplos mixins, trate nomes dependentes com this-> e exponha seletivamente com using.
+  -  Use [\[no_unique_address]] quando o comportamento puder ser membro em vez de herança.
+  - Teste com static_assert e casos compiláveis mínimos.
+  - Meça antes de otimizar: CRTP normalmente ajuda em hot paths.
+
+** CRTP + SIMD: esqueleto com backends estáticos (Scalar e SSE)
+
+CRTP ajuda a expor uma mesma interface estática com diferentes backends (scalar vs. intrínsecos) sem custo virtual. Abaixo, uma Vec4 “caseira” com dois backends: um escalar e outro SSE, selecionados pelo tipo concreto.
+
+#+begin_src cpp
+// arquivo: crtp_ex58_simd_vec4.cpp
+#include <iostream>
+#include <iomanip>
+#ifdef __SSE__
+  #include <immintrin.h> // SSE intrinsics
+#endif
+
+using namespace std;
+
+// Interface comum via CRTP
+template <typename D>
+struct Vec4Base {
+    const D& self() const { return *static_cast<const D*>(this); }
+
+    D add(const D& b) const {
+        D out{};
+        self().add_impl(b, out);
+        return out;
+    }
+    D sub(const D& b) const {
+        D out{};
+        self().sub_impl(b, out);
+        return out;
+    }
+    void print(const char* label) const { self().print_impl(label); }
+};
+
+// Backend escalar: sempre compila
+struct Vec4Scalar : Vec4Base<Vec4Scalar> {
+    float v[4]{};
+    Vec4Scalar() = default;
+    Vec4Scalar(float a,float b,float c,float d){ v[0]=a; v[1]=b; v[2]=c; v[3]=d; }
+
+    void add_impl(const Vec4Scalar& b, Vec4Scalar& out) const {
+        for (int i=0;i<4;++i) out.v[i] = v[i] + b.v[i];
+    }
+    void sub_impl(const Vec4Scalar& b, Vec4Scalar& out) const {
+        for (int i=0;i<4;++i) out.v[i] = v[i] - b.v[i];
+    }
+    void print_impl(const char* label) const {
+        cout << label << ": [" << v[0] << ", " << v[1] << ", " << v[2] << ", " << v[3] << "]\n";
+    }
+};
+
+#ifdef __SSE__
+// Backend SSE: requer suporte SSE do compilador/CPU
+struct Vec4SSE : Vec4Base<Vec4SSE> {
+    __m128 v;
+    Vec4SSE() : v(_mm_setzero_ps()) {}
+    Vec4SSE(float a,float b,float c,float d){ v = _mm_set_ps(d,c,b,a); }
+
+    void add_impl(const Vec4SSE& b, Vec4SSE& out) const {
+        out.v = _mm_add_ps(v, b.v);
+    }
+    void sub_impl(const Vec4SSE& b, Vec4SSE& out) const {
+        out.v = _mm_sub_ps(v, b.v);
+    }
+    void print_impl(const char* label) const {
+        alignas(16) float tmp[4];
+        _mm_store_ps(tmp, v); // ordem: [a,b,c,d] conforme set_ps inverso
+        cout << label << ": [" << tmp[0] << ", " << tmp[1] << ", " << tmp[2] << ", " << tmp[3] << "]\n";
+    }
+};
+#endif
+
+int main(){
+    cout << fixed << setprecision(2);
+
+    // Sempre disponível:
+    Vec4Scalar as(1,2,3,4), bs(10,20,30,40);
+    auto cs = as.add(bs);
+    cs.print("scalar add");
+
+#ifdef __SSE__
+    // Usando SSE quando disponível:
+    Vec4SSE ax(1,2,3,4), bx(10,20,30,40);
+    auto cx = ax.sub(bx);
+    cx.print("sse sub");
+#else
+    cout << "(SSE não disponível nesta compilação)\n";
+#endif
+}
+#+end_src
+
+Ideia‑chave: a interface pública (add/sub/print) está em Vec4Base, e cada backend fornece apenas as “impls” específicas. Você pode especializar mais backends (AVX, NEON) e escolher por tipo sem ifs em runtime.
+
+** Seleção estática de backend via “tag types” e NTTP
+Outra abordagem é passar um “tag” de backend para a classe concreta e usar ele dentro da impl. Mantém a interface estável e permite “switch” em compile‑time.
+
+#+begin_src cpp
+// arquivo: crtp_ex59_simd_tags.cpp
+#include <iostream>
+#ifdef __SSE__
+  #include <immintrin.h>
+#endif
+using namespace std;
+
+struct ScalarTag {};
+struct SseTag  {};
+
+template <typename Tag> struct Vec4; // adiante
+
+template <typename D>
+struct VecBase {
+    const D& self() const { return *static_cast<const D*>(this); }
+    D add(const D& b) const { D out{}; self().add_impl(b, out); return out; }
+};
+
+// Especialização para backend escalar
+template <>
+struct Vec4<ScalarTag> : VecBase<Vec4<ScalarTag>> {
+    float v[4]{};
+    Vec4() = default;
+    Vec4(float a,float b,float c,float d){ v[0]=a; v[1]=b; v[2]=c; v[3]=d; }
+    void add_impl(const Vec4& b, Vec4& out) const { for(int i=0;i<4;++i) out.v[i]=v[i]+b.v[i]; }
+    void print() const { cout << "["<<v[0]<<","<<v[1]<<","<<v[2]<<","<<v[3]<<"]\n"; }
+};
+
+#ifdef __SSE__
+// Especialização para backend SSE
+template <>
+struct Vec4<SseTag> : VecBase<Vec4<SseTag>> {
+    __m128 v;
+    Vec4(): v(_mm_setzero_ps()){}
+    Vec4(float a,float b,float c,float d){ v = _mm_set_ps(d,c,b,a); }
+    void add_impl(const Vec4& b, Vec4& out) const { out.v = _mm_add_ps(v, b.v); }
+    void print() const { alignas(16) float t[4]; _mm_store_ps(t, v); cout << "["<<t[0]<<","<<t[1]<<","<<t[2]<<","<<t[3]<<"]\n"; }
+};
+#endif
+
+int main(){
+    Vec4<ScalarTag> a(1,2,3,4), b(10,20,30,40);
+    auto c = a.add(b); c.print();
+
+#ifdef __SSE__
+    Vec4<SseTag> x(1,2,3,4), y(10,20,30,40);
+    auto z = x.add(y); z.print();
+#endif
+}
+#+end_src
+
+Com “tags”, você organiza variações por tipo, evitando #ifdef dentro da interface.
+
+** CRTP com módulos (C++20): organização e tempos de build
+
+Módulos ajudam a reduzir tempos de compilação e melhorar encapsulamento. O CRTP funciona bem em módulos; apenas lembre que templates exportados precisam estar visíveis onde usados. Abaixo, um exemplo mínimo de módulo com CRTP.
+
+#+begin_src cpp
+// arquivo: crtp_ex60_module_iface.ixx  (interface do módulo, MSVC/Clang/GCC modernos)
+// compilar com: /std:c++20 /interface (MSVC) ou -std=c++20 -fmodules-ts conforme o compilador
+
+export module crtp.vec;
+
+// Exporta uma base CRTP e um tipo concreto simples
+export template <typename D>
+struct Ops {
+    void call(){ static_cast<D*>(this)->impl(); }
+};
+
+export struct V : Ops<V> {
+    void impl();
+};
+#+end_src
+
+#+begin_src cpp
+// arquivo: crtp_ex60_module_impl.cpp  (implementação do módulo)
+module crtp.vec;
+#include <iostream>
+
+void V::impl(){
+    std::cout << "V::impl via CRTP em módulo\n";
+}
+#+end_src
+
+#+begin_src cpp
+// arquivo: crtp_ex60_module_use.cpp  (consumidor do módulo)
+import crtp.vec;
+
+int main(){
+    V v; v.call();
+}
+#+end_src
+
+Detalhes de build variam por compilador/IDE. A mensagem principal: CRTP e módulos são compatíveis; você exporta a base e os tipos concretos como de costume.
+
+** Mini‑projeto: pipeline de imagem com mixins CRTP (crop, normalização, convolução)
+
+Vamos compor um pipeline simples: Image armazena pixels; mixins adicionam operações encadeáveis (trim/normalize/convolve). É didático e não otimizado, mas mostra a orquestração.
+
+#+begin_src cpp
+// arquivo: crtp_ex61_image_pipeline.cpp
+#include <vector>
+#include <iostream>
+#include <algorithm>
+#include <cstddef>
+#include <cassert>
+using namespace std;
+
+// Base de chaining
+template <typename D>
+struct Chain {
+    D& self(){ return *static_cast<D*>(this); }
+    const D& self() const { return *static_cast<const D*>(this); }
+};
+
+// Mixin: recorte (crop)
+template <typename D>
+struct CropMixin : Chain<D> {
+    D& crop(size_t x0, size_t y0, size_t w, size_t h){
+        this->self().crop_impl(x0,y0,w,h);
+        return this->self();
+    }
+};
+
+// Mixin: normalização [0,1]
+template <typename D>
+struct NormalizeMixin : Chain<D> {
+    D& normalize(){
+        this->self().normalize_impl();
+        return this->self();
+    }
+};
+
+// Mixin: convolução 3x3 simples
+template <typename D>
+struct ConvolutionMixin : Chain<D> {
+    D& convolve3x3(const float k[9]){
+        this->self().convolve3x3_impl(k);
+        return this->self();
+    }
+};
+
+struct Image : CropMixin<Image>, NormalizeMixin<Image>, ConvolutionMixin<Image> {
+    size_t W{}, H{};
+    vector<float> pix; // uma banda [0..1] para simplificar
+
+    Image(size_t w, size_t h) : W(w), H(h), pix(w*h, 0.0f) {}
+
+    float& at(size_t x, size_t y){ return pix[y*W + x]; }
+    const float& at(size_t x, size_t y) const { return pix[y*W + x]; }
+
+    void crop_impl(size_t x0, size_t y0, size_t w, size_t h){
+        assert(x0+w <= W && y0+h <= H);
+        vector<float> npix(w*h);
+        for(size_t y=0;y<h;++y)
+            for(size_t x=0;x<w;++x)
+                npix[y*w + x] = at(x0+x, y0+y);
+        W = w; H = h; pix.swap(npix);
+    }
+
+    void normalize_impl(){
+        auto [mn_it, mx_it] = minmax_element(pix.begin(), pix.end());
+        float mn = *mn_it, mx = *mx_it;
+        if (mx > mn){
+            float inv = 1.0f / (mx - mn);
+            for (auto& p : pix) p = (p - mn) * inv;
+        }
+    }
+
+    void convolve3x3_impl(const float k[9]){
+        if (W < 3 || H < 3) return;
+        vector<float> out = pix;
+        auto idx = [&](size_t x,size_t y){ return y*W + x; };
+        for(size_t y=1;y<H-1;++y){
+            for(size_t x=1;x<W-1;++x){
+                float sum=0.0f;
+                sum += pix[idx(x-1,y-1)]*k[0]; sum += pix[idx(x,y-1)]*k[1]; sum += pix[idx(x+1,y-1)]*k[2];
+                sum += pix[idx(x-1,y  )]*k[3]; sum += pix[idx(x,y  )]*k[4]; sum += pix[idx(x+1,y  )]*k[5];
+                sum += pix[idx(x-1,y+1)]*k[6]; sum += pix[idx(x,y+1)]*k[7]; sum += pix[idx(x+1,y+1)]*k[8];
+                out[idx(x,y)] = sum;
+            }
+        }
+        pix.swap(out);
+    }
+
+    void print_sample(size_t n=10) const {
+        // imprime os primeiros n pixels como amostra
+        for(size_t i=0;i<min(n, pix.size()); ++i) cout << pix[i] << ' ';
+        cout << "\n";
+    }
+};
+
+int main(){
+    Image img(5,5);
+    // cria um gradiente simples
+    for(size_t y=0;y<5;++y) for(size_t x=0;x<5;++x) img.at(x,y) = float(x + y);
+
+    cout << "orig:\n"; img.print_sample();
+
+    const float sharpen[9] = {
+         0,-1, 0,
+        -1, 5,-1,
+         0,-1, 0
+    };
+    img.crop(1,1,3,3).convolve3x3(sharpen).normalize();
+
+    cout << "proc:\n"; img.print_sample();
+}
+#+end_src
+
+O encadeamento fluido vem dos mixins CRTP. Você pode adicionar outros mixins (blur, threshold, equalize) sem custo virtual.
+
+** Policy‑based design com CRTP: Log, Erro e Sincronização
+
+CRTP permite montar “políticas” ortogonais que definem como uma classe concreta se comporta: como loga, como trata erro, como sincroniza. A composição é em compile‑time e sem vtable.
+
+#+begin_src cpp
+// arquivo: crtp_ex62_policies.cpp
+#include <iostream>
+#include <mutex>
+#include <optional>
+#include <string>
+using namespace std;
+
+// Log policies
+template <typename D>
+struct LogSilent {
+    void log(const string&) const {}
+};
+
+template <typename D>
+struct LogStdout {
+    void log(const string& s) const { cout << "[LOG] " << s << "\n"; }
+};
+
+// Error policies
+template <typename D>
+struct ErrorThrow {
+    template <typename... Args>
+    void ensure(bool ok, Args&&... msg) const {
+        if(!ok) throw runtime_error((... + msg)); // concat ingênuo
+    }
+};
+
+template <typename D>
+struct ErrorStatus {
+    mutable optional<string> last_error;
+    template <typename... Args>
+    bool ensure(bool ok, Args&&... msg) const {
+        if(!ok){ last_error = (... + msg); }
+        return ok;
+    }
+};
+
+// Sync policies
+template <typename D>
+struct NoSync {
+    struct Guard { Guard(const D&){} };
+    Guard guard() const { return Guard(static_cast<const D&>(*this)); }
+};
+
+template <typename D>
+struct MutexSync {
+    mutable std::mutex m;
+    struct Guard {
+        const D& d;
+        Guard(const D& dd): d(dd) { const_cast<std::mutex&>(d.m).lock(); }
+        ~Guard(){ const_cast<std::mutex&>(d.m).unlock(); }
+    };
+    Guard guard() const { return Guard(static_cast<const D&>(*this)); }
+};
+
+// Composição: a ordem importa se houver dependências; aqui são ortogonais
+template <template <typename> class LogP,
+          template <typename> class ErrP,
+          template <typename> class SyncP>
+struct Resource : LogP<Resource<LogP,ErrP,SyncP>>,
+                  ErrP<Resource<LogP,ErrP,SyncP>>,
+                  SyncP<Resource<LogP,ErrP,SyncP>> {
+
+    using Self = Resource<LogP,ErrP,SyncP>;
+    int value{0};
+
+    bool set_nonneg(int v){
+        auto g = this->guard(); // da policy de sync
+        this->log("set_nonneg called");
+        if constexpr (std::is_same_v<ErrP<Self>, ErrorThrow<Self>>) {
+            this->ensure(v >= 0, "value must be non-negative");
+            value = v;
+            return true;
+        } else {
+            if (!this->ensure(v >= 0, "value must be non-negative")) return false;
+            value = v; return true;
+        }
+    }
+};
+
+int main(){
+    // Variante que lança exceções e não sincroniza:
+    Resource<LogStdout, ErrorThrow, NoSync> R1;
+    R1.set_nonneg(7);
+
+    // Variante que retorna status e sincroniza com mutex, silenciosa:
+    Resource<LogSilent, ErrorStatus, MutexSync> R2;
+    if (!R2.set_nonneg(-1)) {
+        std::cout << "error: " << *R2.last_error << "\n";
+    }
+}
+#+end_src
+
+Trocar as políticas muda comportamento global sem alterar a lógica principal. Tudo resolvido em compile‑time, sem custo de indireção.
+
+** Estratégias de sincronização mais ricas como policies CRTP
+
+Você pode implementar uma policy de RW‑lock, um “spinlock” ou um escopo vazio para cenários single‑thread. O padrão se mantém: a base concreta chama guard() e confia que a policy implementa o protocolo.
+
+#+begin_src cpp
+// arquivo: crtp_ex63_rwlock_policy.cpp
+#include <shared_mutex>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct RWLock {
+    mutable std::shared_mutex mx;
+    struct ReadGuard {
+        const D& d; ReadGuard(const D& dd): d(dd){ d.mx.lock_shared(); }
+        ~ReadGuard(){ d.mx.unlock_shared(); }
+    };
+    struct WriteGuard {
+        const D& d; WriteGuard(const D& dd): d(dd){ d.mx.lock(); }
+        ~WriteGuard(){ d.mx.unlock(); }
+    };
+    ReadGuard rguard() const { return ReadGuard(static_cast<const D&>(*this)); }
+    WriteGuard wguard() const { return WriteGuard(static_cast<const D&>(*this)); }
+};
+
+struct Counter : RWLock<Counter> {
+    int v{};
+    void inc(){ auto g = this->wguard(); ++v; }
+    int  read() const { auto g = this->rguard(); return v; }
+};
+
+int main(){
+    Counter c; c.inc(); cout << c.read() << "\n";
+}
+#+end_src
+
+** Integração com logging estruturado e CPO
+
+Você pode usar um CPO (customization point) para permitir que usuários adicionem seu próprio mecanismo de log, preservando a interface via CRTP.
+
+#+begin_src cpp
+// arquivo: crtp_ex64_cpo_logging.cpp
+#include <iostream>
+#include <string>
+using namespace std;
+
+template <typename D>
+struct LogCpo {
+    void log(const string& s) const { do_log(*static_cast<const D*>(this), s); }
+};
+
+template <typename T>
+void do_log(const T&, const string& s){ cout << "[default] " << s << "\n"; }
+
+namespace app {
+struct S : LogCpo<S> {};
+void do_log(const S&, const string& s){ cout << "[app] " << s << "\n"; }
+}
+
+int main(){
+    LogCpo<int> x; x.log("hello");      // default
+    app::S s; s.log("hello");           // app
+}
+#+end_src
+
+** Serialização/Deserialização com policies
+
+Misture uma policy que sabe “como” serializar, separando o formato do tipo de dado.
+
+#+begin_src cpp
+// arquivo: crtp_ex65_serde_policies.cpp
+#include <string>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct JsonPolicy {
+    string dump() const { return static_cast<const D*>(this)->to_json_impl(); }
+};
+
+template <typename D>
+struct CsvPolicy {
+    string dump() const { return static_cast<const D*>(this)->to_csv_impl(); }
+};
+
+template <template <typename> class SerdeP>
+struct Record : SerdeP<Record<SerdeP>> {
+    string name; int id{};
+    string to_json_impl() const { return string("{\"name\":\"") + name + "\",\"id\":" + to_string(id) + "}"; }
+    string to_csv_impl()  const { return name + "," + to_string(id); }
+};
+
+int main(){
+    Record<JsonPolicy> a{"Ana", 7};
+    Record<CsvPolicy>  b{"Bob", 9};
+    cout << a.dump() << "\n";
+    cout << b.dump() << "\n";
+}
+#+end_src
+
+A mesma estrutura de dados ganha várias “faces” de serialização sem herança virtual.
+
+** Guia prático de migração em código real
+
+O roteiro comum:
+  1. Identifique a hierarquia virtual onde os tipos são conhecidos em compile‑time nos call sites críticos.
+  2. Escreva bases CRTP espelhando a interface pública necessária (call/area/run/etc.).
+  3. Crie adaptadores para manter compatibilidade com o mundo dinâmico enquanto consumidores são migrados.
+  4. Troque chamadas quentes para a interface estática; meça ganhos.
+  5. Itere, extraindo políticas em mixins onde houver padrões repetidos (erro, log, sync).
+
+O cuidado importante: não se esqueça de revisitar mensagens de erro e contratos. Concept bem escrito vale ouro na fase de transição.
+
+** Considerações de desempenho e “tamanho de código”
+
+CRTP, ao permitir inlining agressivo, pode aumentar tamanho de código se muitas instâncias de templates forem geradas. Controle isso:
+  - Evite duplicar grandes corpos de função em headers; mova trechos para funções não‑templated quando possível.
+  - Use PGO e LTO para reduzir duplicação e alinhar decisões de inline com o perfil real.
+  - Consolide “tags” e backends para evitar explosão combinatória de tipos.
+
+** Testabilidade e manutenção
+
+  - Escreva “microalvos” compiláveis para cada mixin/base (como neste tutorial).
+  - Use static_assert/detection/concepts para prender regressões de interface.
+  - Prefira nomes consistentes: interface() na base, impl() no derivado; ou outra convenção clara.
+  - Documente o contrato esperado na base (o que o derivado deve prover).
+  - Em políticas, mantenha cada mixin pequeno, coeso e com responsabilidade única.
+
+** Encerramento desta parte
+Você viu como CRTP combina muito bem com:
+  - intrínsecos/SIMD para caminhos críticos sem virtual,
+  - módulos para organizar melhor interfaces,
+  - pipelines encadeáveis em domínios como processamento de imagem,
+  - e designs baseados em políticas para variar comportamento sem custo dinâmico.
+
+** Views com CRTP: uma ZipView e uma FilterView didáticas
+
+Vamos montar duas views simples usando CRTP para padronizar a interface. O foco é didático: iteradores e corner cases foram simplificados.
+
+#+begin_src cpp
+// arquivo: crtp_ex66_views.cpp
+#include <vector>
+#include <iostream>
+#include <utility>
+#include <cstddef>
+using namespace std;
+
+// Base de View com interface comum
+template <typename D>
+struct ViewBase {
+    const D& self() const { return *static_cast<const D*>(this); }
+    size_t size() const { return self().size_impl(); }
+    // operador [] é delegação ao derivado
+    decltype(auto) operator[](size_t i) const { return self().at_impl(i); }
+};
+
+// ZipView: combina dois ranges por índice
+template <typename A, typename B>
+struct ZipView : ViewBase<ZipView<A,B>> {
+    const A* a_; const B* b_;
+    ZipView(const A& a, const B& b): a_(&a), b_(&b) {}
+    size_t size_impl() const { return std::min(a_->size(), b_->size()); }
+    auto at_impl(size_t i) const { return std::pair((*a_)[i], (*b_)[i]); }
+};
+
+// FilterView: filtra por predicado; para simplificar, reusa índices válidos
+template <typename R, typename P>
+struct FilterView : ViewBase<FilterView<R,P>> {
+    const R* r_; P pred_;
+    mutable vector<size_t> idx_; // lazy build
+    FilterView(const R& r, P p): r_(&r), pred_(std::move(p)) {}
+    void ensure() const {
+        if (!idx_.empty()) return;
+        for (size_t i=0;i<r_->size();++i) if (pred_((*r_)[i])) idx_.push_back(i);
+    }
+    size_t size_impl() const { ensure(); return idx_.size(); }
+    decltype(auto) at_impl(size_t i) const { ensure(); return (*r_)[idx_[i]]; }
+};
+
+int main(){
+    vector<int> a{1,2,3,4};
+    vector<char> b{'a','b','c','d'};
+    ZipView zv(a,b);
+    for (size_t i=0;i<zv.size();++i){
+        auto [x,y] = zv[i];
+        cout << x << ":" << y << " ";
+    }
+    cout << "\n";
+
+    auto even = [](int x){ return x%2==0; };
+    FilterView fv(a, even);
+    for (size_t i=0;i<fv.size();++i) cout << fv[i] << " ";
+    cout << "\n";
+}
+#+end_src
+
+A base ViewBase define um contrato estático claro: size() delega para size_impl() e operator[] delega para at_impl(). Zip e Filter implementam apenas o essencial.
+
+**  Mais backends SIMD (AVX/NEON) e seleção em compile-time
+
+Um padrão útil é definir um “traits” de arquitetura e usar if constexpr para escolher intrínsecos, mantendo CRTP para a interface.
+
+#+begin_src cpp
+// arquivo: crtp_ex67_simd_traits.cpp
+#include <iostream>
+#if defined(__AVX__)
+  #include <immintrin.h>
+#elif defined(__ARM_NEON)
+  #include <arm_neon.h>
+#endif
+using namespace std;
+
+struct ArchScalar{};
+struct ArchAVX{};
+struct ArchNEON{};
+
+#if defined(__AVX__)
+using DefaultArch = ArchAVX;
+#elif defined(__ARM_NEON)
+using DefaultArch = ArchNEON;
+#else
+using DefaultArch = ArchScalar;
+#endif
+
+template <typename D>
+struct VecBase {
+    const D& self() const { return *static_cast<const D*>(this); }
+    D add(const D& b) const { D out{}; self().add_impl(b,out); return out; }
+    void print(const char* label) const { self().print_impl(label); }
+};
+
+template <typename Arch>
+struct Vec4 : VecBase<Vec4<Arch>> {
+    float v[4]{};
+    Vec4() = default;
+    Vec4(float a,float b,float c,float d){ v[0]=a; v[1]=b; v[2]=c; v[3]=d; }
+
+    void add_impl(const Vec4& other, Vec4& out) const {
+        if constexpr (std::is_same_v<Arch, ArchAVX>) {
+#if defined(__AVX__)
+            __m128 A = _mm_loadu_ps(v);
+            __m128 B = _mm_loadu_ps(other.v);
+            __m128 C = _mm_add_ps(A,B);
+            _mm_storeu_ps(out.v, C);
+#else
+            // fallback de compilação se AVX não disponível
+            for(int i=0;i<4;++i) out.v[i]=v[i]+other.v[i];
+#endif
+        } else if constexpr (std::is_same_v<Arch, ArchNEON>) {
+#if defined(__ARM_NEON)
+            float32x4_t A = vld1q_f32(v);
+            float32x4_t B = vld1q_f32(other.v);
+            float32x4_t C = vaddq_f32(A,B);
+            vst1q_f32(out.v, C);
+#else
+            for(int i=0;i<4;++i) out.v[i]=v[i]+other.v[i];
+#endif
+        } else {
+            for(int i=0;i<4;++i) out.v[i]=v[i]+other.v[i];
+        }
+    }
+
+    void print_impl(const char* label) const {
+        cout << label << ": ["<<v[0]<<","<<v[1]<<","<<v[2]<<","<<v[3]<<"]\n";
+    }
+};
+
+int main(){
+    Vec4<DefaultArch> a(1,2,3,4), b(10,20,30,40);
+    auto c = a.add(b);
+    c.print("add");
+}
+#+end_src
+
+Dessa forma, você compila uma única vez e o compilador escolhe o caminho adequado para a plataforma-alvo, mantendo a interface estática via CRTP.
+
+** Mini‑framework “end‑to‑end”: componentes com policies (log/erro/sync) e serialização
+
+Integramos várias ideias: CRTP para compor comportamento, policies para log/erro/sync e serialização configurável.
+
+#+begin_src cpp
+// arquivo: crtp_ex68_framework.cpp
+#include <iostream>
+#include <string>
+#include <optional>
+#include <mutex>
+using namespace std;
+
+// Policies de log
+template <typename D>
+struct LogSilent { void log(const string&) const {} };
+
+template <typename D>
+struct LogStdout { void log(const string& s) const { cout << "[LOG] " << s << "\n"; } };
+
+// Policies de erro
+template <typename D>
+struct ErrorThrow {
+    void check(bool ok, const string& msg) const { if(!ok) throw runtime_error(msg); }
+};
+
+template <typename D>
+struct ErrorStatus {
+    mutable optional<string> err;
+    bool check(bool ok, const string& msg) const { if(!ok) err=msg; return ok; }
+};
+
+// Policies de sync
+template <typename D>
+struct NoSync { struct Guard{ Guard(const D&){} }; Guard guard() const { return Guard(static_cast<const D&>(*this)); } };
+
+template <typename D>
+struct MutexSync {
+    mutable mutex m;
+    struct Guard { const D& d; Guard(const D& dd):d(dd){ const_cast<mutex&>(d.m).lock(); } ~Guard(){ const_cast<mutex&>(d.m).unlock(); } };
+    Guard guard() const { return Guard(static_cast<const D&>(*this)); }
+};
+
+// Policy de serialização
+template <typename D>
+struct JsonSerde {
+    string dump() const { return static_cast<const D*>(this)->to_json_impl(); }
+};
+
+// Componente base
+template <template <typename> class LogP,
+          template <typename> class ErrP,
+          template <typename> class SyncP,
+          template <typename> class SerdeP>
+struct Component : LogP<Component<LogP,ErrP,SyncP,SerdeP>>,
+                   ErrP<Component<LogP,ErrP,SyncP,SerdeP>>,
+                   SyncP<Component<LogP,ErrP,SyncP,SerdeP>>,
+                   SerdeP<Component<LogP,ErrP,SyncP,SerdeP>> {
+    using Self = Component<LogP,ErrP,SyncP,SerdeP>;
+    string name; int value{};
+
+    bool set_value(int v){
+        auto g = this->guard();
+        this->log("set_value");
+        if constexpr (std::is_same_v<ErrP<Self>, ErrorThrow<Self>>) {
+            this->check(v>=0, "negativo");
+            value = v;
+            return true;
+        } else {
+            if (!this->check(v>=0, "negativo")) return false;
+            value = v; return true;
+        }
+    }
+
+    string to_json_impl() const { return string("{\"name\":\"")+name+"\",\"value\":"+to_string(value)+"}"; }
+};
+
+// Entidade que compõe múltiplos componentes
+struct Entity {
+    Component<LogStdout, ErrorThrow, NoSync, JsonSerde> health;
+    Component<LogSilent, ErrorStatus, MutexSync, JsonSerde> mana;
+};
+
+int main(){
+    Entity e;
+    e.health.name = "HP";
+    e.mana.name = "MP";
+
+    e.health.set_value(100);
+    if (!e.mana.set_value(-5)) {
+        // não lançará, mas err é setado
+    }
+
+    cout << e.health.dump() << "\n";
+    cout << e.mana.dump() << "\n";
+}
+#+end_src
+
+A troca de policies altera profundamente o comportamento sem custo dinâmico e sem mudar a lógica central.
+
+** Strong types com CRTP e Barton–Nackman
+
+Strong types evitam confusões entre valores do mesmo tipo base (ex.: metros vs. segundos). Usamos CRTP para gerar operadores de forma segura.
+
+#+begin_src cpp
+// arquivo: crtp_ex69_strong_type.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D, typename Rep>
+struct Addible {
+    friend D operator+(D a, const D& b){ a.get() += b.get(); return a; }
+    friend D operator-(D a, const D& b){ a.get() -= b.get(); return a; }
+};
+
+template <typename Tag, typename Rep>
+struct Strong : Addible<Strong<Tag,Rep>, Rep> {
+    Rep v{};
+    explicit Strong(Rep x) : v(x) {}
+    Rep& get(){ return v; }
+    const Rep& get() const { return v; }
+};
+
+struct MetersTag {};
+struct SecondsTag {};
+
+using Meters = Strong<MetersTag, double>;
+using Seconds = Strong<SecondsTag, double>;
+
+int main(){
+    Meters d1(3.5), d2(2.0);
+    auto d3 = d1 + d2; // ok
+    cout << d3.get() << "\n";
+
+    // auto bad = d1 + Seconds(1.0); // erro de compilação: tipos distintos
+}
+#+end_src
+
+Basta compor mais mixins (Ordenação, Hash) para enriquecer o strong type.
+
+** Unidades físicas simples com CRTP e NTTP
+
+Um esqueleto de Quantidade com expoentes de base (M, L, T) como parâmetros não‑tipo.
+
+#+begin_src cpp
+// arquivo: crtp_ex70_units.cpp
+#include <type_traits>
+#include <iostream>
+using namespace std;
+
+template <int M, int L, int T>
+struct Dim { // Dimensão física: Mass^M * Length^L * Time^T
+    template <int M2,int L2,int T2>
+    using mul = Dim<M+M2, L+L2, T+T2>;
+    template <int M2,int L2,int T2>
+    using div = Dim<M-M2, L-L2, T-T2>;
+};
+
+template <typename D, typename Rep, typename DimT>
+struct QuantityBase {
+    Rep v;
+    explicit QuantityBase(Rep x): v(x) {}
+    Rep value() const { return v; }
+
+    // Soma/sub só com mesma dimensão
+    friend D operator+(D a, const D& b){ a.v += b.v; return a; }
+    friend D operator-(D a, const D& b){ a.v -= b.v; return a; }
+};
+
+using MassDim = Dim<1,0,0>;
+using LenDim  = Dim<0,1,0>;
+using TimeDim = Dim<0,0,1>;
+using VelDim  = Dim<0,1,-1>; // L/T
+
+struct Kilogram : QuantityBase<Kilogram,double,MassDim> { using QuantityBase::QuantityBase; };
+struct Meter    : QuantityBase<Meter,double,LenDim>    { using QuantityBase::QuantityBase; };
+struct Second   : QuantityBase<Second,double,TimeDim>  { using QuantityBase::QuantityBase; };
+
+struct MeterPerSecond : QuantityBase<MeterPerSecond,double,VelDim> { using QuantityBase::QuantityBase; };
+
+// Multiplicação e divisão gerando novas dimensões (esqueleto)
+template <typename A, typename B>
+auto operator/(const A& a, const B& b){
+    using DimA = typename A::DimT; // Poderíamos expor com using em cada tipo
+    (void)a; (void)b;
+    // Para manter simples, faremos caso concreto:
+    return MeterPerSecond(a.value() / b.value());
+}
+
+int main(){
+    Meter d(10.0);
+    Second t(2.0);
+    auto v = d / t; // 5 m/s
+    cout << v.value() << "\n";
+}
+#+end_src
+
+Para um sistema robusto, generalize DimT via aliases, construa operator*/* com cálculo de dimensões e forneça conversões de unidades (km, h, etc.).
+
+** /call_if_exists/: invocando opcionalmente métodos do derivado
+Às vezes o derivado pode ou não fornecer um método. A base pode tentar chamar “se existir”.
+
+#+begin_src cpp
+// arquivo: crtp_ex71_call_if_exists.cpp
+#include <type_traits>
+#include <utility>
+#include <iostream>
+using namespace std;
+
+template <typename, typename=void>
+struct has_reset : false_type {};
+
+template <typename T>
+struct has_reset<T, std::void_t<decltype(std::declval<T&>().reset())>> : true_type {};
+
+template <typename D>
+struct ResettableBase {
+    void maybe_reset(){
+        if constexpr (has_reset<D>::value) {
+            static_cast<D*>(this)->reset();
+        } else {
+            // não faz nada
+        }
+    }
+};
+
+struct A : ResettableBase<A> {
+    void reset(){ cout << "A::reset\n"; }
+};
+
+struct B : ResettableBase<B> {
+    // sem reset
+};
+
+int main(){
+    A a; a.maybe_reset();
+    B b; b.maybe_reset(); // silencioso
+}
+#+end_src
+
+Com C++20, é comum expressar com requires ou concepts equivalentes.
+
+** Dispatch estático de eventos: tabela de handlers em compile-time
+
+Podemos criar um “dispatcher” com CRTP que chama handle(EventX) se existir.
+
+#+begin_src cpp
+// arquivo: crtp_ex72_static_dispatch.cpp
+#include <type_traits>
+#include <iostream>
+using namespace std;
+
+struct EvStart {};
+struct EvStop  {};
+
+template <typename T, typename Ev, typename=void>
+struct can_handle : false_type {};
+
+template <typename T, typename Ev>
+struct can_handle<T, Ev, std::void_t<decltype(std::declval<T&>().handle(std::declval<Ev>()))>> : true_type {};
+
+template <typename D>
+struct Dispatcher {
+    template <typename Ev>
+    void dispatch(Ev e){
+        if constexpr (can_handle<D,Ev>::value) {
+            static_cast<D*>(this)->handle(e);
+        } else {
+            // default no-op
+        }
+    }
+};
+
+struct Service : Dispatcher<Service> {
+    void handle(EvStart){ cout << "start\n"; }
+    void handle(EvStop) { cout << "stop\n"; }
+};
+
+int main(){
+    Service s;
+    s.dispatch(EvStart{});
+    s.dispatch(EvStop{});
+}
+#+end_src
+
+A vantagem é compor handlers por tipo sem custo de vtable.
+
+**  Armadilha: “diamante” com CRTP e duplicação de base
+
+Herança múltipla pode duplicar subobjetos base. Em CRTP, evite “repetir” a mesma base parametrizada. Se dois mixins dependem de um terceiro, componha através de um “coordenador” para instanciar a base apenas uma vez.
+
+Exemplo do problema:
+#+begin_src cpp
+// arquivo: crtp_ex73_diamond_pitfall.cpp
+template <typename D> struct Base { void f(){} };
+
+template <typename D> struct M1 : Base<D> {};
+template <typename D> struct M2 : Base<D> {};
+
+struct X : M1<X>, M2<X> {
+    // Aqui existem dois subobjetos Base<X>.
+    // Chamar f() pode ficar ambíguo: X::Base<D>::f ?
+};
+#+end_src
+
+Soluções típicas:
+  - Evite essa topologia; reestruture para que apenas um mixin derive de Base, e o outro use composição (ter um membro) ou um alias para expor a API.
+  - Crie um mixin coordenador que herde de Base e exponha serviços para M1/M2 via referência, evitando duplicação.
+
+** Cuidado ao chamar Derived em construtores/destrutores da base
+
+Durante a construção/Destruição, o objeto derivado ainda não está totalmente construído (ou já está parcialmente destruído). Evite chamar métodos de Derived nessas fases via CRTP. Em vez disso, use inicialização tardia explícita (ensure()) ou ganchos que o derivado chame após estar pronto.
+
+#+begin_src cpp
+// arquivo: crtp_ex74_ctor_dtor_caution.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct Base {
+    Base(){
+        // NÃO chame static_cast<D*>(this)->impl() aqui; D ainda não está construído
+    }
+    ~Base(){
+        // Idem para destrutor
+    }
+    void call(){ static_cast<D*>(this)->impl(); }
+};
+
+struct X : Base<X> {
+    int ready = 0;
+    void init(){ ready = 1; }
+    void impl(){ cout << (ready ? "ok\n" : "not ready\n"); }
+};
+
+int main(){
+    X x; x.init(); x.call();
+}
+#+end_src
+
+** CRTP e aggregates: impacto na agregação e inicialização
+
+Herdar de uma base frequentemente faz a classe deixar de ser “aggregate”. Se você depende de inicialização agregada, considere expor construtores simples no derivado ou preferir composição quando a agregação é crucial.
+
+#+begin_src cpp
+// arquivo: crtp_ex75_aggregate.cpp
+struct Agg { int x; int y; }; // aggregate: Agg a{1,2};
+
+template <typename D>
+struct Mixin {};
+
+struct A : Mixin<A> {
+    int x; int y;
+    // Pode deixar de ser aggregate conforme as regras; forneça construtores:
+    A(int X,int Y): x(X), y(Y) {}
+};
+
+int main(){
+    Agg g{1,2};
+    A   a{1,2}; // ok pelo ctor
+}
+#+end_src
+
+** “Reflexão” manual: tie() como base para igualdade/ordenação/print
+
+Sem reflexão padrão, use tie() para padronizar comparações, hashes e até prints.
+
+#+begin_src cpp
+// arquivo: crtp_ex76_tie_pattern.cpp
+#include <tuple>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct EqOrd {
+    auto tie_() const { return static_cast<const D*>(this)->tie(); }
+    friend bool operator==(const D& a, const D& b){ return a.tie_()==b.tie_(); }
+    friend bool operator<(const D& a, const D& b){ return a.tie_()< b.tie_(); }
+};
+
+struct Point : EqOrd<Point> {
+    int x,y;
+    auto tie() const { return std::tie(x,y); }
+};
+
+int main(){
+    Point a{1,2}, b{1,3};
+    cout << (a<b) << "\n";
+}
+#+end_src
+
+** “Kit de primeiros socorros” (mensagens comuns e correções rápidas)
+
+  - invalid static_cast: confira se Derivada herda Base (mesmo tipo).
+  - no member named ‘impl’: confirme assinatura/qualificadores (const vs. não const), use concepts/void_t para mensagens melhores.
+  - referência ambígua em múltiplas bases: qualifique com this-> ou using BaseX::nome.
+  - base duplicada (diamante): reestruture; evite duas instâncias da mesma base CRTP; use composição.
+  - UB por chamar Derived no ctor/dtor da base: evite; use init tardio.
+
+** Organização de código: headers, módulos e tempos de build
+
+  - Coloque implementações CRTP em headers para permitir instanciamento.
+  - Separe lógicas pesadas em funções livres não‑templated para reduzir bloat.
+  - Avalie módulos C++20 para interfaces estáveis e builds mais rápidos.
+  - Ative -O2/-O3, LTO/PGO quando performance é vital.
+
+** Micro‑benchmarking: o que medir com CRTP
+
+  - Compare versões com virtual vs. CRTP em hot paths.
+  - Verifique code size; CRTP pode aumentar binário se proliferar instâncias.
+  - Observe branch prediction e cache; inline agressivo ajuda, mas nem sempre.
+
+** ADL + CRTP para pontos de extensão
+
+Centralize a interface em uma base, mas permita que bibliotecas/usuários estendam comportamento via funções livres em seus namespaces, usando ADL. Isso dá extensibilidade sem modificar a base.
+
+**  Recipe: adicionar rapidamente ordenação/igualdade/hash a um tipo
+
+  - Implemente tie() no derivado.
+  - Herde de EqOrd para == e <.
+  - Forneça std::hash usando tie(); padronize a mistura de bits.
+  - Opcional: herde de um mixin Hashable que declara friend std::hash.
+
+** Emulando “named requirements” com CRTP
+
+Se você quer que um conjunto de tipos “pareça” um InputRange, crie uma base RangeBase com contrato via concepts (begin/end/size), e faça os concretos herdar dela. Você ganha documentação viva e mensagens de erro claras em compile-time.
+
+** Integração entre equipes/libraries: convenções
+
+  - Padronize nomes: interface()/impl(), self()/self_l()/self_r().
+  - Documente contratos com concepts reutilizáveis (HasImpl, HasRun, etc.).
+  - Evite acoplamento forte: prefira CPO/ADL para pontos de extensão.
+  - Forneça microexemplos e static_asserts nos headers.
+
+**  Testes: property-based e estáticos
+
+  - Testes unitários para cada mixin e combinação essencial.
+  - static_assert para contratos (métodos exigidos, propriedades de tamanho).
+  - Property-based tests para invariantes (ex.: a+b-b == a para tipos aritméticos).
+
+** Encerramento
+
+Você agora viu CRTP em contextos variados: views, SIMD, mini‑frameworks com policies, strong types e unidades, dispatch estático, detecção opcional de métodos, além de armadilhas e guias de projeto. CRTP brilha quando:
+  - o conjunto de tipos é conhecido em compile‑time,
+  - você precisa eliminar overhead de despacho,
+  - e deseja compor capacidades ortogonais sem vtables.
+
+** Atlas de padrões CRTP (micro‑receitas compiláveis)
+
+*** Barton–Nackman: operadores gerados pelo derivado
+
+Gere operadores como friends com o tipo derivado, sem vtables e com boa inlineabilidade.
+
+#+begin_src cpp
+// arquivo: crtp_ex77_barton_nackman.cpp
+#include <tuple>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct EqOrd {
+    // Derivado deve expor tie() ou key() para comparação
+    auto key() const { return static_cast<const D*>(this)->tie(); }
+
+    friend bool operator==(const D& a, const D& b){ return a.key() == b.key(); }
+    friend bool operator!=(const D& a, const D& b){ return !(a==b); }
+    friend bool operator< (const D& a, const D& b){ return a.key() <  b.key(); }
+    friend bool operator> (const D& a, const D& b){ return b < a; }
+    friend bool operator<=(const D& a, const D& b){ return !(b < a); }
+    friend bool operator>=(const D& a, const D& b){ return !(a < b); }
+};
+
+struct Point : EqOrd<Point> {
+    int x{}, y{};
+    auto tie() const { return std::tie(x,y); }
+};
+
+int main(){
+    Point a{1,2}, b{1,3};
+    std::cout << (a<b) << " " << (a==b) << "\n";
+}
+#+end_src
+
+*** Fluent interface via CRTP (encadeamento)
+
+Encadeie operações de forma segura, sem custo dinâmico.
+
+#+begin_src cpp
+// arquivo: crtp_ex78_fluent.cpp
+#include <string>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct Fluent {
+    D& self(){ return *static_cast<D*>(this); }
+
+    D& trim(){ self().trim_impl(); return self(); }
+    D& upper(){ self().upper_impl(); return self(); }
+};
+
+struct Text : Fluent<Text> {
+    string s;
+    explicit Text(string v) : s(std::move(v)) {}
+    void trim_impl(){
+        while(!s.empty() && isspace((unsigned char)s.front())) s.erase(s.begin());
+        while(!s.empty() && isspace((unsigned char)s.back())) s.pop_back();
+    }
+    void upper_impl(){ for (auto& c: s) c = char(toupper((unsigned char)c)); }
+};
+
+int main(){
+    Text t{"  ola crtp  "};
+    t.trim().upper();
+    cout << t.s << "\n";
+}
+#+end_src
+
+*** Contador de instâncias como mixin
+
+Útil para diagnosticar vazamentos e picos de alocação; EBO evita custo de memória quando vazio.
+
+#+begin_src cpp
+// arquivo: crtp_ex79_count_instances.cpp
+#include <atomic>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct InstanceCounted {
+    static inline atomic<size_t> live{0};
+    InstanceCounted(){ ++live; }
+    InstanceCounted(const InstanceCounted&){ ++live; }
+    InstanceCounted(InstanceCounted&&){ ++live; }
+    ~InstanceCounted(){ --live; }
+    static size_t count(){ return live.load(); }
+};
+
+struct Widget : InstanceCounted<Widget> {
+    int x{};
+};
+
+int main(){
+    Widget a, b;
+    cout << Widget::count() << "\n";
+    { Widget c; cout << Widget::count() << "\n"; }
+    cout << Widget::count() << "\n";
+}
+#+end_src
+
+***  Registro estático de tipos (auto‑registro de fábrica)
+
+O derivado “se registra” num mapa estático sem custos de virtual; útil para plug‑ins em que os tipos concretos são conhecidos na build.
+
+#+begin_src cpp
+// arquivo: crtp_ex80_static_registry.cpp
+#include <unordered_map>
+#include <string>
+#include <functional>
+#include <memory>
+#include <iostream>
+using namespace std;
+
+struct Base {
+    virtual ~Base() = default;
+    virtual string name() const = 0;
+};
+
+// Registry clássico (dinâmico na criação, mas sem vtables de “fábrica”)
+struct Registry {
+    using Maker = function<unique_ptr<Base>()>;
+    static auto& map(){ static unordered_map<string, Maker> m; return m; }
+    static void add(string k, Maker f){ map().emplace(std::move(k), std::move(f)); }
+    static unique_ptr<Base> make(const string& k){
+        if (auto it = map().find(k); it != map().end()) return it->second();
+        return {};
+    }
+};
+
+template <typename D>
+struct AutoRegister {
+    static bool reg(){
+        Registry::add(D::key(), [](){ return make_unique<D>(); });
+        return true;
+    }
+    static inline bool ok = reg();
+};
+
+struct A : Base, AutoRegister<A> {
+    static string key(){ return "A"; }
+    string name() const override { return "A"; }
+};
+struct B : Base, AutoRegister<B> {
+    static string key(){ return "B"; }
+    string name() const override { return "B"; }
+};
+
+int main(){
+    auto pa = Registry::make("A");
+    auto pb = Registry::make("B");
+    cout << pa->name() << " " << pb->name() << "\n";
+}
+#+end_src
+Nota: o padrão usa inicialização estática; garanta ordem determinística entre TUs se for distribuir em múltiplos módulos.
+
+*** “Mixin de stream” para operator<<
+
+Evite repetir operator<< em muitos tipos.
+
+#+begin_src cpp
+// arquivo: crtp_ex81_ostream_mixin.cpp
+#include <iostream>
+#include <tuple>
+using namespace std;
+
+template <typename D>
+struct Ostreamable {
+    friend ostream& operator<<(ostream& os, const D& d){
+        static_cast<const D&>(d).print(os);
+        return os;
+    }
+};
+
+struct Pair : Ostreamable<Pair> {
+    int a{}, b{};
+    void print(ostream& os) const { os << "{"<<a<<","<<b<<"}"; }
+};
+
+int main(){
+    Pair p{3,4};
+    cout << p << "\n";
+}
+#+end_src
+
+** Checklist e roteiro de migração: virtual → CRTP (com compatibilidade)
+
+Objetivo: manter compatibilidade com consumidores legados (virtual), oferecendo caminho estático otimizado (CRTP) para call sites conhecidos.
+
+  1. Capture a interface mínima em uma base CRTP:
+#+begin_src cpp
+// arquivo: crtp_ex82_migration_base.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct Runner {
+    void run_fast(){ static_cast<D*>(this)->run_impl(); }
+};
+#+end_src
+
+  2. Concretos herdam CRTP e implementam a “impl”:
+#+begin_src cpp
+// arquivo: crtp_ex82_migration_concrete.cpp
+#include <iostream>
+using namespace std;
+
+struct AlgoA : Runner<AlgoA> { void run_impl(){ cout << "A\n"; } };
+struct AlgoB : Runner<AlgoB> { void run_impl(){ cout << "B\n"; } };
+#+end_src
+
+  3. Forneça adaptadores para o mundo dinâmico enquanto migra:
+#+begin_src cpp
+// arquivo: crtp_ex82_migration_adapter.cpp
+#include <memory>
+#include <iostream>
+using namespace std;
+
+struct ILegacy {
+    virtual ~ILegacy()=default;
+    virtual void run() = 0;
+};
+
+template <typename T>
+struct LegacyAdapter : ILegacy {
+    T t;
+    void run() override { t.run_fast(); }
+};
+
+unique_ptr<ILegacy> make_legacy_A(){ return make_unique<LegacyAdapter<struct AlgoA>>(); }
+#+end_src
+
+  4. Migre call sites quentes para run_fast() quando o tipo é conhecido; meça.
+
+  5. Remova o adaptador quando todo o parque for estático.
+
+Pontos de atenção: não chamar Derived no ctor/dtor da base; controlar “diamantes”; documentar requerimentos com concepts; medir code size.
+
+** FAQ: erros, armadilhas e práticas
+
+- invalid static_cast de Base para D:
+  - O derivado precisa herdar Base com o tipo exato; verifique o alias e namespaces.
+- “no member named ‘impl’”:
+  - O método existe com const correto? Escreva concepts/void_t para mensagens amigáveis. Exemplo:
+
+#+begin_src cpp
+// arquivo: crtp_ex83_concept_contract.cpp
+#include <type_traits>
+#include <utility>
+
+template <typename T>
+concept HasImpl = requires(T t){ t.impl(); };
+
+template <typename D>
+struct Base {
+    void call(){
+        static_assert(HasImpl<D>, "Derived deve prover impl()");
+        static_cast<D*>(this)->impl();
+    }
+};
+#+end_src
+
+- Duplicação de base (diamante):
+  - Evite duas instâncias da mesma Base em múltiplos mixins. Reestruture: um coordenador herda Base e outros mixins usam composição.
+
+- Code bloat:
+  - Extraia lógicas pesadas para funções livres não‑templated; use LTO/PGO; reduza combinações de parâmetros.
+
+- “Por que não virtual?”:
+  - Virtual é ótimo para heterogeneidade. CRTP é melhor quando os tipos são conhecidos em compile‑time e você quer eliminar overhead e permitir inlining.
+
+** Micro‑benchmark simples: virtual vs. CRTP
+
+Uma medição didática usando chrono. Compilar com otimização.
+
+#+begin_src cpp
+// arquivo: crtp_ex84_bench.cpp
+#include <iostream>
+#include <vector>
+#include <chrono>
+#include <memory>
+using namespace std;
+
+struct VBase { virtual ~VBase()=default; virtual int f(int) const = 0; };
+struct V1 : VBase { int f(int x) const override { return x+1; } };
+struct V2 : VBase { int f(int x) const override { return x*2; } };
+
+template <typename D>
+struct CBase {
+    int f_fast(int x) const { return static_cast<const D*>(this)->f_impl(x); }
+};
+struct C1 : CBase<C1> { int f_impl(int x) const { return x+1; } };
+struct C2 : CBase<C2> { int f_impl(int x) const { return x*2; } };
+
+int main(){
+    constexpr int N=5'000'000;
+    vector<unique_ptr<VBase>> v; v.reserve(2);
+    v.emplace_back(make_unique<V1>());
+    v.emplace_back(make_unique<V2>());
+
+    auto t0 = chrono::high_resolution_clock::now();
+    long long a=0;
+    for (int i=0;i<N;++i) a += v[i%2]->f(i);
+    auto t1 = chrono::high_resolution_clock::now();
+
+    C1 c1; C2 c2;
+    auto t2 = chrono::high_resolution_clock::now();
+    long long b=0;
+    for (int i=0;i<N;++i) b += (i%2? c2.f_fast(i): c1.f_fast(i));
+    auto t3 = chrono::high_resolution_clock::now();
+
+    cout << "virtual: "     << chrono::duration<double, milli>(t1-t0).count() << " ms\n";
+    cout << "static CRTP: " << chrono::duration<double, milli>(t3-t2).count() << " ms\n";
+    cout << a << " " << b << "\n";
+}
+#+end_src 
+Resultados variam por compilador/CPU; em geral, CRTP ganha por inlining e previsão de branches.
+
+** Expression templates mínimos com CRTP (vetor 1D)
+
+Mostra como adiar avaliação de expressões (a+b+c) sem temporários, usando CRTP para a interface de expressão.
+
+#+begin_src cpp
+// arquivo: crtp_ex85_expr_templates.cpp
+#include <vector>
+#include <iostream>
+using namespace std;
+
+template <typename E>
+struct Expr {
+    const E& self() const { return *static_cast<const E*>(this); }
+    size_t size() const { return self().size(); }
+    float  eval(size_t i) const { return self().eval(i); }
+};
+
+struct Vec : Expr<Vec> {
+    vector<float> d;
+    explicit Vec(size_t n): d(n,0) {}
+    explicit Vec(vector<float> v): d(std::move(v)) {}
+    size_t size() const { return d.size(); }
+    float  eval(size_t i) const { return d[i]; }
+    float& operator[](size_t i){ return d[i]; }
+    const float& operator[](size_t i) const { return d[i]; }
+
+    template <typename E>
+    Vec& operator=(const Expr<E>& e){
+        auto& ex = static_cast<const E&>(e);
+        if (d.size()!=ex.size()) d.resize(ex.size());
+        for (size_t i=0;i<d.size();++i) d[i] = ex.eval(i);
+        return *this;
+    }
+};
+
+template <typename L, typename R>
+struct Add : Expr<Add<L,R>> {
+    const L& l; const R& r;
+    Add(const L& a, const R& b): l(a), r(b) {}
+    size_t size() const { return l.size(); }
+    float eval(size_t i) const { return l.eval(i) + r.eval(i); }
+};
+
+template <typename L, typename R>
+Add<L,R> operator+(const Expr<L>& a, const Expr<R>& b){
+    return Add<L,R>(static_cast<const L&>(a), static_cast<const R&>(b));
+}
+
+int main(){
+    Vec a({1,2,3}), b({10,20,30}), c(3);
+    c = a + b + a; // uma avaliação só
+    for (size_t i=0;i<c.size();++i) cout << c[i] << " ";
+    cout << "\n";
+}
+#+end_src
+
+Esse esqueleto ilustra a técnica; para produção, adicione SFINAE/concepts, operações adicionais e otimizações.
+
+** Matrizes com dimensões em compile‑time e CRTP
+
+Compile‑time dimensions como NTTP e base CRTP para operações.
+
+#+begin_src cpp
+// arquivo: crtp_ex86_matrix.cpp
+#include <array>
+#include <iostream>
+using namespace std;
+
+template <size_t R, size_t C, typename D>
+struct MatBase {
+    const D& self() const { return *static_cast<const D*>(this); }
+    D add(const D& b) const {
+        D out{};
+        for (size_t i=0;i<R*C;++i) out.v[i] = self().v[i] + b.v[i];
+        return out;
+    }
+    void print() const {
+        for (size_t r=0;r<R;++r){
+            for (size_t c=0;c<C;++c) cout << self().v[r*C+c] << " ";
+            cout << "\n";
+        }
+    }
+};
+
+template <size_t R, size_t C>
+struct Mat : MatBase<R,C,Mat<R,C>> {
+    array<float, R*C> v{};
+    static constexpr size_t rows=R, cols=C;
+    float& at(size_t r,size_t c){ return v[r*C+c]; }
+    const float& at(size_t r,size_t c) const { return v[r*C+c]; }
+};
+
+int main(){
+    Mat<2,2> A, B;
+    A.at(0,0)=1; A.at(0,1)=2; A.at(1,0)=3; A.at(1,1)=4;
+    B.at(0,0)=5; B.at(0,1)=6; B.at(1,0)=7; B.at(1,1)=8;
+    auto C = A.add(B);
+    C.print();
+}
+#+end_src
+
+Esse padrão escala para transposição, multiplicação, etc., mantendo verificação de dimensões em compile‑time quando possível.
+
+** Mensagens de erro melhores com requires (C++20)
+
+Use requires em métodos da base para expressar contratos legíveis.
+
+#+begin_src cpp
+// arquivo: crtp_ex87_requires_messages.cpp
+#include <concepts>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct Base {
+    void call() requires requires (D d){ d.impl(); } {
+        static_cast<D*>(this)->impl();
+    }
+
+    // Overload que falha com mensagem clara
+    void call() = delete; // se o requires acima não casar, esta é escolhida
+};
+
+struct Ok : Base<Ok> { void impl(){ cout << "ok\n"; } };
+// struct Bad : Base<Bad> {}; // call() deletado
+
+int main(){
+    Ok o; o.call();
+    // Bad b; b.call(); // erro claro: call() is deleted
+}
+#+end_src
+
+** Diagnóstico de vtables ausentes e tamanho de objeto
+
+Cheque se sua classe não introduziu vtable involuntariamente e acompanhe o footprint.
+
+#+begin_src cpp
+// arquivo: crtp_ex88_size_no_vtable.cpp
+#include <type_traits>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct Mixin { void f(){} };
+
+struct X : Mixin<X> { int a; };
+
+int main(){
+    cout << boolalpha << is_polymorphic_v<X> << "\n"; // deve ser false
+    cout << sizeof(X) << "\n";
+}
+#+end_src
+
+Se der true, você trouxe um virtual em algum lugar; revise.
+
+** Encerramento e próximos passos
+
+Você agora tem:
+  - um atlas de padrões CRTP práticos (operadores Barton–Nackman, fluent, auto‑registro, ostream, contagem de instâncias),
+  - um roteiro de migração com compatibilidade dinâmica,
+  - técnicas de expression templates e matrizes estáticas,
+  - e um FAQ com armadilhas típicas, contratos com concepts e verificação de vtables.
+
+** Playbook: 10 receitas CRTP
+
+*** Range adaptor: StrideView (amostrar a cada N)
+
+#+begin_src cpp
+// arquivo: crtp_r01_stride_view.cpp
+#include <vector>
+#include <iostream>
+#include <cstddef>
+using namespace std;
+
+template <typename D>
+struct ViewBase {
+    const D& self() const { return *static_cast<const D*>(this); }
+    size_t size() const { return self().size_impl(); }
+    decltype(auto) operator[](size_t i) const { return self().at_impl(i); }
+};
+
+template <typename R>
+struct StrideView : ViewBase<StrideView<R>> {
+    const R* r_; size_t step_;
+    StrideView(const R& r, size_t step): r_(&r), step_(step?step:1) {}
+    size_t size_impl() const { return (r_->size() + step_ - 1) / step_; }
+    decltype(auto) at_impl(size_t i) const { return (*r_)[i*step_]; }
+};
+
+int main(){
+    vector<int> v{0,1,2,3,4,5,6,7,8,9};
+    StrideView sv(v, 3);
+    for (size_t i=0;i<sv.size();++i) cout << sv[i] << " "; // 0 3 6 9
+    cout << "\n";
+}
+#+end_src
+
+*** Iterador de acesso aleatório (esqueleto didático)
+
+#+begin_src cpp
+// arquivo: crtp_r02_random_access_iter.cpp
+#include <cstddef>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+template <typename D, typename T>
+struct RAIterBase {
+    using value_type = T;
+    using difference_type = std::ptrdiff_t;
+    using reference = T&;
+    using pointer = T*;
+
+    D& self(){ return *static_cast<D*>(this); }
+    const D& self() const { return *static_cast<const D*>(this); }
+
+    reference operator*(){ return self().deref(); }
+    const value_type& operator*() const { return self().deref(); }
+
+    D& operator++(){ self().inc(); return self(); }
+    D& operator--(){ self().dec(); return self(); }
+    D operator+(difference_type n) const { D tmp=self(); tmp.advance(n); return tmp; }
+    D operator-(difference_type n) const { D tmp=self(); tmp.advance(-n); return tmp; }
+    difference_type operator-(const D& o) const { return self().distance(o); }
+
+    bool operator==(const D& o) const { return self().eq(o); }
+    bool operator!=(const D& o) const { return !self().eq(o); }
+};
+
+template <typename T>
+struct VecIter : RAIterBase<VecIter<T>, T> {
+    T* base{}; std::size_t idx{};
+    VecIter() = default;
+    VecIter(T* b, size_t i): base(b), idx(i) {}
+    T& deref(){ return base[idx]; }
+    void inc(){ ++idx; }
+    void dec(){ --idx; }
+    void advance(std::ptrdiff_t n){ idx = size_t(ptrdiff_t(idx) + n); }
+    bool eq(const VecIter& o) const { return base==o.base && idx==o.idx; }
+    std::ptrdiff_t distance(const VecIter& o) const { return std::ptrdiff_t(idx) - std::ptrdiff_t(o.idx); }
+};
+
+int main(){
+    std::vector<int> v{10,20,30,40};
+    VecIter<int> a(v.data(), 0), b(v.data(), v.size());
+    for (; a!=b; ++a) std::cout << *a << " ";
+    std::cout << "\n";
+}
+#+end_src
+
+*** Policy de retry exponencial (com CRTP)
+
+#+begin_src cpp
+// arquivo: crtp_r03_retry_policy.cpp
+#include <chrono>
+#include <thread>
+#include <iostream>
+using namespace std;
+
+template <typename D, int MaxRetries, typename Clock = std::chrono::steady_clock>
+struct RetryPolicy {
+    template <typename F>
+    bool retry(F&& f){
+        using namespace std::chrono;
+        for (int i=0;i<=MaxRetries;++i){
+            if (static_cast<D*>(this)->try_once()) return true;
+            if (i<MaxRetries){
+                auto backoff = milliseconds(10) * (1<<i);
+                std::this_thread::sleep_for(backoff);
+            }
+        }
+        return false;
+    }
+};
+
+struct UnstableOp : RetryPolicy<UnstableOp, 3> {
+    int attempts{0};
+    bool try_once(){
+        std::cout << "attempt " << attempts << "\n";
+        return (++attempts >= 3); // falha 2x, sucesso na 3a
+    }
+};
+
+int main(){
+    UnstableOp u;
+    bool ok = u.retry([]{});
+    std::cout << "ok=" << ok << "\n";
+}
+#+end_src
+
+*** LRU Cache como mixin (D fornece load_impl)
+#+begin_src cpp
+// arquivo: crtp_r04_lru_cache.cpp
+#include <list>
+#include <unordered_map>
+#include <optional>
+#include <iostream>
+#include <string>
+using namespace std;
+
+template <typename D, typename Key, typename Value, size_t Capacity>
+struct LruCache {
+    using List = std::list<std::pair<Key,Value>>;
+    List items;
+    unordered_map<Key, typename List::iterator> pos;
+
+    Value& put_(Key k, Value v){
+        if (auto it=pos.find(k); it!=pos.end()){
+            it->second->second = std::move(v);
+            items.splice(items.begin(), items, it->second);
+            return items.begin()->second;
+        }
+        if (items.size()>=Capacity){
+            pos.erase(items.back().first);
+            items.pop_back();
+        }
+        items.emplace_front(std::move(k), std::move(v));
+        pos[items.front().first] = items.begin();
+        return items.begin()->second;
+    }
+
+    Value& get_or_load(const Key& k){
+        if (auto it=pos.find(k); it!=pos.end()){
+            items.splice(items.begin(), items, it->second);
+            return it->second->second;
+        }
+        Value v = static_cast<D*>(this)->load_impl(k);
+        return put_(k, std::move(v));
+    }
+};
+
+struct Dict : LruCache<Dict, string, string, 3> {
+    string load_impl(const string& k){ return "val:" + k; }
+};
+
+int main(){
+    Dict d;
+    cout << d.get_or_load("a") << "\n"; // carrega
+    cout << d.get_or_load("a") << "\n"; // cache
+}
+#+end_src
+
+*** Throttling (token bucket simples) como mixin
+
+#+begin_src cpp
+// arquivo: crtp_r05_throttle.cpp
+#include <chrono>
+#include <iostream>
+using namespace std;
+
+template <typename D, int Rate, int PerMs>
+struct Throttle {
+    using clock = std::chrono::steady_clock;
+    mutable double tokens{Rate};
+    mutable clock::time_point last{clock::now()};
+
+    bool allow() const {
+        auto now = clock::now();
+        double elapsed = std::chrono::duration<double, std::milli>(now-last).count();
+        last = now;
+        tokens = std::min<double>(Rate, tokens + (elapsed * Rate) / PerMs);
+        if (tokens >= 1.0){ tokens -= 1.0; return true; }
+        return false;
+    }
+};
+
+struct Sender : Throttle<Sender, 2, 1000> { // 2 ops/seg
+    bool send(){ if (!allow()) return false; std::cout<<"sent\n"; return true; }
+};
+
+int main(){
+    Sender s;
+    std::cout << s.send() << "\n"; // true
+    std::cout << s.send() << "\n"; // true
+    std::cout << s.send() << "\n"; // false (logo em seguida)
+}
+#+end_src
+
+*** Métricas: contagem e tempo médio
+
+#+begin_src cpp
+// arquivo: crtp_r06_metrics.cpp
+#include <chrono>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct Metrics {
+    mutable long long calls{0};
+    mutable double total_ms{0.0};
+
+    template <typename F>
+    auto timed(F&& f) const {
+        auto t0 = std::chrono::high_resolution_clock::now();
+        auto res = f();
+        auto t1 = std::chrono::high_resolution_clock::now();
+        calls++;
+        total_ms += std::chrono::duration<double, std::milli>(t1-t0).count();
+        return res;
+    }
+    double avg_ms() const { return calls? total_ms / calls : 0.0; }
+};
+
+struct Work : Metrics<Work> {
+    int heavy(int x){ volatile int s=0; for(int i=0;i<10000;++i) s+=i; return x+s; }
+};
+
+int main(){
+    Work w;
+    for (int i=0;i<3;++i){
+        auto v = w.timed([&]{ return w.heavy(i); });
+        (void)v;
+    }
+    std::cout << "avg=" << w.avg_ms() << " ms\n";
+}
+#+end_src
+
+*** Undo/Redo: histórico via CRTP (snapshot/restore)
+
+#+begin_src cpp
+// arquivo: crtp_r07_undo_redo.cpp
+#include <vector>
+#include <iostream>
+using namespace std;
+
+template <typename D, typename State>
+struct UndoRedo {
+    vector<State> undo_, redo_;
+
+    void save(){ undo_.push_back(static_cast<D*>(this)->snapshot_impl()); redo_.clear(); }
+    bool undo(){
+        if (undo_.empty()) return false;
+        auto cur = static_cast<D*>(this)->snapshot_impl();
+        redo_.push_back(cur);
+        static_cast<D*>(this)->restore_impl(undo_.back());
+        undo_.pop_back();
+        return true;
+    }
+    bool redo(){
+        if (redo_.empty()) return false;
+        auto cur = static_cast<D*>(this)->snapshot_impl();
+        undo_.push_back(cur);
+        static_cast<D*>(this)->restore_impl(redo_.back());
+        redo_.pop_back();
+        return true;
+    }
+};
+
+struct Doc : UndoRedo<Doc, string> {
+    string text;
+    string snapshot_impl() const { return text; }
+    void restore_impl(const string& s){ text = s; }
+};
+
+int main(){
+    Doc d; d.text="a"; d.save(); d.text="ab"; d.save(); d.text="abc";
+    d.undo(); cout << d.text << "\n"; // "ab"
+    d.undo(); cout << d.text << "\n"; // "a"
+    d.redo(); cout << d.text << "\n"; // "ab"
+}
+#+end_src
+
+***  Transactional guard (RAII) com rollback automático
+
+#+begin_src cpp
+// arquivo: crtp_r08_tx_guard.cpp
+#include <iostream>
+using namespace std;
+
+template <typename D, typename State>
+struct Transactional {
+    struct Tx {
+        D& d; State snap; bool committed=false;
+        Tx(D& dd): d(dd), snap(d.snapshot_impl()){}
+        void commit(){ committed=true; }
+        ~Tx(){ if (!committed) d.restore_impl(snap); }
+    };
+    Tx start_tx(){ return Tx(static_cast<D&>(*this)); }
+};
+
+struct Account : Transactional<Account, int> {
+    int balance{0};
+    int snapshot_impl() const { return balance; }
+    void restore_impl(int s){ balance = s; }
+    void deposit(int v){ balance += v; }
+};
+
+int main(){
+    Account a; {
+        auto tx = a.start_tx();
+        a.deposit(100);
+        // sem commit: rollback
+    }
+    cout << a.balance << "\n"; // 0
+}
+#+end_src
+
+***  Parser combinators mínimos com CRTP
+
+#+begin_src cpp
+// arquivo: crtp_r09_parser.cpp
+#include <optional>
+#include <string>
+#include <cctype>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct Parser {
+    optional<size_t> parse(const string& s, size_t i=0) const {
+        return static_cast<const D*>(this)->parse_impl(s,i);
+    }
+};
+
+struct Digit : Parser<Digit> {
+    optional<size_t> parse_impl(const string& s, size_t i) const {
+        if (i<s.size() && isdigit((unsigned char)s[i])) return i+1;
+        return nullopt;
+    }
+};
+
+template <typename A, typename B>
+struct Seq : Parser<Seq<A,B>> {
+    A a; B b;
+    optional<size_t> parse_impl(const string& s, size_t i) const {
+        if (auto x=a.parse(s,i)) return b.parse(s,*x);
+        return nullopt;
+    }
+};
+
+int main(){
+    Seq<Digit,Digit> twoDigits;
+    auto ok = twoDigits.parse("42");
+    cout << boolalpha << (ok && *ok==2) << "\n";
+}
+#+end_src
+
+*** Máquina de estados finita (FSM) com dispatch estático
+
+#+begin_src cpp
+// arquivo: crtp_r10_fsm.cpp
+#include <iostream>
+using namespace std;
+
+enum class State { Idle, Running, Stopped };
+struct EvStart{}; struct EvStop{}; struct EvReset{};
+
+template <typename D>
+struct FSM {
+    State st{State::Idle};
+    template <typename Ev>
+    void dispatch(Ev e){
+        st = static_cast<D*>(this)->on(st, e);
+    }
+};
+
+struct Engine : FSM<Engine> {
+    State on(State s, EvStart){ return s==State::Idle ? State::Running : s; }
+    State on(State s, EvStop){ return s==State::Running ? State::Stopped : s; }
+    State on(State, EvReset){ return State::Idle; }
+};
+
+int main(){
+    Engine e;
+    e.dispatch(EvStart{});  cout << (int)e.st << "\n"; // 1
+    e.dispatch(EvStop{});   cout << (int)e.st << "\n"; // 2
+    e.dispatch(EvReset{});  cout << (int)e.st << "\n"; // 0
+}
+#+end_src
+
+** Mini‑projeto integrado: KVStore com cache LRU, retry, throttle, métricas e transacional
+
+Integramos várias receitas: LRU cache (para get), retry (para carregamento instável), throttle (para set), métricas (tempo médio de operações) e guard transacional (rollback em falhas).
+
+#+begin_src cpp
+// arquivo: crtp_r99_kvstore.cpp
+#include <unordered_map>
+#include <string>
+#include <iostream>
+#include <optional>
+#include <chrono>
+#include <thread>
+#include <list>
+#include <unordered_map>
+using namespace std;
+
+// 1) Métricas
+template <typename D>
+struct Metrics {
+    mutable long long calls_get{0}, calls_set{0};
+    mutable double ms_get{0}, ms_set{0};
+    template <typename F>
+    auto timed_get(F&& f) const {
+        auto t0=chrono::high_resolution_clock::now();
+        auto r=f();
+        auto t1=chrono::high_resolution_clock::now();
+        ++calls_get; ms_get += chrono::duration<double, milli>(t1-t0).count();
+        return r;
+    }
+    template <typename F>
+    auto timed_set(F&& f) const {
+        auto t0=chrono::high_resolution_clock::now();
+        auto r=f();
+        auto t1=chrono::high_resolution_clock::now();
+        ++calls_set; ms_set += chrono::duration<double, milli>(t1-t0).count();
+        return r;
+    }
+    void print_metrics() const {
+        cout << "get avg=" << (calls_get? ms_get/calls_get:0) << "ms, set avg=" << (calls_set? ms_set/calls_set:0) << "ms\n";
+    }
+};
+
+// 2) Retry
+template <typename D, int MaxRetries>
+struct RetryPolicy {
+    template <typename F>
+    bool retry(F&& f){
+        for (int i=0;i<=MaxRetries;++i){
+            if (static_cast<D*>(this)->try_once()) return true;
+            if (i<MaxRetries) std::this_thread::sleep_for(std::chrono::milliseconds(5*(1<<i)));
+        }
+        return false;
+    }
+};
+
+// 3) Throttle (2 ops/seg por padrão)
+template <typename D, int Rate=2, int PerMs=1000>
+struct Throttle {
+    using clock = std::chrono::steady_clock;
+    mutable double tokens{Rate};
+    mutable clock::time_point last{clock::now()};
+    bool allow() const {
+        auto now=clock::now();
+        double elapsed=std::chrono::duration<double, std::milli>(now-last).count();
+        last=now; tokens = std::min<double>(Rate, tokens + (elapsed*Rate)/PerMs);
+        if (tokens>=1.0){ tokens-=1.0; return true; }
+        return false;
+    }
+};
+
+// 4) Transactional guard
+template <typename D, typename State>
+struct Transactional {
+    struct Tx {
+        D& d; State snap; bool committed=false;
+        Tx(D& dd): d(dd), snap(d.snapshot_impl()){}
+        void commit(){ committed=true; }
+        ~Tx(){ if (!committed) d.restore_impl(snap); }
+    };
+    Tx start_tx(){ return Tx(static_cast<D&>(*this)); }
+};
+
+// 5) LRU cache (Key=string, Value=string, Cap=3)
+template <typename D, size_t Capacity=3>
+struct LruCache {
+    using Key=std::string; using Value=std::string;
+    using List=std::list<std::pair<Key,Value>>;
+    List items; unordered_map<Key, typename List::iterator> pos;
+
+    Value& put_(Key k, Value v){
+        if (auto it=pos.find(k); it!=pos.end()){
+            it->second->second=std::move(v);
+            items.splice(items.begin(), items, it->second);
+            return items.begin()->second;
+        }
+        if (items.size()>=Capacity){ pos.erase(items.back().first); items.pop_back(); }
+        items.emplace_front(std::move(k), std::move(v));
+        pos[items.front().first]=items.begin();
+        return items.begin()->second;
+    }
+    Value& get_or_load(const Key& k){
+        if (auto it=pos.find(k); it!=pos.end()){
+            items.splice(items.begin(), items, it->second);
+            return it->second->second;
+        }
+        Value v = static_cast<D*>(this)->load_impl(k);
+        return put_(k, std::move(v));
+    }
+};
+
+// KVStore integrando tudo
+struct KVStore
+    : Metrics<KVStore>,
+      RetryPolicy<KVStore, 3>,
+      Throttle<KVStore, 2, 1000>,
+      Transactional<KVStore, std::unordered_map<std::string,std::string>>,
+      LruCache<KVStore, 3> {
+
+    unordered_map<string,string> db;
+    int unstable_counter{0};
+
+    // Snapshot/restore para transações
+    auto snapshot_impl() const { return db; }
+    void restore_impl(const unordered_map<string,string>& snap){ db = snap; }
+
+    // Carregamento "instável" (falha nas 2 primeiras tentativas de cada key)
+    bool try_once(){
+        // Simulação: falha enquanto unstable_counter<2, depois sucesso
+        return (++unstable_counter >= 2);
+    }
+    string load_impl(const string& k){
+        unstable_counter=0; // reset para cada load
+        bool ok = retry([&]{ return true; });
+        (void)ok;
+        auto it = db.find(k);
+        return it==db.end()? string{} : it->second;
+    }
+
+    // GET com cache e métricas
+    string get(const string& k){
+        return timed_get([&]{ return get_or_load(k); });
+    }
+
+    // SET com throttle, transação, e métricas
+    bool set(const string& k, string v){
+        return timed_set([&]{
+            if (!allow()) return false; // throttled
+            auto tx = start_tx();
+            db[k] = std::move(v);
+            // imagine outras operações que podem falhar...
+            tx.commit();
+            // invalida cache da chave (simplificado: remove se presente)
+            if (auto it = LruCache<KVStore,3>::pos.find(k); it != LruCache<KVStore,3>::pos.end()){
+                LruCache<KVStore,3>::items.erase(it->second);
+                LruCache<KVStore,3>::pos.erase(it);
+            }
+            return true;
+        });
+    }
+};
+
+int main(){
+    KVStore kv;
+    kv.set("a","1"); // pode ser throttled conforme timing
+    kv.set("b","2");
+    cout << "a=" << kv.get("a") << "\n"; // cache miss -> load_impl (com retry)
+    cout << "a=" << kv.get("a") << "\n"; // cache hit
+    kv.print_metrics();
+}
+#+end_src
+
+Ideias principais:
+  - LruCache delega o “miss” para load_impl() do derivado.
+  - RetryPolicy implementa a estratégia de re‑tentativas.
+  - Throttle limita a taxa de set().
+  - Transactional garante rollback implícito se algo der errado antes de commit().
+  - Metrics mede tempo médio de get/set.
+
+Você pode plugar logs, políticas de erro, ou uma FSM para controlar modos (ex.: ReadOnly vs. ReadWrite) sem alterar a lógica core.
+
+** Apêndice: Cheat‑sheet CRTP (convenções e dicas)
+
+- Convenção de nomes:
+  - Base expõe interface pública curta: call(), run(), do(), operator.
+  - Derivado implementa impls: impl(), trim_impl(), add_impl(a,b,out).
+  - self(): use helpers na base:
+    - using Derived = D; Derived& self(); const Derived& self() const;
+
+- Contratos:
+  - Expressar com concepts e static_assert para mensagens amigáveis.
+  - Forneça exemplos mínimos no header (comentados) para orientar uso.
+
+- Composição:
+  - Prefira mixins pequenos e ortogonais (log, erro, sync, métricas).
+  - Evite duplicar a mesma base CRTP em dois mixins (diamante).
+  - Se houver dependência entre mixins, documente a ordem de herança.
+
+- Erros frequentes:
+  - invalid static_cast: confira herança Base com o tipo exato.
+  - no member impl(): qualificador const errado? Nome diferente? Use requires/void_t.
+  - Ambiguidade em múltiplas bases: this->nome ou using BaseX::nome.
+  - UB em ctor/dtor: não chame Derived via base nesses momentos.
+
+- Desempenho e tamanho:
+  - Medir sempre; CRTP geralmente reduz overhead de despacho e permite inlining.
+  - Para reduzir bloat, mova lógica pesada para funções não‑templated.
+  - Considere LTO/PGO e consolidação de parâmetros (tags/backends).
+
+- Integração:
+  - CPO/ADL para pontos de extensão sem tocar na base.
+  - [/[no_unique_address]] quando composição for suficiente em vez de herança.
+  - Módulos C++20 podem encapsular bases e melhorar tempos de build.
+
+- Testes:
+  - static_assert para contratos; microexemplos compiláveis; property-based para invariantes.
+  - Benchmarks simples para comparar virtual vs. CRTP em hot paths.
+
+** FAQ ampliado: mensagens típicas de GCC/Clang/MSVC e correções
+
+*** “dependent name is not a type” → faltou typename
+
+Erro comum ao acessar tipos dependentes em templates. Use a palavra‑chave typename.
+
+#+begin_src cpp
+// arquivo: crtp_faq01_typename.cpp
+template <typename D>
+struct Base {
+    using Inner = typename D::Inner; // correto: typename
+    Inner make() { return Inner{}; }
+};
+
+struct X { using Inner = int; };
+struct A : Base<A> { using Inner = int; };
+
+int main(){ A a; (void)a.make(); }
+#+end_src
+
+Sem o typename, GCC/Clang reportam algo como: “error: need 'typename' before 'D::Inner' because 'D' is a dependent scope”.
+
+***  “invalid static_cast” ao converter Base* para D*
+
+Verifique se o derivado herda Base exatamente.
+
+#+begin_src cpp
+// arquivo: crtp_faq02_exact_type.cpp
+template <typename D>
+struct Base {
+    D& self(){ return *static_cast<D*>(this); } // requer Base<Exatamente D>
+};
+
+struct B : Base<B> {}; // correto
+// struct C : Base<int> {}; // errado: não é o próprio tipo
+#+end_src
+
+MSVC: C2440 'static_cast': cannot convert from 'Base *' to 'Y *'.
+
+***  “no member named 'impl'” (const vs não const; assinatura diferente)
+
+  - Garanta assinatura idêntica e qualificadores corretos; use concepts para mensagens melhores.
+
+#=begin_src cpp
+// arquivo: crtp_faq03_const_qual.cpp
+#include <concepts>
+template <typename T>
+concept HasImpl = requires(const T& t){ t.impl(); }; // nota: const T&
+
+template <typename D>
+struct Base {
+    void call() {
+        static_assert(HasImpl<D>, "Derived deve prover: void impl() const;");
+        static_cast<const D*>(this)->impl();
+    }
+};
+
+struct Ok : Base<Ok> {
+    void impl() const {} // precisa ser const
+};
+#+end_src
+
+*** Ambiguidade com múltiplas bases: use this-> ou using
+
+  - Em contextos dependentes, nomes podem não ser encontrados sem qualificação.
+
+#+begin_src cpp
+// arquivo: crtp_faq04_dependent_name.cpp
+template <typename D>
+struct M1 { void ping(){ } };
+
+template <typename D>
+struct M2 : M1<D> {
+    void run(){
+        this->ping(); // ok
+        // ou: M1<D>::ping();
+    }
+};
+
+struct X : M2<X> {};
+int main(){ X x; x.run(); }
+#+end_src
+
+*** “member access into incomplete type” / ordem de declaração
+
+  - Declare tipos na ordem correta; use forward declarations quando necessário; separe em headers.
+
+#+begin_src cpp
+// arquivo: crtp_faq05_order.cpp
+template <typename D> struct Base { void call(){ static_cast<D*>(this)->impl(); } };
+
+struct X; // forward ok se depois definir impl
+struct X : Base<X> { void impl(){} };
+
+int main(){ X x; x.call(); }
+#+end_src
+
+*** Diamante com CRTP: base duplicada
+
+- Evite herdar a mesma Base em dois mixins. Use composição ou um “coordenador”.
+
+#+begin_src cpp
+// arquivo: crtp_faq06_diamond_fix.cpp
+template <typename D> struct Core { void core(){ } };
+
+template <typename D> struct M1 { Core<D> c; void a(){ c.core(); } }; // composição, não herança
+template <typename D> struct M2 { Core<D> c; void b(){ c.core(); } };
+
+struct X : M1<X>, M2<X> {
+    // sem duplicar Core<X>
+};
+#+end_src
+
+***  “call to deleted function” com requires
+
+  - Se você usar um overload deletado como fallback, a mensagem será clara e intencional.
+
+#+begin_src cpp
+// arquivo: crtp_faq07_deleted.cpp
+#include <concepts>
+template <typename D>
+struct Base {
+    void call() requires requires (D d){ d.impl(); } { static_cast<D*>(this)->impl(); }
+    void call() = delete; // fallback deletado
+};
+
+struct Bad : Base<Bad> {}; // tentar Bad{}.call() gera “call to deleted function”
+#+end_src
+
+** Receitas adicionais prontas
+
+*** Retry com jitter (random)
+
+Adiciona jitter para evitar sincronização de thundering herds.
+
+#+begin_src cpp
+// arquivo: crtp_rx01_retry_jitter.cpp
+#include <random>
+#include <chrono>
+#include <thread>
+#include <iostream>
+using namespace std;
+
+template <typename D, int MaxRetries, int BaseMs=10, int JitterMs=7>
+struct RetryJitter {
+    bool retry(){
+        static thread_local std::mt19937 rng{std::random_device{}()};
+        std::uniform_int_distribution<int> dist(0, JitterMs);
+        for (int i=0;i<=MaxRetries;++i){
+            if (static_cast<D*>(this)->try_once()) return true;
+            if (i<MaxRetries){
+                int backoff = BaseMs * (1<<i) + dist(rng);
+                std::this_thread::sleep_for(std::chrono::milliseconds(backoff));
+            }
+        }
+        return false;
+    }
+};
+
+struct Unstable : RetryJitter<Unstable, 3> {
+    int k=0;
+    bool try_once(){ std::cout<<"try "<<k<<"\n"; return (++k)>=3; }
+};
+
+int main(){
+    Unstable u; bool ok = u.retry(); std::cout << std::boolalpha << ok << "\n";
+}
+#+end_src
+
+***  Cache TTL (expiração por tempo) como mixin
+
+Expira entradas após TTL; combina bem com LRU.
+
+#+begin_src cpp
+// arquivo: crtp_rx02_ttl_cache.cpp
+#include <unordered_map>
+#include <chrono>
+#include <string>
+#include <optional>
+#include <iostream>
+using namespace std;
+
+template <typename D, int TtlMs>
+struct TtlCache {
+    using clock = std::chrono::steady_clock;
+    struct Entry { string value; clock::time_point exp; };
+    unordered_map<string, Entry> map;
+
+    string get(const string& k){
+        auto now = clock::now();
+        if (auto it = map.find(k); it != map.end()){
+            if (now < it->second.exp) return it->second.value;
+            map.erase(it);
+        }
+        string v = static_cast<D*>(this)->load_impl(k);
+        map[k] = Entry{v, now + std::chrono::milliseconds(TtlMs)};
+        return map[k].value;
+    }
+};
+
+struct Store : TtlCache<Store, 100> {
+    string load_impl(const string& k){ return "val:"+k; }
+};
+
+int main(){
+    Store s;
+    cout << s.get("a") << "\n";
+    cout << s.get("a") << "\n"; // hit até expirar
+}
+#+end_src
+
+***  Circuit Breaker (Closed/Open/HalfOpen) como mixin
+
+Protege recursos instáveis; reabre gradualmente.
+
+#+begin_src cpp
+// arquivo: crtp_rx03_circuit_breaker.cpp
+#include <chrono>
+#include <iostream>
+using namespace std;
+
+template <typename D, int FailThreshold=3, int ResetMs=200>
+struct CircuitBreaker {
+    enum class St { Closed, Open, HalfOpen };
+    using clock = std::chrono::steady_clock;
+    mutable St st{St::Closed};
+    mutable int fails{0};
+    mutable clock::time_point next_try{};
+
+    bool allow() const {
+        auto now = clock::now();
+        if (st == St::Open && now >= next_try) st = St::HalfOpen;
+        return st != St::Open;
+    }
+
+    void on_success() const { st = St::Closed; fails = 0; }
+    void on_failure() const {
+        if (st == St::HalfOpen) { st = St::Open; next_try = clock::now() + std::chrono::milliseconds(ResetMs); return; }
+        if (++fails >= FailThreshold) { st = St::Open; next_try = clock::now() + std::chrono::milliseconds(ResetMs); }
+    }
+};
+
+struct Service : CircuitBreaker<Service> {
+    bool call(bool succeed){
+        if (!allow()){ std::cout << "blocked\n"; return false; }
+        if (succeed){ on_success(); std::cout<<"ok\n"; return true; }
+        on_failure(); std::cout<<"fail\n"; return false; }
+};
+
+int main(){
+    Service s;
+    s.call(false); s.call(false); s.call(false); // abre
+    s.call(true);  // bloqueado até reset window
+}
+#+end_src
+
+*** FSM hierárquica simples (HFSM)
+
+Estados de alto nível que delegam a sub‑máquinas.
+
+#+begin_src cpp
+// arquivo: crtp_rx04_hfsm.cpp
+#include <iostream>
+using namespace std;
+
+struct EvPlay{}; struct EvPause{}; struct EvStop{};
+enum class Super { Idle, Active };
+
+template <typename D>
+struct FSM {
+    Super super{Super::Idle};
+    template <typename Ev>
+    void dispatch(Ev e){ static_cast<D*>(this)->on(super, e); }
+};
+
+// Sub‑FSM do estado Active
+struct ActiveSub {
+    enum class State { Playing, Paused } st{State::Paused};
+    void on(EvPlay){ st = State::Playing; }
+    void on(EvPause){ st = State::Paused; }
+};
+
+struct Player : FSM<Player> {
+    ActiveSub sub;
+
+    void on(Super& s, EvPlay){
+        if (s==Super::Idle){ s=Super::Active; sub.st = ActiveSub::State::Playing; }
+        else sub.on(EvPlay{});
+        print();
+    }
+    void on(Super& s, EvPause){
+        if (s==Super::Active) sub.on(EvPause{});
+        print();
+    }
+    void on(Super& s, EvStop){
+        s = Super::Idle; sub.st = ActiveSub::State::Paused;
+        print();
+    }
+    void print(){
+        cout << "super=" << (super==Super::Idle? "Idle":"Active")
+             << " sub=" << (sub.st==ActiveSub::State::Playing? "Playing":"Paused") << "\n";
+    }
+};
+
+int main(){
+    Player p;
+    p.dispatch(EvPlay{});
+    p.dispatch(EvPause{});
+    p.dispatch(EvStop{});
+}
+#+end_src
+
+*** Semáforo simples (bulkhead) como mixin
+
+Limita concorrência simultânea.
+
+#+begin_src cpp
+// arquivo: crtp_rx05_semaphore.cpp
+#include <mutex>
+#include <condition_variable>
+#include <thread>
+#include <iostream>
+using namespace std;
+
+template <typename D, int Max>
+struct Semaphore {
+    mutable int permits{Max};
+    mutable mutex m;
+    mutable condition_variable cv;
+
+    struct Guard {
+        const D& d; bool acquired{false};
+        Guard(const D& dd): d(dd){
+            unique_lock<mutex> lk(d.m);
+            d.cv.wait(lk, [&]{ return d.permits>0; });
+            --d.permits; acquired=true;
+        }
+        ~Guard(){
+            if (acquired){
+                unique_lock<mutex> lk(d.m);
+                ++d.permits; d.cv.notify_one();
+            }
+        }
+    };
+    Guard acquire() const { return Guard(static_cast<const D&>(*this)); }
+};
+
+struct Pool : Semaphore<Pool, 2> {
+    void work(int id){
+        auto g = acquire();
+        std::cout << "run " << id << "\n";
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+};
+
+int main(){
+    Pool p;
+    std::thread t1([&]{ p.work(1); });
+    std::thread t2([&]{ p.work(2); });
+    std::thread t3([&]{ p.work(3); });
+    t1.join(); t2.join(); t3.join();
+}
+#+end_src
+
+*** Guia de migração por sprint (checklists práticos)
+
+Objetivo: sair de hierarquias dinâmicas onde possível, mantendo compatibilidade e medindo ganhos.
+
+- Sprint 0 — Descoberta e medição
+  - Levante call sites “quentes” (perf, profiler).
+  - Liste interfaces dinâmicas (vtable) usadas nesses caminhos.
+  - Métricas baseline: latência média/p95, throughput, code size, alocações.
+
+- Sprint 1 — Modelagem de contratos
+  - Para cada interface, escreva um Base CRTP com contrato claro.
+  - Defina concepts/detection para impls requeridas (impl(), process(), serialize(), etc.).
+  - Adicione exemplos mínimos compiláveis nos headers (comentários).
+
+- Sprint 2 — Concretos CRTP paralelos
+  - Implementar tipos concretos herdando das bases CRTP.
+  - Escrever testes unitários isolados; static_assert para contratos.
+  - Medir microbenchmarks comparando virtual vs. CRTP.
+
+- Sprint 3 — Adaptadores de compatibilidade
+  - Criar adaptadores LegacyAdapter para ILegacy.
+  - Encapsular criação com factories que podem retornar ILegacy ou CRTP conforme contexto.
+  - Validar compatibilidade nos pipelines existentes.
+
+- Sprint 4 — Migração de call sites
+  - Em caminhos quentes com tipo conhecido, trocar para interface estática (run_fast(), call()).
+  - Habilitar políticas via mixins (log/erro/sync/métricas) quando útil.
+  - Medir de novo; documentar ganhos/regressões.
+
+- Sprint 5 — Consolidação
+  - Remover usos dinâmicos residuais ou justificá‑los (heterogeneidade real).
+  - Revisar bloat: mover lógica pesada para funções livres não‑templated, ativar LTO/PGO.
+  - Padronizar convenções (self/impl, concepts, CPO/ADL) e escrever o guia interno da equipe.
+
+Critérios de saída:
+  - Hot paths com CRTP e mensagens de erro claras.
+  - Compatibilidade preservada onde necessário.
+  - Ganhos medidos e sustentáveis (latência/throughput/code size).
+
+Artefatos:
+  - Bases CRTP + concepts.
+  - Adaptadores legados.
+  - Benchmarks e testes.
+  - Guia de estilo CRTP do time.
+
+**  Cache combinado TTL + LRU (expiração temporal com capacidade limitada)
+
+Componha expiração por tempo (TTL) com política LRU para limitar memória. O derivado provê load_impl(key).
+
+#+begin_src cpp
+// arquivo: crtp_adv01_ttl_lru.cpp
+#include <unordered_map>
+#include <list>
+#include <chrono>
+#include <string>
+#include <iostream>
+using namespace std;
+
+template <typename D, int TtlMs, size_t Capacity>
+struct TtlLruCache {
+    using clock = std::chrono::steady_clock;
+    struct Entry {
+        string key;
+        string value;
+        clock::time_point exp;
+    };
+    using List = std::list<Entry>;
+    List items; // front = mais recente
+    unordered_map<string, typename List::iterator> pos;
+
+    void touch(typename List::iterator it){
+        items.splice(items.begin(), items, it);
+    }
+
+    string& insert_or_assign(string k, string v, clock::time_point now){
+        if (auto it = pos.find(k); it != pos.end()){
+            it->second->value = std::move(v);
+            it->second->exp   = now + std::chrono::milliseconds(TtlMs);
+            touch(it->second);
+            return it->second->value;
+        }
+        if (items.size() >= Capacity){
+            pos.erase(items.back().key);
+            items.pop_back();
+        }
+        items.push_front(Entry{std::move(k), std::move(v), now + std::chrono::milliseconds(TtlMs)});
+        pos[items.front().key] = items.begin();
+        return items.front().value;
+    }
+
+    string get(const string& k){
+        auto now = clock::now();
+        if (auto it = pos.find(k); it != pos.end()){
+            if (now < it->second->exp){
+                touch(it->second);
+                return it->second->value;
+            }
+            // expirou
+            items.erase(it->second);
+            pos.erase(it);
+        }
+        // miss: carrega do derivado
+        string v = static_cast<D*>(this)->load_impl(k);
+        return insert_or_assign(k, std::move(v), now);
+    }
+
+    void invalidate(const string& k){
+        if (auto it = pos.find(k); it != pos.end()){
+            items.erase(it->second);
+            pos.erase(it);
+        }
+    }
+};
+
+struct Store : TtlLruCache<Store, 200 /*ms*/, 3> {
+    unordered_map<string,string> db;
+    string load_impl(const string& k){
+        auto it = db.find(k);
+        return it==db.end() ? string{} : it->second;
+    }
+};
+
+int main(){
+    Store s;
+    s.db["a"]="1"; s.db["b"]="2"; s.db["c"]="3";
+    cout << s.get("a") << "\n"; // miss -> carrega
+    cout << s.get("a") << "\n"; // hit
+    s.db["d"]="4";
+    cout << s.get("d") << "\n"; // miss -> carrega; pode ejetar por LRU quando Capacity estourar
+}
+#+end_src
+
+Pontos:
+  - Quando o item expira, removemos do LRU e recarregamos.
+  - A capacidade máxima é respeitada pela lista LRU.
+
+**  Retry com orçamento de tempo (deadline)
+
+Em alguns cenários, o número de tentativas não é o limitante; o tempo total disponível é que importa. Abaixo, uma policy com deadline e backoff simples.
+
+#+begin_src cpp
+// arquivo: crtp_adv02_retry_budget.cpp
+#include <chrono>
+#include <thread>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct RetryBudget {
+    using clock = std::chrono::steady_clock;
+
+    // deadline absoluto
+    template <typename Fn>
+    bool run_until(clock::time_point deadline, Fn&& on_backoff){
+        int attempt = 0;
+        while (clock::now() < deadline){
+            if (static_cast<D*>(this)->try_once()) return true;
+            // backoff incremental (pode ser adaptado)
+            auto backoff = std::chrono::milliseconds(5 * (1 << std::min(attempt, 6))); // cap
+            if (clock::now() + backoff > deadline) break;
+            on_backoff(attempt, backoff);
+            std::this_thread::sleep_for(backoff);
+            ++attempt;
+        }
+        return false;
+    }
+
+    // orçamento relativo em ms
+    template <typename Fn>
+    bool run_with_budget_ms(int budget_ms, Fn&& on_backoff){
+        return run_until(clock::now() + std::chrono::milliseconds(budget_ms), std::forward<Fn>(on_backoff));
+    }
+};
+
+struct Unstable : RetryBudget<Unstable> {
+    int n=0;
+    bool try_once(){
+        std::cout << "try " << n << "\n";
+        return (++n)>=4; // só na 4ª
+    }
+};
+
+int main(){
+    Unstable u;
+    bool ok = u.run_with_budget_ms(100, [](int i, auto d){
+        std::cout << "backoff("<<i<<") "<< std::chrono::duration_cast<std::chrono::milliseconds>(d).count() <<"ms\n";
+    });
+    std::cout << boolalpha << ok << "\n";
+}
+#+end_src
+
+Dicas:
+  - Você pode adaptar o backoff via função on_backoff (adicionando jitter ou estratégias customizadas).
+  - Em ambientes de produção, combine com cancelamento cooperativo (flags atômicas).
+
+***  FSM hierárquica com guardas e ações (HFSM com CRTP)
+
+Guardas determinam se uma transição é permitida; ações executam efeitos colaterais nas transições.
+
+#+begin_src cpp
+// arquivo: crtp_adv03_hfsm_guards_actions.cpp
+#include <iostream>
+using namespace std;
+
+struct EvPlay{}; struct EvPause{}; struct EvStop{}; struct EvFwd{}; struct EvBack{};
+
+enum class Super { Idle, Active };
+
+template <typename D>
+struct FSM {
+    Super super{Super::Idle};
+    template <typename Ev>
+    void dispatch(Ev e){ static_cast<D*>(this)->handle(super, e); }
+};
+
+struct ActiveSub {
+    enum class State { Playing, Paused } st{State::Paused};
+    int track{0};
+};
+
+struct Player : FSM<Player> {
+    ActiveSub sub;
+    int maxTrack{3}; // 0..3
+
+    // Guardas
+    bool canPlay() const { return sub.track >= 0 && sub.track <= maxTrack; }
+    bool hasNext() const { return sub.track < maxTrack; }
+    bool hasPrev() const { return sub.track > 0; }
+
+    // Ações
+    void onEnterActive(){ cout << "Enter Active\n"; }
+    void onExitActive(){ cout << "Exit Active\n"; }
+    void onPlay(){ cout << "Play track " << sub.track << "\n"; }
+    void onPause(){ cout << "Pause\n"; }
+    void onStop(){ cout << "Stop\n"; }
+    void onFwd(){ cout << "Next -> " << sub.track << "\n"; }
+    void onBack(){ cout << "Prev -> " << sub.track << "\n"; }
+
+    void print(){
+        cout << "super=" << (super==Super::Idle? "Idle":"Active")
+             << " sub=" << (sub.st==ActiveSub::State::Playing? "Playing":"Paused")
+             << " track=" << sub.track << "\n";
+    }
+
+    // Transições
+    void handle(Super& s, EvPlay){
+        if (s==Super::Idle){
+            if (!canPlay()) return;
+            s = Super::Active; onEnterActive();
+            sub.st = ActiveSub::State::Playing; onPlay();
+        } else {
+            if (!canPlay()) return;
+            sub.st = ActiveSub::State::Playing; onPlay();
+        }
+        print();
+    }
+
+    void handle(Super& s, EvPause){
+        if (s==Super::Active){
+            sub.st = ActiveSub::State::Paused; onPause();
+            print();
+        }
+    }
+
+    void handle(Super& s, EvStop){
+        if (s==Super::Active){
+            onStop();
+            s = Super::Idle; onExitActive();
+            sub.st = ActiveSub::State::Paused;
+            print();
+        }
+    }
+
+    void handle(Super& s, EvFwd){
+        if (s==Super::Active && hasNext()){
+            ++sub.track; onFwd();
+            if (sub.st == ActiveSub::State::Playing) onPlay();
+            print();
+        }
+    }
+
+    void handle(Super& s, EvBack){
+        if (s==Super::Active && hasPrev()){
+            --sub.track; onBack();
+            if (sub.st == ActiveSub::State::Playing) onPlay();
+            print();
+        }
+    }
+};
+
+int main(){
+    Player p;
+    p.dispatch(EvPlay{});
+    p.dispatch(EvFwd{});
+    p.dispatch(EvPause{});
+    p.dispatch(EvBack{});
+    p.dispatch(EvPlay{});
+    p.dispatch(EvStop{});
+}
+#+end_src
+
+Estrutura:
+  - Base FSM delega para handle(super, evento).
+  - Player implementa guardas e ações explicitamente.
+
+** Circuit Breaker com métricas (taxa de falhas, janelas e half-open amostral)
+
+Integramos o breaker a métricas simples e controlamos a janela half-open com “amostras” (N tentativas).
+
+#+begin_src cpp
+// arquivo: crtp_adv04_breaker_metrics.cpp
+#include <chrono>
+#include <iostream>
+using namespace std;
+
+template <typename D, int FailThreshold=3, int ResetMs=300, int HalfOpenSamples=2>
+struct CircuitBreaker {
+    using clock = std::chrono::steady_clock;
+    enum class St { Closed, Open, HalfOpen };
+    mutable St st{St::Closed};
+    mutable int fails{0};
+    mutable int half_samples{0};
+    mutable int half_success{0};
+    mutable clock::time_point next_try{};
+
+    bool allow() const {
+        auto now = clock::now();
+        if (st == St::Open && now >= next_try){
+            st = St::HalfOpen;
+            half_samples = 0; half_success = 0;
+        }
+        return st != St::Open;
+    }
+    void on_success() const {
+        if (st == St::HalfOpen){
+            ++half_samples; ++half_success;
+            if (half_samples >= HalfOpenSamples){
+                st = St::Closed; fails = 0;
+            }
+        } else {
+            fails = 0;
+        }
+    }
+    void on_failure() const {
+        if (st == St::HalfOpen){
+            st = St::Open;
+            next_try = clock::now() + std::chrono::milliseconds(ResetMs);
+        } else {
+            if (++fails >= FailThreshold){
+                st = St::Open;
+                next_try = clock::now() + std::chrono::milliseconds(ResetMs);
+            }
+        }
+    }
+};
+
+template <typename D>
+struct Metrics {
+    mutable long long ok{0}, ko{0};
+    void mark_ok() const { ++ok; }
+    void mark_ko() const { ++ko; }
+    void print() const { cout << "ok="<<ok<<" ko="<<ko<<"\n"; }
+};
+
+struct Service : CircuitBreaker<Service>, Metrics<Service> {
+    bool call(bool succeed){
+        if (!allow()){ cout << "blocked\n"; mark_ko(); return false; }
+        if (succeed){ on_success(); mark_ok(); cout << "ok\n"; return true; }
+        on_failure(); mark_ko(); cout << "fail\n"; return false;
+    }
+};
+
+int main(){
+    Service s;
+    s.call(false); s.call(false); s.call(false); // abre
+    s.call(true);  // bloqueado (Open)
+    std::this_thread::sleep_for(std::chrono::milliseconds(350)); // janela de reset
+    s.call(true);  // half-open #1 ok
+    s.call(true);  // half-open #2 ok -> closed
+    s.call(false); // closed->fail count=1
+    s.print();
+}
+#+end_src
+
+Notas:
+  - Half-open coleta N amostras. Se todas ok (ou uma política básica), volta a Closed.
+  - Métricas agregam sucesso/falha simples; amplie para latências/percentis se necessário.
+
+**  Laboratório: exercícios com soluções
+
+Abaixo, 3 exercícios curtos para reforço. Cada um com enunciado e solução compilável.
+
+*** Exercício: Mixin RateLimiter com tokens variáveis
+
+Enunciado:
+  - Implemente um mixin RateLimiter<D, Rate, PerMs> com método consume(int tokens).
+  - O método retorna true se houver saldo; caso contrário false (sem bloquear).
+  - Use clock steady, e recarga linear de tokens ao longo do tempo até Rate.
+
+Solução:
+
+#+begin_src cpp
+// arquivo: crtp_lab01_rate_limiter.cpp
+#include <chrono>
+#include <iostream>
+using namespace std;
+
+template <typename D, int Rate, int PerMs>
+struct RateLimiter {
+    using clock = std::chrono::steady_clock;
+    mutable double tokens{double(Rate)};
+    mutable clock::time_point last{clock::now()};
+
+    bool consume(int n) const {
+        auto now = clock::now();
+        double elapsed = std::chrono::duration<double, std::milli>(now-last).count();
+        last = now;
+        tokens = std::min<double>(Rate, tokens + (elapsed * Rate) / PerMs);
+        if (tokens >= n){ tokens -= n; return true; }
+        return false;
+    }
+};
+
+struct Sender : RateLimiter<Sender, 5, 1000> {
+    bool send_bulk(int n){
+        if (!consume(n)) return false;
+        std::cout << "sent " << n << "\n"; return true;
+    }
+};
+
+int main(){
+    Sender s;
+    std::cout << s.send_bulk(3) << "\n"; // true
+    std::cout << s.send_bulk(3) << "\n"; // pode ser false
+}
+#+end_src
+
+*** Exercício: EqOrd com concept garantindo tie()
+
+Enunciado:
+  - Crie um mixin EqOrd que define == e < usando tie() do derivado.
+  - Use um concept para falhar com mensagem clara se tie() não existir.
+
+Solução:
+
+#+begin_src cpp
+// arquivo: crtp_lab02_eqord_concept.cpp
+#include <tuple>
+#include <concepts>
+#include <iostream>
+using namespace std;
+
+template <typename T>
+concept HasTie = requires(const T& t){ t.tie(); };
+
+template <typename D>
+struct EqOrd {
+    static_assert(HasTie<D>, "Derived deve prover tie() const");
+    friend bool operator==(const D& a, const D& b){ return a.tie()==b.tie(); }
+    friend bool operator<(const D& a, const D& b){ return a.tie()< b.tie(); }
+};
+
+struct Point : EqOrd<Point> {
+    int x{}, y{};
+    auto tie() const { return std::tie(x,y); }
+};
+
+int main(){
+    Point a{1,2}, b{1,3};
+    std::cout << (a<b) << " " << (a==b) << "\n";
+}
+#+end_src 
+***  Exercício: MapFilterView encadeável
+
+Enunciado:
+  - Implemente uma view que encapsula um range R e permite map(f) e filter(p), encadeados.
+  - Use CRTP para a base da view; avalie lazy (armazenando índices para filter).
+
+Solução (didática):
+
+#+begin_src cpp
+// arquivo: crtp_lab03_map_filter_view.cpp
+#include <vector>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct ViewBase {
+    const D& self() const { return *static_cast<const D*>(this); }
+    size_t size() const { return self().size_impl(); }
+    decltype(auto) operator[](size_t i) const { return self().at_impl(i); }
+};
+
+template <typename R, typename F>
+struct MapView : ViewBase<MapView<R,F>> {
+    const R* r_; F f_;
+    MapView(const R& r, F f): r_(&r), f_(std::move(f)){}
+    size_t size_impl() const { return r_->size(); }
+    decltype(auto) at_impl(size_t i) const { return f_((*r_)[i]); }
+};
+
+template <typename R, typename P>
+struct FilterView : ViewBase<FilterView<R,P>> {
+    const R* r_; P p_;
+    mutable vector<size_t> idx_;
+    FilterView(const R& r, P p): r_(&r), p_(std::move(p)){}
+    void ensure() const {
+        if (!idx_.empty()) return;
+        for (size_t i=0;i<r_->size();++i) if (p_((*r_)[i])) idx_.push_back(i);
+    }
+    size_t size_impl() const { ensure(); return idx_.size(); }
+    decltype(auto) at_impl(size_t i) const { ensure(); return (*r_)[idx_[i]]; }
+};
+
+int main(){
+    vector<int> v{1,2,3,4,5,6};
+    auto even = [](int x){ return x%2==0; };
+    auto square = [](int x){ return x*x; };
+
+    FilterView fv(v, even);
+    MapView mv(fv, square);
+
+    for (size_t i=0;i<mv.size(); ++i) cout << mv[i] << " "; // 4 16 36
+    cout << "\n";
+}
+#+end_src
+
+** Apêndice: integração com ranges/concepts (C++20) via CRTP
+
+Mostraremos uma base Range CRTP que exige begin/end e size_impl no derivado; um adaptador simples SquareView.
+
+#+begin_src cpp
+// arquivo: crtp_adv05_ranges_concepts.cpp
+#include <concepts>
+#include <vector>
+#include <iostream>
+using namespace std;
+
+template <typename T>
+concept Indexable = requires(const T& t, size_t i){
+    { t.size_impl() } -> std::convertible_to<size_t>;
+    t.at_impl(i);
+};
+
+template <typename D>
+struct RangeBase {
+    const D& self() const { return *static_cast<const D*>(this); }
+    size_t size() const requires Indexable<D> { return self().size_impl(); }
+    decltype(auto) operator[](size_t i) const requires Indexable<D> { return self().at_impl(i); }
+
+    // begin/end (const) para uso em for-each
+    struct It {
+        const D* d; size_t i;
+        bool operator!=(const It& o) const { return i != o.i; }
+        void operator++(){ ++i; }
+        decltype(auto) operator*() const { return (*d)[i]; }
+    };
+    auto begin() const { return It{&self(), 0}; }
+    auto end()   const { return It{&self(), self().size_impl()}; }
+};
+
+template <typename R>
+struct SquareView : RangeBase<SquareView<R>> {
+    const R* r_;
+    SquareView(const R& r): r_(&r) {}
+    size_t size_impl() const { return r_->size(); }
+    auto at_impl(size_t i) const { return (*r_)[i] * (*r_)[i]; }
+};
+
+int main(){
+    vector<int> v{1,2,3,4};
+    // Adaptador simples para expor size_impl/at_impl sobre vector
+    struct VecProxy : RangeBase<VecProxy> {
+        const vector<int>* pv;
+        size_t size_impl() const { return pv->size(); }
+        int at_impl(size_t i) const { return (*pv)[i]; }
+    } proxy{&v};
+
+    SquareView sv(proxy);
+    for (auto x: sv) cout << x << " "; // 1 4 9 16
+    cout << "\n";
+}
+#+end_src
+
+Dicas:
+  - Com concepts, você documenta e restringe contratos (Indexable).
+  - Em produção, prefira interoperar diretamente com std::ranges e categorizar iteradores (input/forward/etc.) quando aplicável.
+
+** Cache TTL + LRU + Sharding (esqueleto thread‑safe)
+
+Sharding reduz contenção dividindo o cache em N partições. Abaixo, um esqueleto simples com Mutex por shard. O derivado provê load_impl(key).
+
+#+begin_src cpp
+// arquivo: crtp_prod01_ttl_lru_sharded.cpp
+#include <unordered_map>
+#include <list>
+#include <chrono>
+#include <string>
+#include <mutex>
+#include <vector>
+#include <functional>
+#include <iostream>
+using namespace std;
+
+template <typename D, int TtlMs, size_t CapacityPerShard, size_t Shards=4>
+struct TtlLruSharded {
+    using clock = std::chrono::steady_clock;
+
+    struct Entry { string key, value; clock::time_point exp; };
+    struct Shard {
+        list<Entry> items; // LRU: front = MRU
+        unordered_map<string, list<Entry>::iterator> pos;
+        mutex m;
+    };
+
+    vector<Shard> shards_;
+
+    TtlLruSharded() : shards_(Shards) {}
+
+    size_t shard_of(const string& k) const {
+        return std::hash<string>{}(k) % Shards;
+    }
+
+    string get(const string& k){
+        auto& S = shards_[shard_of(k)];
+        auto now = clock::now();
+
+        { // tentativa de hit/expiração
+            lock_guard<mutex> lk(S.m);
+            if (auto it = S.pos.find(k); it != S.pos.end()){
+                if (now < it->second->exp){
+                    S.items.splice(S.items.begin(), S.items, it->second);
+                    return it->second->value;
+                }
+                S.items.erase(it->second);
+                S.pos.erase(it);
+            }
+        }
+
+        // miss: carregar fora do lock
+        string v = static_cast<D*>(this)->load_impl(k);
+
+        // inserir (com lock)
+        {
+            lock_guard<mutex> lk(S.m);
+            if (auto it = S.pos.find(k); it != S.pos.end()){
+                it->second->value = v;
+                it->second->exp = now + std::chrono::milliseconds(TtlMs);
+                S.items.splice(S.items.begin(), S.items, it->second);
+                return it->second->value;
+            }
+            if (S.items.size() >= CapacityPerShard){
+                S.pos.erase(S.items.back().key);
+                S.items.pop_back();
+            }
+            S.items.push_front(Entry{k, v, now + std::chrono::milliseconds(TtlMs)});
+            S.pos[k] = S.items.begin();
+            return S.items.front().value;
+        }
+    }
+
+    void invalidate(const string& k){
+        auto& S = shards_[shard_of(k)];
+        lock_guard<mutex> lk(S.m);
+        if (auto it=S.pos.find(k); it!=S.pos.end()){
+            S.items.erase(it->second);
+            S.pos.erase(it);
+        }
+    }
+};
+
+// Exemplo de uso
+struct Store : TtlLruSharded<Store, 500 /*ms*/, 2 /*cap por shard*/, 4 /*shards*/> {
+    unordered_map<string,string> db;
+    string load_impl(const string& k){
+        auto it = db.find(k);
+        return it==db.end()? string{} : it->second;
+    }
+};
+
+int main(){
+    Store s; s.db["a"]="1"; s.db["b"]="2"; s.db["c"]="3";
+    cout << s.get("a") << "\n";
+    cout << s.get("a") << "\n"; // hit
+}
+#+end_src
+
+Notas:
+  - Em produção, avalie TTL por item, políticas de admissão (TinyLFU) e métricas.
+  - Para alto throughput, use sharding + locks leves, ou estruturas lock‑free quando plausível.
+
+** Retries com orçamento global por bucket (rate + deadline)
+
+Agrupe chamadas por “bucket” (ex.: cliente, endpoint) e imponha um orçamento de tempo total e uma taxa máxima.
+
+#+begin_src cpp
+// arquivo: crtp_prod02_retry_budget_bucket.cpp
+#include <chrono>
+#include <thread>
+#include <unordered_map>
+#include <string>
+#include <mutex>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct BudgetBucket {
+    using clock = std::chrono::steady_clock;
+    struct State {
+        double tokens{0}; // ms de orçamento disponíveis
+        clock::time_point last{clock::now()};
+    };
+    mutable unordered_map<string, State> buckets;
+    mutable mutex m;
+
+    // recarrega a taxa de ms por segundo (rate_ms_per_s)
+    bool consume(const string& key, double cost_ms, double rate_ms_per_s, double max_ms){
+        lock_guard<mutex> lk(m);
+        auto& st = buckets[key];
+        auto now = clock::now();
+        double elapsed = std::chrono::duration<double, std::milli>(now - st.last).count();
+        st.last = now;
+        st.tokens = std::min<double>(max_ms, st.tokens + (elapsed * rate_ms_per_s) / 1000.0);
+        if (st.tokens >= cost_ms){ st.tokens -= cost_ms; return true; }
+        return false;
+    }
+};
+
+struct Caller : BudgetBucket<Caller> {
+    // Tenta até “deadline”, cada tentativa cobra custo_ms do orçamento do bucket
+    bool call_with_budget(const string& bucket, int budget_ms, int per_try_ms){
+        auto deadline = clock::now() + std::chrono::milliseconds(budget_ms);
+        while (clock::now() < deadline){
+            if (!consume(bucket, per_try_ms, /*rate*/ 500.0, /*max*/ 2000.0)){
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                continue;
+            }
+            if (try_once()) return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        return false;
+    }
+
+    using clock = std::chrono::steady_clock;
+    int n=0;
+    bool try_once(){ std::cout<<"try "<<n<<"\n"; return (++n)>=3; }
+};
+
+int main(){
+    Caller c;
+    bool ok = c.call_with_budget("clientA", 120, 30);
+    std::cout << boolalpha << ok << "\n";
+}
+#+end_src 
+
+Ideia: o orçamento é reabastecido a uma taxa controlada; múltiplos chamadores no mesmo bucket competem por tokens.
+
+** FSM hierárquica orientada por tabela (table‑driven)
+
+Descrever transições em uma tabela constexpr e executar via CRTP evita grande número de if/else e facilita auditoria.
+
+#+begin_src cpp
+// arquivo: crtp_prod03_hfsm_table.cpp
+#include <array>
+#include <iostream>
+using namespace std;
+
+enum class S { Idle, Active };
+enum class Sub { Paused, Playing };
+
+struct EvPlay{}; struct EvPause{}; struct EvStop{};
+
+template <typename D>
+struct FSM {
+    S s{S::Idle}; Sub sub{Sub::Paused};
+
+    template <typename Ev>
+    void dispatch(Ev e){ static_cast<D*>(this)->step(e); }
+};
+
+struct Player : FSM<Player> {
+    struct Row {
+        S s; Sub sub;
+        int ev; // 0=Play,1=Pause,2=Stop
+        S ns; Sub nsub;
+    };
+    static constexpr array<Row, 5> T {{
+        {S::Idle,   Sub::Paused, 0, S::Active, Sub::Playing}, // Play
+        {S::Active, Sub::Playing,1, S::Active, Sub::Paused},  // Pause
+        {S::Active, Sub::Paused, 0, S::Active, Sub::Playing}, // Play
+        {S::Active, Sub::Playing,2, S::Idle,   Sub::Paused},  // Stop
+        {S::Active, Sub::Paused, 2, S::Idle,   Sub::Paused}   // Stop
+    }};
+
+    template <typename Ev>
+    constexpr static int ev_id(){
+        if constexpr (is_same_v<Ev, EvPlay>) return 0;
+        if constexpr (is_same_v<Ev, EvPause>) return 1;
+        return 2;
+    }
+
+    template <typename Ev>
+    void step(Ev){
+        int id = ev_id<Ev>();
+        for (auto& r : T){
+            if (r.s==s && r.sub==sub && r.ev==id){
+                s = r.ns; sub = r.nsub;
+                print(); return;
+            }
+        }
+        // no-op se não achar
+    }
+
+    void print(){
+        cout << "s="<<(s==S::Idle?"Idle":"Active")
+             <<" sub="<<(sub==Sub::Paused?"Paused":"Playing")<<"\n";
+    }
+};
+
+int main(){
+    Player p;
+    p.dispatch(EvPlay{});
+    p.dispatch(EvPause{});
+    p.dispatch(EvPlay{});
+    p.dispatch(EvStop{});
+}
+#+end_src
+
+A tabela pode ser gerada ou validada por testes, deixando as regras explícitas.
+
+** Circuit Breaker com janela deslizante (EWMA simples)
+
+Em vez de contadores discretos, use uma taxa de falhas suavizada (EWMA) para decidir abertura.
+
+#+begin_src cpp
+// arquivo: crtp_prod04_breaker_ewma.cpp
+#include <chrono>
+#include <iostream>
+using namespace std;
+
+template <typename D, double Alpha=0.2, double OpenThresh=0.5, int ResetMs=300>
+struct BreakerEWMA {
+    using clock = std::chrono::steady_clock;
+    enum class St { Closed, Open, HalfOpen };
+    mutable St st{St::Closed};
+    mutable double ewma_fail{0.0};
+    mutable clock::time_point next_try{};
+
+    bool allow() const {
+        auto now = clock::now();
+        if (st == St::Open && now >= next_try) st = St::HalfOpen;
+        return st != St::Open;
+    }
+    void record(bool ok){
+        double x = ok ? 0.0 : 1.0;
+        ewma_fail = Alpha*x + (1.0-Alpha)*ewma_fail;
+
+        if (st==St::HalfOpen){
+            if (!ok){ st=St::Open; next_try = clock::now()+std::chrono::milliseconds(ResetMs); }
+            else if (ewma_fail < OpenThresh*0.5) st=St::Closed; // voltou a ficar “boa”
+            return;
+        }
+        if (st==St::Closed && ewma_fail >= OpenThresh){
+            st=St::Open; next_try = clock::now()+std::chrono::milliseconds(ResetMs);
+        }
+    }
+};
+
+struct Svc : BreakerEWMA<Svc> {
+    bool call(bool succeed){
+        if (!allow()){ std::cout<<"blocked\n"; return false; }
+        record(succeed);
+        std::cout<<(succeed?"ok\n":"fail\n");
+        return succeed;
+    }
+};
+
+int main(){
+    Svc s;
+    s.call(false); s.call(false); s.call(true);
+    s.call(false); s.call(false); // tende a abrir
+    std::this_thread::sleep_for(std::chrono::milliseconds(350));
+    s.call(true); s.call(true); // half-open -> closed se estabilizar
+}
+#+end_src
+
+Ajuste Alpha (suavização) e limiar conforme o domínio.
+
+**  Exercícios desafiadores (enunciados + soluções resumidas)
+
+***  Expression templates 2D (matriz) com CRTP:
+
+Enunciado:
+  - implemente Mat<R,C> e expressões Add/ScalarMul para avaliar A+B+2*C sem temporários.
+
+Solução resumida:
+
+#+begin_src cpp
+// arquivo: crtp_prod05_expr2d.cpp
+#include <array>
+#include <iostream>
+using namespace std;
+
+template <typename E>
+struct Expr {
+    const E& self() const { return *static_cast<const E*>(this); }
+    static constexpr size_t R = E::R, C = E::C;
+    float eval(size_t r,size_t c) const { return self().eval(r,c); }
+};
+
+template <size_t R, size_t C>
+struct Mat : Expr<Mat<R,C>> {
+    static constexpr size_t Rv=R, Cv=C; static constexpr size_t R_=R, C_=C;
+    static constexpr size_t R = Rv, C = Cv;
+    array<float, R*C> v{};
+    float& at(size_t r,size_t c){ return v[r*C+c]; }
+    float  eval(size_t r,size_t c) const { return v[r*C+c]; }
+
+    template <typename E>
+    Mat& operator=(const Expr<E>& e){
+        auto& ex = static_cast<const E&>(e);
+        for (size_t r=0;r<R;++r) for (size_t c=0;c<C;++c) at(r,c)=ex.eval(r,c);
+        return *this;
+    }
+};
+
+template <typename L, typename R>
+struct Add : Expr<Add<L,R>> {
+    const L& l; const R& r;
+    static constexpr size_t R = L::R, C = L::C;
+    float eval(size_t i,size_t j) const { return l.eval(i,j) + r.eval(i,j); }
+};
+
+template <typename L, typename R>
+Add<L,R> operator+(const Expr<L>& a, const Expr<R>& b){
+    return Add<L,R>{static_cast<const L&>(a), static_cast<const R&>(b)};
+}
+
+template <typename L>
+struct SMul : Expr<SMul<L>> {
+    const L& l; float s;
+    static constexpr size_t R = L::R, C = L::C;
+    float eval(size_t i,size_t j) const { return l.eval(i,j) * s; }
+};
+
+template <typename L>
+SMul<L> operator*(float s, const Expr<L>& a){ return SMul<L>{static_cast<const L&>(a), s}; }
+
+int main(){
+    Mat<2,2> A,B,C;
+    A.at(0,0)=1; A.at(0,1)=2; A.at(1,0)=3; A.at(1,1)=4;
+    B.at(0,0)=5; B.at(0,1)=6; B.at(1,0)=7; B.at(1,1)=8;
+    C = A + B + 2.0f * A;
+    cout << C.v[0] << " " << C.v[1] << " " << C.v[2] << " " << C.v[3] << "\n";
+}
+#+end_src
+
+*** Mini‑DSP com CRTP:
+
+Enunciado:
+  - construa um pipeline com mixins Gain, Clamp e LowPass (RC), encadeáveis.
+
+Solução (esqueleto):
+
+#+begin_src cpp
+// arquivo: crtp_prod06_dsp.cpp
+#include <vector>
+#include <algorithm>
+using namespace std;
+
+template <typename D>
+struct Chain { D& self(){ return *static_cast<D*>(this);} };
+
+template <typename D>
+struct Gain : Chain<D> {
+    D& gain(float g){ this->self().gain_impl(g); return this->self(); }
+};
+
+template <typename D>
+struct Clamp : Chain<D> {
+    D& clamp(float lo, float hi){ this->self().clamp_impl(lo,hi); return this->self(); }
+};
+
+template <typename D>
+struct LowPass : Chain<D> {
+    D& lowpass(float alpha){ this->self().lowpass_impl(alpha); return this->self(); }
+};
+
+struct Buffer : Gain<Buffer>, Clamp<Buffer>, LowPass<Buffer> {
+    vector<float> x;
+    explicit Buffer(size_t n): x(n,0){}
+    void gain_impl(float g){ for(auto& s:x) s*=g; }
+    void clamp_impl(float lo,float hi){ for(auto& s:x) s = std::clamp(s,lo,hi); }
+    void lowpass_impl(float a){ float y=0; for(auto& s:x){ y = a*s + (1-a)*y; s=y; } }
+};
+
+int main(){
+    Buffer b(4); b.x={-2, -0.5f, 0.5f, 2};
+    b.gain(2.0f).clamp(-1,1).lowpass(0.3f);
+}
+#+end_src
+
+*** Locks customizados por policy (Mutex vs Spinlock):
+
+Enunciado:
+  - componha uma classe protegida por MutexSync ou SpinSync, selecionada no tipo.
+
+Solução:
+
+#+begin_src cpp
+// arquivo: crtp_prod07_spin_vs_mutex.cpp
+#include <atomic>
+#include <thread>
+#include <mutex>
+#include <iostream>
+using namespace std;
+
+template <typename D>
+struct MutexSync {
+    mutable std::mutex m;
+    struct Guard { const D& d; Guard(const D& dd):d(dd){ const_cast<std::mutex&>(d.m).lock(); } ~Guard(){ const_cast<std::mutex&>(d.m).unlock(); } };
+    Guard guard() const { return Guard(static_cast<const D&>(*this)); }
+};
+
+template <typename D>
+struct SpinSync {
+    mutable std::atomic_flag f = ATOMIC_FLAG_INIT;
+    struct Guard {
+        const D& d; Guard(const D& dd): d(dd){
+            while (d.f.test_and_set(std::memory_order_acquire)) { /* spin */ }
+        }
+        ~Guard(){ d.f.clear(std::memory_order_release); }
+    };
+    Guard guard() const { return Guard(static_cast<const D&>(*this)); }
+};
+
+template <template <typename> class SyncP>
+struct Counter : SyncP<Counter<SyncP>> {
+    int v{};
+    void inc(){ auto g = this->guard(); ++v; }
+    int  get() const { auto g = this->guard(); return v; }
+};
+
+int main(){
+    Counter<MutexSync> a;
+    Counter<SpinSync>  b;
+    a.inc(); b.inc();
+    std::cout << a.get() << " " << b.get() << "\n";
+}
+#+end_src
+
+
+** Objetivos de uma code review com CRTP
+
+  - Validar contratos estáticos: o derivado realmente implementa o que a base exige? As mensagens de erro são claras?
+  - Evitar armadilhas de múltipla herança e diamantes. Confirmar ordem e idempotência de mixins.
+  - Garantir que CRTP está sendo usado onde ele traz valor (hot paths), sem sacrificar ergonomia onde polimorfismo dinâmico é adequado.
+  - Controlar bloat/custos de compilação: templates grandes, headers gordos, lógica pesada inline.
+  - Manter o design estável: APIs const‑corretas, conceitos bem definidos, mixins coesos e independentes.
+
+** Checklist essencial de revisão
+
+- Contrato explícito:
+  - A base CRTP documenta claramente “o derivado deve prover X, Y, Z”?
+  - Há concepts e static_assert com mensagens legíveis?
+
+- Forma de herança correta:
+  - Derived herda exatamente Base?
+  - static_cast<Derived*>(this) é válido em todas as bases?
+
+- Nomes e lookup:
+  - Em contexto dependente, usa this-> ou qualificação Base:: para membros da base?
+  - Tipos dependentes usam typename corretamente?
+
+- Múltipla herança:
+  - Mixins não duplicam a mesma base CRTP?
+  - A ordem dos mixins é intencional e documentada?
+
+- Const‑corretude e exceções:
+  - Métodos const exigidos são const de fato?
+  - Requisitos noexcept são coerentes?
+
+- Bloat e limites:
+  - Lógica pesada está em funções livres não‑templated quando possível?
+  - Headers minimalistas, pimpl ou separação TU quando faz sentido?
+
+- Concorrência:
+  - Estados compartilhados em mixins são thread‑safe?
+  - EBO/[/[no_unique_address]] utilizados com cuidado para não violar aliasing/ABI?
+
+- Integração runtime:
+  - Há adaptadores claros entre CRTP (estático) e interfaces dinâmicas quando necessário?
+
+** Sinais de alerta (smells) com exemplos e correções
+
+***  “CRTP por esporte” (quando virtual seria melhor)
+
+Use CRTP apenas quando você ganha algo: remoção do custo de despacho, inlining agressivo, composição de políticas. Para heterogeneidade genuína, prefira interfaces dinâmicas.
+
+#+begin_src cpp
+// errado: heterogeneidade real em runtime, mas força CRTP sem ganho
+template <typename D> struct Renderer { void draw(){ static_cast<D*>(this)->draw_impl(); } };
+// ...
+// Em cenários com lista heterogênea de objetos desconhecidos em runtime, prefira interface virtual.
+#+end_src
+
+Correção: mantenha virtual para coleções heterogêneas; use CRTP apenas para hot paths monomórficos.
+
+*** Herança incorreta (Base com Y)
+
+#+begin_src cpp
+// arquivo: crtp_smell01_wrong_inherit.cpp
+template <typename D>
+struct Base { D& self(){ return *static_cast<D*>(this); } };
+
+struct X {};
+struct Y : Base<X> { }; // errado: self() vai fazer static_cast<Y*> -> X* (UB)
+#+end_src
+
+Correção:
+
+#+begin_src cpp
+struct Y : Base<Y> { };
+#+end_src
+
+*** Lookup e ocultação (hiding) levam a recursão acidental
+#+begin_src cpp
+// arquivo: crtp_smell02_hiding.cpp
+template <typename D>
+struct Addable {
+    void add(int x){ static_cast<D*>(this)->add_impl(x); }
+};
+
+struct Counter : Addable<Counter> {
+    int v{};
+    void add(int x){ v += x; } // oculta Base::add e chama a si mesmo se usado via this->add
+    void add_impl(int x){ v += x; } // o correto para CRTP
+};
+#+end_src
+
+Correção: não redefina o mesmo nome da base a menos que intencional; use add_impl no derivado, e chame Base::add se precisar. Ou faça:
+
+#+begin_src cpp
+struct Counter : Addable<Counter> {
+    int v{};
+    using Addable<Counter>::add; // traz add da base para evitar ocultação
+    void add_impl(int x){ v += x; }
+};
+#+end_src
+
+*** Nomes dependentes não qualificados
+
+#+begin_src cpp
+// arquivo: crtp_smell03_dependent_lookup.cpp
+template <typename D> struct M { void ping(){} };
+
+template <typename D>
+struct N : M<D> {
+    void run(){
+        // ping(); // erro em templates (não encontrado)
+        this->ping();          // correto
+        // ou M<D>::ping();     // também correto
+    }
+};
+#+end_src
+
+*** Falta de typename para tipos dependentes
+
+#+bein_src cpp
+// arquivo: crtp_smell04_typename.cpp
+template <typename D>
+struct Box {
+    using Inner = typename D::Inner; // typename é obrigatório
+};
+#+end_src
+
+*** Diamante acidental com CRTP
+
+Evite herdar a mesma base CRTP em dois caminhos. Prefira composição.
+
+#+begin_src cpp
+// arquivo: crtp_smell05_diamond.cpp
+template <typename D> struct Core { void f(){} };
+template <typename D> struct A : Core<D> {};
+template <typename D> struct B : Core<D> {};
+// struct X : A<X>, B<X> {}; // duplica Core<X> -> ambiguidade
+
+// Correção: composição
+template <typename D> struct A2 { Core<D> c; };
+template <typename D> struct B2 { Core<D> c; };
+#+end_src
+
+*** Slicing por passagem por valor
+#+begin_src cpp
+// arquivo: crtp_smell06_slicing.cpp
+template <typename D>
+struct Printable { void print(){ static_cast<D*>(this)->print_impl(); } };
+
+struct Doc : Printable<Doc> {
+    void print_impl(){ /*...*/ }
+};
+
+void f(Printable<Doc> p){ p.print(); } // cópia por valor: ok tecnicamente, mas não é polimorfismo
+
+int main(){
+    Doc d;
+    f(d); // “funciona”, mas não confunda com polimorfismo dinâmico
+}
+#+end_src
+
+Preferível: use templates paramétricos ou referências explícitas ao derivado.
+
+#+begin_src cpp
+template <typename T>
+void f(T& t){ t.print(); } // resolve para o tipo concreto
+#+end_src
+
+***  Bloat por lógica pesada inline
+
+Se o mixin faz muita coisa, mova algoritmos pesados para funções livres não‑templated. Deixe no template apenas o “colar” (chamadas) que precisa ser inlinado.
+
+#+begin_src cpp
+// arquivo: crtp_smell07_bloat.cpp
+namespace detail {
+    void heavy_run_impl(/* dados concretos */) { /* TU não-templated */ }
+}
+template <typename D>
+struct Runner {
+    void run(){ detail::heavy_run_impl(/* extrair de D */); }
+};
+#+end_src
+
+***  EBO/[/[no_unique_address]] mal aplicado
+
+Use EBO para policies vazias, mas saiba que pode afetar layout/ABI e interações com herança múltipla.
+
+#+begin_src cpp
+// arquivo: crtp_smell08_ebo.cpp
+struct Empty {};
+struct Holder {
+    [[no_unique_address]] Empty policy; // C++20: não ocupa espaço se possível
+    int v;
+};
+#+end_src
+
+Cuidado com ponteiros/refs para o empty subobjeto (endereços podem colidir).
+
+***  Concepts sub/overconstrained
+
+Nem permissivos demais, nem restritivos demais. Mensagens claras.
+
+#+begin_src cpp
+// arquivo: crtp_smell09_concepts.cpp
+#include <concepts>
+template <typename T>
+concept HasSize = requires(const T& t){ { t.size() } -> std::convertible_to<size_t>; };
+
+template <typename D>
+struct Sized {
+    static_assert(HasSize<D>, "Derived deve prover size() const -> size_t");
+    size_t size() const { return static_cast<const D*>(this)->size(); }
+};
+#+end_src
+
+***  Estado estático em mixins sem sincronização
+
+Evite estatística global sem proteção; prefira estado por instância ou sincronização clara.
+
+***  Padrões recomendados
+
+- Alias padrão:
+  - Forneça self()/self_const() ou self() const/ não‑const.
+
+- Contrato explícito:
+  - Defina concepts ou requires na base; em fallback, use static_assert com instruções do que implementar.
+
+- Mixins idempotentes e ortogonais:
+  - Evite mixins que acoplam demais entre si. Documente dependências. Se a ordem importa, documente com exemplos.
+
+- Política como tipos:
+  - Configure comportamento via tipos/policies, não apenas flags em runtime.
+
+- EBO quando faz sentido:
+  - Policies vazias economizam espaço por instância.
+
+- Adaptação para runtime:
+  - Forneça adaptadores para interfaces virtuais quando necessário (UI/plugin/serialização).
+
+- Mensagens de erro “amigáveis”:
+  - Prefira concepts + static_assert com detalhes do contrato esperado.
+
+**  Exemplo de adaptação: CRTP rápido + interface legada virtual
+
+#+begin_src cpp
+// arquivo: crtp_review01_adapter.cpp
+#include <memory>
+#include <iostream>
+using namespace std;
+
+// Interface legada dinâmica
+struct IAlgo {
+    virtual ~IAlgo() = default;
+    virtual int run(int) = 0;
+};
+
+// Impl moderna com CRTP
+template <typename D>
+struct AlgoBase {
+    int run(int x){ return static_cast<D*>(this)->run_impl(x); }
+};
+
+struct FastAlgo : AlgoBase<FastAlgo> {
+    int run_impl(int x){ return x * 2; }
+};
+
+// Adaptador para IAlgo
+struct AlgoAdapter : IAlgo {
+    FastAlgo impl;
+    int run(int x) override { return impl.run(x); }
+};
+
+int main(){
+    unique_ptr<IAlgo> p = make_unique<AlgoAdapter>();
+    cout << p->run(21) << "\n";
+}
+#+end_src
+
+Assim, hot paths usam FastAlgo diretamente; pontos de integração continuam com IAlgo.
+
+** Erros mais legíveis com concepts + static_assert
+
+#+begin_src cpp
+// arquivo: crtp_review02_errors.cpp
+#include <concepts>
+#include <type_traits>
+
+template <typename T>
+concept Serializable = requires(const T& t){
+    { t.serialize() } -> std::convertible_to<const char*>;
+};
+
+template <typename D>
+struct SerBase {
+    static_assert(Serializable<D>,
+        "Contrato: D deve prover const char* serialize() const;"
+        " Ex.: const char* serialize() const { return \"...\"; }");
+    const char* to_cstr() const { return static_cast<const D*>(this)->serialize(); }
+};
+
+struct Bad : SerBase<Bad> {
+    // faltou serialize()
+};
+
+int main(){
+    // Bad b; b.to_cstr(); // descomente para ver a mensagem clara do static_assert
+}
+#+end_src
+
+Dica: para APIs maiores, crie concepts específicos por “capacidade” (HasOpen, HasClose, etc.) e componha.
+
+** Checklist final de adoção
+
+- Design
+  - Identificou hot paths onde CRTP traz ganho real?
+  - Documentou contratos em cada base CRTP com examples?
+  - Mixins são ortogonais e independentes?
+
+- Compilação e bloat
+  - Lógica pesada está em TU não‑templated quando possível?
+  - Tamanhos de binário e tempos de build medidos e dentro do orçamento?
+
+- Erros e diagnósticos
+  - Concepts + static_assert com mensagens objetivas?
+  -  Testes que validam contratos (static_asserts) compõem a CI?
+
+- Integração
+  -  Adaptadores para interfaces dinâmicas onde a heterogeneidade é necessária?
+  -  Fronteiras de módulo/ABI respeitadas (sem vazar detalhes templated desnecessários)?
+
+- Concorrência e estado
+  -  Estado compartilhado nos mixins é thread‑safe?
+  -  EBO/[/[no_unique_address]] usados com critério e testados?

@@ -1,0 +1,15 @@
+** Polimorfismo estático
+
+É a capacidade de uma classe ou interface se adaptar a diferentes tipos em tempo de compilação, sem depender de funções virtuais nem de tabelas de despacho. Ele ocorre quando o compilador consegue resolver exatamente qual função será chamada antes mesmo do programa rodar. Isso permite que chamadas sejam embutidas (inline) e elimina a sobrecarga de indireções, mantendo o custo zero de abstração. O CRTP é a técnica clássica para atingir esse tipo de polimorfismo em C++.
+
+** CRTP (Curiously Recurring Template Pattern)
+
+É um padrão de design no qual uma classe base recebe como parâmetro de template a própria classe derivada. Esse arranjo aparentemente circular dá à base o poder de acessar métodos da derivada em tempo de compilação, sem recorrer a mecanismos de polimorfismo dinâmico. O CRTP é especialmente útil para reutilização de código, criação de mixins e implementação de contratos que são verificados estaticamente pelo compilador.
+
+** v-table (virtual table)
+
+É a estrutura de dados usada pelo compilador para implementar o polimorfismo dinâmico em C++. Cada classe com funções virtuais mantém uma tabela de ponteiros para as implementações concretas de seus métodos. Em tempo de execução, sempre que chamamos uma função virtual, o programa consulta a v-table do objeto para descobrir qual implementação chamar. Esse mecanismo dá flexibilidade, mas custa uma indireção e, portanto, impede certas otimizações (como inlining). O CRTP elimina completamente a necessidade de v-table, pois resolve todas as chamadas em tempo de compilação.
+
+** Mixins
+
+São classes projetadas para injetar funcionalidades específicas em outras classes por meio de herança. No contexto do CRTP, um mixin é tipicamente um template que espera como parâmetro a classe derivada e adiciona métodos auxiliares ou operadores que se apoiam em poucos elementos fornecidos por essa derivada. Exemplo clássico: se a classe derivada define apenas operator== e operator<, um mixin pode automaticamente gerar operator!=, operator>, operator<= e operator>=, promovendo reuso de código sem perda de eficiência.

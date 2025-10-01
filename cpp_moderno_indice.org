@@ -216,8 +216,10 @@ Ao longo de mais de cem capítulos, cada seção é organizada em torno de temas
 [[./novos_capitulos/capitulo_21.org][21. Tipos dependentes e contexto de compilação]]
 
 [[./novos_capitulos/capitulo_22.org][22. Especialização de templates: arte e armadilhas]]
-[./novos_capitulos/capitulo_23.org]23. Polimorfismo estático com CRTP
-[./novos_capitulos/capitulo_24.org]24. Variadic templates e abstrações poderosas
+
+[[./novos_capitulos/capitulo_23.org][23. Polimorfismo estático com CRTP]]
+
+[[./novos_capitulos/capitulo_24.org][24. Variadic templates e abstrações poderosas]]
 [./novos_capitulos/capitulo_25.org]25. Templates recursivos: design em cascata
 [./novos_capitulos/capitulo_26.org]26. Metafunções e manipulação de tipos
 [./novos_capitulos/capitulo_27.org]27. Idioma tag dispatching2
