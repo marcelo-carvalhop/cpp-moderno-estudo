@@ -1,0 +1,130 @@
+* Capítulo 34: constexpr em profundidade
+
+A introdução de constexpr no C++11 não foi uma mera adição; foi uma revolução silenciosa. Ela representou uma mudança fundamental na filosofia da linguagem sobre a fronteira entre o tempo de compilação e o tempo de execução. Antes do C++11, a computação de valores em tempo de compilação era o domínio da TMP Clássica — um mundo poderoso, mas sintaticamente denso e conceitualmente alienígena, como vimos no capítulo anterior. constexpr demoliu essa barreira, oferecendo uma ponte de sintaxe familiar e intuitiva para o universo da computação em tempo de compilação. Ela nos permite escrever código que pode, sob as condições certas, ser executado pelo compilador, com a mesma facilidade com que escrevemos código para ser executado pela CPU.
+
+** A Tale of Two Keywords: const vs. constexpr
+
+Para entender constexpr, é crucial primeiro distingui-la de sua predecessora, const. A confusão entre as duas é comum, mas suas garantias são fundamentalmente diferentes.
+
+A palavra-chave const promete imutabilidade. Uma vez que um objeto const é inicializado, seu valor não pode ser modificado. No entanto, const não garante que sua inicialização ocorra em tempo de compilação.
+
+#+begin_src cpp
+int get_runtime_value();
+
+const int val1 = 10; // Inicializador é uma constante. O compilador PODE avaliar em tempo de compilação.
+
+const int val2 = get_runtime_value(); // Inicializador é conhecido apenas em tempo de execução.
+                                      // 'val2' é imutável, mas não é uma constante de compilação.
+#+end_src
+
+val2 é perfeitamente válido. Ele será inicializado uma vez, em tempo de execução, e depois permanecerá constante. Por causa disso, val2 não pode ser usado em contextos que exigem uma constante de compilação, como o tamanho de um array estático ou um parâmetro de template não-tipo.
+
+constexpr, por outro lado, é uma promessa muito mais forte. Quando aplicada a uma variável, ela garante avaliação em tempo de compilação.
+
+#+begin_src cpp
+constexpr int val1 = 10; // OK: 10 é uma expressão constante.
+
+constexpr int val2 = get_runtime_value(); // ERRO DE COMPILAÇÃO!
+                                          // O inicializador não é conhecido em tempo de compilação.
+#+end_src
+
+Declarar uma variável como constexpr impõe um contrato ao compilador: ele deve ser capaz de calcular o valor da inicialização durante a compilação. Se não puder, o código é malformado. Portanto, a regra é simples: use const para valores que são imutáveis em tempo de execução; use constexpr para valores que devem ser conhecidos em tempo de compilação.
+
+34.2 A Função constexpr: Um Contrato com o Compilador
+A verdadeira magia acontece quando constexpr é aplicado a uma função. Uma função constexpr não é uma "função de tempo de compilação". Em vez disso, ela é uma função com uma natureza dual: é uma única função que pode operar em ambos os mundos, tempo de compilação e tempo de execução.
+
+A declaração constexpr em uma função é um contrato que o programador faz com o compilador. Ela diz: "Eu escrevi esta função de tal forma que, se você me fornecer argumentos que são constantes de tempo de compilação, você será capaz de produzir um resultado em tempo de compilação."
+
+Se a função for chamada com argumentos de tempo de execução, o compilador gerará código de máquina normal para ela, como faria com qualquer outra função.
+
+cpp
+Copy
+// Contrato: esta função pode ser avaliada em tempo de compilação.
+constexpr int power(int base, int exp) noexcept {
+    int res = 1;
+    for (int i = 0; i < exp; ++i) {
+        res *= base;
+    }
+    return res;
+}
+
+void test() {
+    // --- Uso em Tempo de Compilação ---
+    // O compilador executa power(2, 10) e substitui a chamada pelo resultado.
+    constexpr int compile_time_val = power(2, 10); 
+    static_assert(compile_time_val == 1024);
+
+    // --- Uso em Tempo de Execução ---
+    int base_runtime = 2;
+    std::cout << "Digite o expoente: ";
+    int exp_runtime;
+    std::cin >> exp_runtime;
+
+    // Como 'exp_runtime' não é uma constante, o compilador gera código
+    // de máquina para a função power() e a chama em tempo de execução.
+    int runtime_val = power(base_runtime, exp_runtime);
+    std::cout << "Resultado: " << runtime_val << std::endl;
+}
+Este exemplo é profundo. A mesma função power foi usada para validar uma asserção estática e para calcular um valor a partir da entrada do usuário. Esta capacidade de escrever código "agnóstico ao tempo de avaliação" é o principal poder de constexpr.
+
+34.3 A Evolução de uma Revolução (C++11 a C++20)
+A capacidade das funções constexpr evoluiu dramaticamente com cada padrão C++, tornando a programação em tempo de compilação progressivamente mais fácil e poderosa.
+
+C++11: O Início Austero: As funções constexpr eram extremamente restritas. Essencialmente, seu corpo só podia conter uma única instrução: return expressao;. Variáveis locais, laços ou condicionais if eram proibidos. Mesmo assim, isso já era suficiente para substituir muitas metafunções de cálculo de valor.
+C++14: A Liberação: Este padrão foi o grande salto para a usabilidade. As restrições foram relaxadas significativamente, permitindo que funções constexpr contivessem quase tudo que uma função normal poderia: múltiplas instruções, variáveis locais, laços (for, while), condicionais (if, switch). Isso transformou constexpr de uma curiosidade para uma ferramenta de produção robusta. A função power acima, com seu laço for, requer C++14.
+C++17 e C++20: Refinamentos e Poder: Padrões posteriores continuaram a expandir o escopo. C++17 introduziu if constexpr (o tópico do nosso próximo capítulo) e permitiu que lambdas fossem constexpr. C++20 deu um passo monumental ao permitir alocação dinâmica transitória e o uso de std::string e std::vector em contextos constexpr, abrindo a porta para manipulação de strings e contêineres em tempo de compilação.
+34.4 As Regras do Mundo constexpr
+Para que uma função possa ser constexpr, ela deve operar dentro de um subconjunto do C++ que pode ser simulado pelo compilador. As regras principais são:
+
+Tipos Literais: A função só pode usar Tipos Literais (Literal Types). Um tipo literal é, grosso modo, um tipo cuja estrutura é simples o suficiente para que o compilador possa entendê-la e manipulá-la. Isso inclui todos os tipos escalares (int, double, ponteiros), referências e agregados (structs/classes) que possuem construtores constexpr e um destrutor trivial.
+Sem Efeitos Colaterais Externos: A função não pode modificar o estado global. Ela não pode modificar variáveis static ou thread_local, e não pode realizar I/O. Ela deve ser uma "caixa de areia" computacional.
+Restrições de Corpo: A função não pode conter goto ou blocos try/catch. (Embora throw seja permitido para sinalizar erros em tempo de compilação).
+34.5 Além dos Fatoriais: Um Exemplo Prático
+Vamos aplicar esse conhecimento para construir uma ferramenta genuinamente útil: um parser de string para inteiro que funciona em tempo de compilação, permitindo-nos embutir valores de arquivos de configuração diretamente no binário.
+
+cpp
+Copy
+#include <stdexcept>
+#include <string_view>
+
+// Parser de string para inteiro em tempo de compilação
+constexpr int compile_time_atoi(std::string_view s) {
+    int result = 0;
+    bool negative = false;
+    size_t i = 0;
+
+    if (s.empty()) {
+        throw std::invalid_argument("String vazia");
+    }
+
+    if (s[0] == '-') {
+        negative = true;
+        i = 1;
+    }
+
+    for (; i < s.length(); ++i) {
+        if (s[i] >= '0' && s[i] <= '9') {
+            result = result * 10 + (s[i] - '0');
+        } else {
+            throw std::invalid_argument("Caractere inválido");
+        }
+    }
+
+    return negative ? -result : result;
+}
+
+// Uso prático
+int main() {
+    // O compilador executa a função e inicializa a constante.
+    constexpr int version_major = compile_time_atoi("123");
+    static_assert(version_major == 123);
+
+    // O compilador detecta o erro e a compilação falha.
+    // constexpr int invalid = compile_time_atoi("abc"); // Descomente para ver o erro.
+
+    return 0;
+}
+Este exemplo demonstra o poder de constexpr. Nós validamos e processamos uma string em tempo de compilação, garantindo que o valor version_major seja correto e embutido no código como uma constante pura, sem nenhum custo de parsing em tempo de execução.
+
+Conclusão:
+constexpr é muito mais do que uma otimização. É uma ferramenta de design fundamental que nos permite mover a lógica do mundo incerto e dinâmico do tempo de execução para o mundo seguro e estático do tempo de compilação. Ela nos permite escrever código mais seguro, ao validar invariantes com static_assert; mais eficiente, ao pré-calcular tabelas e constantes; e mais expressivo, ao unificar a sintaxe para computações que podem ocorrer em ambos os domínios. Com a base sólida de constexpr estabelecida, estamos prontos para explorar sua contraparte de fluxo de controle: if constexpr.

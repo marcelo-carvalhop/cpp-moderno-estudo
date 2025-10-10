@@ -1,0 +1,103 @@
+* Capítulo 25: Templates recursivos: design em cascata
+
+No capítulo anterior, vimos a recursão como uma técnica para desempacotar os argumentos de um template variádico. Essa é, no entanto, apenas uma aplicação de um padrão de design muito mais geral e poderoso: os templates recursivos. Este padrão é a base da metaprogramação com templates (template metaprogramming, ou TMP), uma sub-linguagem funcional e puramente em tempo de compilação dentro do C++, onde o "programa" é uma série de instanciações de templates e o "resultado" é um valor constante ou um tipo gerado pelo compilador.
+
+A ideia central é análoga à de uma função recursiva:
+
+  1. *O Passo Recursivo*: Um template primário (MeuTemplate<N>) é definido em termos de si mesmo, mas com um parâmetro modificado (geralmente MeuTemplate<N-1>).
+
+  2. *O Caso Base*: Uma especialização de template (MeuTemplate<0>) fornece uma definição concreta que interrompe a "chamada" recursiva.
+
+Quando o compilador instancia o template, ele cria uma cascata de instanciações que só termina quando o caso base é atingido. O resultado final é então construído "desenrolando" essa cascata.
+
+** Computação de Valores em Tempo de Compilação
+
+O exemplo canônico da metaprogramação com templates é o cálculo do fatorial em tempo de compilação. Embora as funções constexpr (C++11 em diante) sejam a maneira moderna e mais legível de fazer isso, entender a versão com templates é crucial para compreender o mecanismo fundamental.
+
+#+begin_src cpp
+#include <iostream>
+
+// 1. O Passo Recursivo: Factorial<N> é definido em termos de Factorial<N-1>.
+template<unsigned int N>
+struct Factorial {
+    // O valor é calculado pela instanciação aninhada.
+    static const unsigned int value = N * Factorial<N - 1>::value;
+};
+
+// 2. O Caso Base: A especialização para N=0 interrompe a recursão.
+template<>
+struct Factorial<0> {
+    static const unsigned int value = 1;
+};
+
+int main() {
+    // O compilador calcula Factorial<5>::value durante a compilação.
+    // A expressão se torna uma constante no código final.
+    const unsigned int resultado = Factorial<5>::value; // 120
+    std::cout << "5! = " << resultado << std::endl;
+
+    // O resultado pode ser usado onde uma constante de compilação é necessária,
+    // como no tamanho de um array.
+    int meu_array[Factorial<4>::value]; // int meu_array[24];
+    std::cout << "Tamanho do array: " << sizeof(meu_array) / sizeof(int) << std::endl;
+    
+    return 0;
+}
+#+end_src
+
+Quando o compilador vê Factorial<5>, ele precisa do valor de Factorial<4>, que por sua vez precisa de Factorial<3>, e assim por diante, até que Factorial<0> é encontrado. A especialização fornece um valor concreto, e o compilador pode então calcular todos os valores na cascata reversa. Todo esse cálculo acontece antes da execução do programa.
+
+** Geração de Tipos em Cascata
+
+Mais poderoso do que calcular valores é usar a recursão para gerar tipos. Podemos criar estruturas de dados cuja forma é determinada por um parâmetro de template. Por exemplo, podemos definir um Pixel que armazena um número arbitrário de canais de cor.
+
+#+begin_src cpp
+// Estrutura para um único canal de cor.
+template<typename T>
+struct Canal {
+    T valor;
+};
+
+// 1. Passo Recursivo: Um pixel com N canais é um canal
+//    mais um pixel com N-1 canais.
+template<typename T, unsigned int N>
+struct Pixel : public Pixel<T, N - 1> {
+    Canal<T> canal_extra;
+};
+
+// 2. Caso Base: Um pixel com 1 canal contém apenas um canal.
+template<typename T>
+struct Pixel<T, 1> {
+    Canal<T> canal_base;
+};
+
+int main() {
+    // Pixel<float, 3> herda de Pixel<float, 2>, que herda de Pixel<float, 1>.
+    // O resultado é uma estrutura com 3 membros de dados do tipo Canal<float>.
+    Pixel<float, 3> pixel_rgb;
+
+    // Acessar os canais é um pouco verboso com este design,
+    // mas demonstra a geração da estrutura.
+    pixel_rgb.canal_base.valor = 1.0f; // Canal 1 (base)
+    static_cast<Pixel<float, 2>&>(pixel_rgb).canal_extra.valor = 0.5f; // Canal 2
+    pixel_rgb.canal_extra.valor = 0.0f; // Canal 3
+    
+    return 0;
+}
+#+end_src
+
+Este "design em cascata" usa a herança para compor a estrutura de dados em tempo de compilação. Cada nível da recursão adiciona outra camada (neste caso, um membro de dados) à estrutura final.
+
+** Onde os Templates Recursivos Ainda Brilham
+
+Como mencionado, para cálculos de valores, as funções constexpr são geralmente a melhor escolha. Para muitas operações em pacotes de parâmetros, as fold expressions são mais concisas. Então, qual é o lugar dos templates recursivos no C++ moderno?
+
+Seu principal domínio de aplicação é a manipulação e geração de tipos, tarefas que não podem ser realizadas por constexpr ou fold expressions. A implementação de componentes complexos da biblioteca padrão, como std::tuple e std::variant, depende fundamentalmente de templates recursivos para:
+
+Acessar o N-ésimo tipo em um pacote de parâmetros.
+Gerar uma estrutura que armazena um conjunto heterogêneo de tipos.
+Aplicar uma função a cada elemento de um std::tuple.
+
+** Conclusão:
+
+Os templates recursivos são a encarnação da ideia de que a compilação não é apenas um passo de tradução, mas um processo computacional em si. Eles nos permitem escrever "programas" que são executados pelo compilador para gerar constantes, tipos e estruturas de dados complexas. Embora alternativas mais simples existam para alguns de seus casos de uso clássicos, a recursão de templates continua a ser a técnica fundamental e indispensável para a metaprogramação avançada, formando a espinha dorsal das bibliotecas genéricas mais sofisticadas do C++.

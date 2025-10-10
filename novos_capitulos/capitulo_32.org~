@@ -1,0 +1,143 @@
+* Capítulo 32: TMP clássico: listas, ifs e recursão
+
+Para programar na linguagem de tempo de compilação do C++98, os pioneiros não dispunham de constexpr, if constexpr ou concepts. Eles tinham apenas um conjunto de regras do sistema de templates, e a partir dessas regras, precisavam construir, do zero, os blocos lógicos fundamentais que damos por garantidos em outras linguagens: estruturas de dados, condicionais e laços. O resultado foi um paradigma puramente funcional, onde cada um desses conceitos foi reinventado através de idiomas de templates. Dominar esses três pilares — listas de tipos, seleção condicional e iteração recursiva — é dominar a essência da TMP Clássica.
+
+** Os "Valores" e as "Funções" da Metaprogramação
+
+Antes de construirmos qualquer coisa, precisamos entender com o que estamos trabalhando. No universo da TMP, os "dados" primários não são valores em memória, mas sim:
+
+  1. *Tipos*: int, double, MyClass, const char*&, etc. São os cidadãos de primeira classe.
+  2. *Constantes Inteiras em Tempo de Compilação*: Valores como 5, true, ou MyEnum::VALUE, que podem ser usados como parâmetros de template não-tipo.
+
+As "funções" que operam sobre esses dados são as metafunções: structs ou classes template. Por convenção, estabelecida no livro C++ Template Metaprogramming de Abrahams e Gurtovoy, uma metafunção "retorna" seu resultado através de membros aninhados:
+
+  - Um alias ::type para um tipo resultante.
+  - Um membro static const (ou static constexpr em C++11+) chamado ::value para um valor resultante.
+
+** Estruturas de Dados: A Lista de Tipos
+
+Como podemos representar uma coleção de tipos, o análogo a um std::vector ou a uma lista? A solução mais direta e fundamental é uma lista de tipos, uma estrutura que simplesmente agrupa um pacote de parâmetros de tipo.
+
+#+begin_src cpp
+// A estrutura de dados mais fundamental da TMP:
+// um contêiner que não armazena nada, mas "contém" uma lista de tipos.
+template<typename... Ts>
+struct type_list {};
+#+end_src
+
+Uma instância como type_list<int, double, bool> é um "valor" em nossa linguagem. Ela não ocupa espaço em tempo de execução, mas carrega, em seu tipo, a informação de que a lista contém int, double e bool. Agora podemos escrever metafunções que recebem este type_list como um único "argumento" e operam sobre os tipos que ele contém.
+
+Iteração: A Recursão como Laço
+A TMP clássica não possui laços for ou while. A iteração é alcançada através da recursão de templates. O padrão é sempre o mesmo:
+
+Passo Recursivo: Um template primário que opera na "cabeça" da lista e se instancia recursivamente com a "cauda" da lista.
+Caso Base: Uma especialização de template que lida com o final da iteração (geralmente uma lista vazia ou com um único elemento), interrompendo a cadeia de instanciações.
+Vamos construir uma metafunção que encontra o índice do primeiro tipo em uma type_list que satisfaz um predicado (outra metafunção). Este é o find_if da TMP.
+
+cpp
+Copy
+#include <cstddef> // para size_t
+#include <type_traits> // para std::is_pointer
+
+// --- Nosso predicado: verifica se um tipo é um ponteiro ---
+template<typename T>
+struct is_pointer_predicate {
+    static constexpr bool value = std::is_pointer_v<T>;
+};
+
+// --- Metafunção find_if ---
+
+// 1. Passo Recursivo:
+//    Verifica o primeiro tipo. Se o predicado for verdadeiro, o índice é 0.
+//    Senão, o índice é 1 + o resultado de find_if na cauda da lista.
+template<typename List, template<typename> class Predicate>
+struct find_if;
+
+template<typename Primeiro, typename... Resto, template<typename> class Predicate>
+struct find_if<type_list<Primeiro, Resto...>, Predicate> {
+private:
+    // Chamada recursiva na cauda da lista.
+    static constexpr size_t index_no_resto = find_if<type_list<Resto...>, Predicate>::value;
+
+public:
+    // O "if" é implementado aqui com o operador ternário,
+    // pois estamos operando sobre valores. Veremos o "if" para tipos a seguir.
+    static constexpr size_t value = Predicate<Primeiro>::value ? 0 : 1 + index_no_resto;
+};
+
+// 2. Caso Base:
+//    Se a lista estiver vazia, o tipo não foi encontrado.
+//    Retornamos o tamanho da lista original como um indicador de "não encontrado".
+template<template<typename> class Predicate>
+struct find_if<type_list<>, Predicate> {
+    static constexpr size_t value = 0; // Para uma lista vazia, o índice é 0, mas o offset se acumula.
+                                       // Uma implementação mais robusta retornaria um valor especial.
+};
+
+// Exemplo de uso
+int main() {
+    using MinhaLista = type_list<int, char, void*, double>;
+
+    // O compilador executa o "laço" recursivo aqui.
+    constexpr size_t indice_ponteiro = find_if<MinhaLista, is_pointer_predicate>::value;
+
+    // Verificamos o resultado em tempo de compilação.
+    static_assert(indice_ponteiro == 2);
+
+    return 0;
+}
+Quando o compilador instancia find_if<type_list<int, char, void*, double>, ...>, ele vê que is_pointer_predicate<int>::value é falso. Portanto, ele precisa calcular 1 + find_if<type_list<char, void*, double>, ...>::value. Isso continua até que ele instancie find_if<type_list<void*, double>, ...>. Aqui, is_pointer_predicate<void*>::value é verdadeiro, então o value dessa instanciação é 0. O compilador então "desenrola" a recursão: 1 + (1 + 0) = 2.
+
+Condicionais: A Especialização como "If"
+No exemplo anterior, usamos o operador ternário (? :) porque estávamos decidindo entre valores. Mas e se precisarmos decidir entre tipos? Para isso, precisamos de um "if" de tipos. A técnica canônica é usar a especialização de template.
+
+Vamos implementar a metafunção if_ (frequentemente chamada de eval_if ou conditional antes do C++11).
+
+cpp
+Copy
+// 1. Template Primário (o caso "true"):
+//    Por padrão, se a condição for verdadeira, o resultado é o segundo tipo.
+template<bool Condicao, typename TipoVerdadeiro, typename TipoFalso>
+struct if_ {
+    using type = TipoVerdadeiro;
+};
+
+// 2. Especialização Parcial (o caso "false"):
+//    O compilador escolherá esta versão se o primeiro parâmetro for 'false'.
+template<typename TipoVerdadeiro, typename TipoFalso>
+struct if_<false, TipoVerdadeiro, TipoFalso> {
+    using type = TipoFalso;
+};
+
+// Alias auxiliar
+template<bool C, typename T, typename F>
+using if_t = typename if_<C, T, F>::type;
+
+// Exemplo de uso: selecionar o maior de dois tipos.
+template<typename T, typename U>
+struct maior_tipo {
+    using type = if_t<(sizeof(T) > sizeof(U)), T, U>;
+};
+
+int main() {
+    // O compilador avalia sizeof(int) > sizeof(char) como 'true'.
+    // if_<true, int, char> é instanciado, resultando em ::type = int.
+    using T1 = maior_tipo<int, char>::type;
+    static_assert(std::is_same_v<T1, int>);
+
+    // O compilador avalia sizeof(short) > sizeof(double) como 'false'.
+    // A especialização if_<false, short, double> é escolhida, resultando em ::type = double.
+    using T2 = maior_tipo<short, double>::type;
+    static_assert(std::is_same_v<T2, double>);
+    
+    return 0;
+}
+Este é o mecanismo mais fundamental da TMP. A resolução de sobrecarga e especialização do C++ não é apenas uma forma de polimorfismo; é um mecanismo de seleção condicional em tempo de compilação. O compilador efetivamente executa uma instrução if ao decidir qual template (o primário ou a especialização) corresponde melhor aos argumentos fornecidos.
+
+Conclusão:
+A TMP Clássica é uma linguagem construída sobre três pilares idiomáticos que emergem das regras fundamentais dos templates:
+
+Listas de Tipos (template<typename...> struct type_list{}) para representar coleções de dados.
+Recursão de Templates (um template primário e uma especialização de caso base) para implementar a iteração.
+Especialização de Template (um template primário e uma especialização para false) para implementar a seleção condicional.
+Embora a sintaxe seja verbosa e o paradigma funcional possa ser desafiador, entender esses mecanismos é crucial. Eles são o "código de máquina" sobre o qual as abstrações mais convenientes, como std::conditional e if constexpr, foram construídas. Ao aprender a pensar em termos de listas, ifs e recursão em tempo de compilação, ganhamos uma visão profunda do poder computacional que sempre esteve latente no coração do C++. No próximo capítulo, exploraremos std::integral_constant, o pequeno mas poderoso componente que formaliza o tratamento de valores na TMP.

@@ -1,0 +1,127 @@
+* Capítulo 24: Variadic templates e abstrações poderosas
+
+Antes do C++11, os templates eram limitados a um número fixo de parâmetros. Se você quisesse uma função que operasse sobre dois ou três ou quatro tipos, precisaria escrever sobrecargas de template separadas para cada aridade. Isso era verboso, propenso a erros e limitava fundamentalmente o escopo das abstrações que poderiam ser construídas.
+
+Os variadic templates (templates variádicos) quebraram essa barreira. Eles introduziram a capacidade de escrever uma única função ou classe template que pode aceitar um número arbitrário de argumentos de tipos arbitrários. Essa funcionalidade não é apenas uma conveniência; ela é o alicerce para algumas das ferramentas mais poderosas do C++ moderno, como std::tuple, std::function, e as funções de fábrica std::make_unique e std::make_shared.
+
+** A Sintaxe da Flexibilidade: Parameter Packs
+
+A sintaxe dos templates variádicos gira em torno de um novo conceito: o parameter pack (pacote de parâmetros), denotado pela elipse (...).
+
+  - template<typename... Args>: Declara um pacote de parâmetros de template. Args não é um único tipo, mas um placeholder para zero ou mais tipos.
+  - void func(Args... args): Declara um pacote de parâmetros de função. args não é um único parâmetro, mas um placeholder para zero ou mais argumentos de função.
+
+#+begin_src cpp
+template<typename... Args>
+void contar_argumentos(Args... args) {
+    // O operador sizeof... nos dá o tamanho do pacote em tempo de compilação.
+    std::cout << "Esta função foi chamada com " << sizeof...(Args) << " argumentos.\n";
+}
+
+int main() {
+    contar_argumentos();              // 0 argumentos
+    contar_argumentos(1);             // 1 argumento
+    contar_argumentos("olá", 3.14);   // 2 argumentos
+    return 0;
+}
+#+end_src
+
+** Desempacotando o Pacote: Recursão e Fold Expressions
+
+Saber quantos argumentos existem é útil, mas o verdadeiro desafio é como processá-los. Um pacote de parâmetros não é um contêiner sobre o qual se pode iterar com um loop for. A técnica fundamental para processar os argumentos um por um é o desempacotamento (unpacking).
+
+1. *Desempacotamento com Recursão (o método clássico)*
+
+A abordagem tradicional envolve recursão. Escrevemos uma função template que processa o primeiro argumento do pacote e, em seguida, chama a si mesma com o restante dos argumentos. Isso requer um caso base (uma sobrecarga não-variádica) para terminar a recursão.
+
+#+begin_src cpp
+#include <iostream>
+
+// Caso base: a função é chamada quando o pacote de parâmetros está vazio.
+void imprimir() {
+    std::cout << std::endl;
+}
+
+// Template recursivo
+template<typename T, typename... Args>
+void imprimir(T primeiro, Args... resto) {
+    std::cout << primeiro << " "; // Processa o primeiro argumento.
+    imprimir(resto...);          // Chama a si mesma com o resto do pacote.
+}
+
+int main() {
+    imprimir("Valores:", 10, 3.14, 'a'); // Inicia a cadeia de chamadas recursivas.
+    return 0;
+}
+#+end_src
+
+O compilador gera uma cadeia de chamadas: imprimir("Valores:", 10, 3.14, 'a') chama imprimir(10, 3.14, 'a'), que chama imprimir(3.14, 'a'), que chama imprimir('a'), que finalmente chama imprimir(), terminando a recursão.
+
+2. *Desempacotamento com Fold Expressions (C++17)*
+
+Embora a recursão seja poderosa, ela pode ser verbosa. O C++17 introduziu as fold expressions (expressões de dobra), uma sintaxe dramaticamente mais concisa e expressiva para desempacotar e combinar todos os elementos de um pacote com um operador binário.
+
+#+begin_src cpp
+template<typename... Args>
+void imprimir_com_fold(Args... args) {
+    // Expande o pacote usando o operador de fluxo <<
+    (std::cout << ... << args) << '\n';
+}
+
+template<typename... Args>
+auto somar(Args... args) {
+    // Expande o pacote usando o operador +
+    // (0 + ... + args) é uma dobra binária à esquerda.
+    return (0 + ... + args);
+}
+
+int main() {
+    imprimir_com_fold("Valores:", 10, 3.14, 'a');
+    std::cout << "Soma: " << somar(1, 2, 3, 4, 5) << std::endl; // Soma: 15
+    return 0;
+}
+#+end_src
+
+As fold expressions eliminam a necessidade de escrever o caso base e a chamada recursiva, expressando a intenção de forma direta e sucinta.
+
+** A Aplicação Definitiva: Encaminhamento Perfeito Variádico
+
+A combinação de templates variádicos com referências universais (T&&) nos permite escrever a abstração definitiva: uma função de fábrica ou um wrapper que pode aceitar qualquer conjunto de argumentos e encaminhá-los perfeitamente para outro construtor ou função, preservando sua categoria de valor (lvalue/rvalue) e constância.
+
+Este é o padrão usado em std::make_unique, std::vector::emplace_back, e muitas outras funções de biblioteca.
+
+#+begin_src cpp
+#include <memory>
+#include <string>
+
+// Uma função de fábrica que constrói qualquer objeto T
+// em um unique_ptr, encaminhando perfeitamente os argumentos
+// para o construtor de T.
+template<typename T, typename... Args>
+std::unique_ptr<T> criar_objeto(Args&&... args) {
+    // A expansão do pacote acontece dentro da chamada do construtor.
+    // std::forward<Args>(args)... expande para:
+    // std::forward<Arg1>(arg1), std::forward<Arg2>(arg2), ...
+    return std::make_unique<T>(std::forward<Args>(args)...);
+}
+
+struct Widget {
+    Widget(int i, std::string s) {
+        std::cout << "Widget construído com int e string.\n";
+    }
+};
+
+int main() {
+    auto w_ptr = criar_objeto<Widget>(10, "teste");
+    
+    std::string nome = "exemplo";
+    // Encaminha um lvalue (nome) e um rvalue (20)
+    auto w_ptr2 = criar_objeto<Widget>(20, nome);
+    
+    return 0;
+}
+#+end_src
+
+** Conclusão:
+
+Os variadic templates são um superpoder do C++ moderno. Eles nos permitem ir além das abstrações de aridade fixa e construir componentes verdadeiramente genéricos. Da recursão clássica à elegância das fold expressions, as técnicas para desempacotar pacotes de parâmetros nos permitem escrever código que é, ao mesmo tempo, incrivelmente flexível e totalmente seguro em termos de tipo. O encaminhamento perfeito variádico, em particular, é a pedra angular da escrita de wrappers e fábricas eficientes, tornando-se uma técnica indispensável na caixa de ferramentas de qualquer programador de C++ avançado.

@@ -220,19 +220,25 @@ Ao longo de mais de cem capítulos, cada seção é organizada em torno de temas
 [[./novos_capitulos/capitulo_23.org][23. Polimorfismo estático com CRTP]]
 
 [[./novos_capitulos/capitulo_24.org][24. Variadic templates e abstrações poderosas]]
-[./novos_capitulos/capitulo_25.org]25. Templates recursivos: design em cascata
-[./novos_capitulos/capitulo_26.org]26. Metafunções e manipulação de tipos
-[./novos_capitulos/capitulo_27.org]27. Idioma tag dispatching2
-[./novos_capitulos/capitulo_28.org]28. Abstrações genéricas em containers
-[./novos_capitulos/capitulo_29.org]29. Bibliotecas genéricas: elegância vs. usabilidade
-[./novos_capitulos/capitulo_30.org]30. Templates como linguagem própria
+
+[[./novos_capitulos/capitulo_25.org][25. Templates recursivos: design em cascata]]
+
+[[./novos_capitulos/capitulo_26.org][26. Metafunções e manipulação de tipos]]
+
+[[./novos_capitulos/capitulo_27.org][27. Idioma tag dispatching]]
+
+[[./novos_capitulos/capitulo_28.org][28. Abstrações genéricas em containers]]
+
+[[./novos_capitulos/capitulo_29.org][29. Bibliotecas genéricas: elegância vs. usabilidade]]
+
+[[./novos_capitulos/capitulo_30.org][30. Templates como linguagem própria]]
 
 /Leituras complementares/:
 
 *Livros:*
 
   - [[./arquivos/C++ Templates_ The Complete Guide.pdf][David Vandevoorde, Nicolai Josuttis, Douglas Gregor — C++ Templates: The Complete Guide]]
-  - Andrei Alexandrescu — Modern C++ Design
+  - [[./arquivos/Modern C++ Design Generic Programming and Design Patterns Applied.pdf][Andrei Alexandrescu — Modern C++ Design]]
   - Matthew Austern — Generic Programming and the STL
 
 *Artigos e papers*:
@@ -249,14 +255,17 @@ Ao longo de mais de cem capítulos, cada seção é organizada em torno de temas
 
 ** Parte III — Metaprogramação e Compile-Time Magic
 
-*Motivação*: Transformar o compilador em um “motor de execução” que trabalha antes mesmo do runtime.
+*Motivação*: Transformar o compilador em um “motor de execução” que trabalha antes mesmo do runtimeMotivação: A jornada que iniciamos agora é sobre uma das ideias mais poderosas e transformadoras do C++: a de que o processo de compilação não precisa ser um simples ato de tradução de código-fonte para código de máquina. Em vez disso, podemos cooptar o compilador, transformando-o em um poderoso "motor de execução" que trabalha para nós muito antes de o programa chegar ao usuário. Ele se torna um parceiro ativo na construção do software, capaz de realizar cálculos, validar lógica, gerar estruturas de dados e otimizar o código de maneiras que seriam impossíveis em tempo de execução. Esta parte do livro é sobre dominar essa magia em tempo de compilação..
 
 /Capítulos/:
 
-31. História da metaprogramação em C++
-32. TMP clássico: listas, ifs e recursão
-33. std::integral_constant e a base de tudo
-34. constexpr em profundidade
+[[./novos_capitulos/capitulo_31.org][31. História da metaprogramação em C++]]
+
+[[./novos_capitulos/capitulo_32.org][32. TMP clássico: listas, ifs e recursão]]
+
+[[./novos_capitulos/capitulo_33.org][33. std::integral_constant e a base de tudo]]
+
+[[./novos_capitulos/capitulo_34.org][34. constexpr em profundidade]]
 35. if constexpr: elegância sem redundância
 36. Tipos em tempo de compilação: std::type_identity, decltype
 37. Expressões lambda em tempo de compilação

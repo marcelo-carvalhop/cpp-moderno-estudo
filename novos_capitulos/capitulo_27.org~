@@ -1,0 +1,104 @@
+* Capítulo 27: Idioma tag dispatching
+
+Na programaç o genérica, um desafio comum é a necessidade de variar a implementaç o de um algoritmo com base nas propriedades de um tipo, e n o no tipo em si. Por exemplo, o algoritmo std::advance precisa mover um iterador n posições. A maneira mais eficiente de fazer isso depende fundamentalmente da categoria do iterador: para um iterador de acesso aleatório (como o de std::vector), a operaç o é it += n, um passo de tempo constante. Para um iterador bidirecional (como o de std::list), a única opç o é incrementar o iterador n vezes em um loop, uma operaç o de tempo linear.
+
+Como uma única funç o template pode escolher a implementaç o correta em tempo de compilaç o? J  vimos que SFINAE, if constexpr e concepts s o ferramentas para isso. O tag dispatching é outra técnica poderosa e elegante, um idioma de design cl ssico que antecede as funcionalidades mais modernas e que continua a ser uma soluç o limpa e escal vel, especialmente no design de bibliotecas.
+
+A ideia central é delegar a decis o a um conjunto de funções sobrecarregadas. Em vez de colocar a lógica de seleç o if/else dentro da funç o principal, nós a usamos para selecionar uma "tag" — uma struct vazia que representa uma propriedade — e passamos um objeto dessa tag para uma funç o auxiliar. A resoluç o de sobrecarga do C++ ent o faz o trabalho de selecionar a implementaç o correta.
+
+** 27.1 O Padr o em Três Passos
+
+O idioma do tag dispatching segue um padr o consistente e claro:
+
+  1. *Definir as Tags*: Crie um conjunto de structs vazias, onde cada uma representa uma propriedade ou categoria distinta. A biblioteca padr o j  faz isso para iteradores com std::random_access_iterator_tag, std::bidirectional_iterator_tag, etc.
+
+#+begin_src cpp
+// Tags que representam as categorias de iteradores.
+// S o structs vazias usadas apenas para carregar informaç o de tipo.
+struct random_access_iterator_tag {};
+struct bidirectional_iterator_tag {};
+// ... e outras como forward_iterator_tag, etc.
+#+end_src
+
+  2. *Implementar Funções Auxiliares Sobrecarregadas*: Escreva as diferentes implementações do seu algoritmo em funções auxiliares (geralmente com o sufixo _impl). Cada uma dessas funções aceita um par metro extra: um objeto de uma das tags definidas.
+cpp
+Copy
+// Implementaç o para iteradores de acesso aleatório.
+template<typename It>
+void advance_impl(It& it, int n, random_access_iterator_tag) {
+    std::cout << "Dispatch: Acesso Aleatório (O(1))\n";
+    it += n;
+}
+
+// Implementaç o para iteradores bidirecionais.
+template<typename It>
+void advance_impl(It& it, int n, bidirectional_iterator_tag) {
+    std::cout << "Dispatch: Bidirecional (O(n))\n";
+    if (n > 0) { while (n-- > 0) ++it; }
+    else { while (n++ < 0) --it; }
+}
+Criar a Funç o de Despacho (Dispatcher): Esta é a funç o pública que o usu rio chama. Sua única responsabilidade é determinar a propriedade do tipo, criar um objeto da tag correspondente e chamar a funç o auxiliar, passando a tag.
+cpp
+Copy
+#include <iterator> // Para std::iterator_traits
+
+template<typename It>
+void meu_advance(It& it, int n) {
+    // Usa a metafunç o iterator_traits para obter o tipo da categoria.
+    using Categoria = typename std::iterator_traits<It>::iterator_category;
+    
+    // Cria um objeto da tag e chama a funç o auxiliar.
+    // A resoluç o de sobrecarga seleciona a 'advance_impl' correta.
+    advance_impl(it, n, Categoria{});
+}
+27.2 Exemplo em Aç o
+Quando o código é colocado em pr tica, o processo é totalmente resolvido em tempo de compilaç o.
+
+cpp
+Copy
+#include <iostream>
+#include <vector>
+#include <list>
+
+// ... (código das tags e das funções advance_impl e meu_advance)
+
+int main() {
+    std::vector<int> v = {1, 2, 3, 4, 5};
+    auto v_it = v.begin();
+    std::cout << "Avançando vector iterator...\n";
+    meu_advance(v_it, 2); // O compilador gera uma chamada para advance_impl com random_access_iterator_tag
+    std::cout << "Novo valor: " << *v_it << "\n\n"; // 3
+
+    std::list<int> l = {1, 2, 3, 4, 5};
+    auto l_it = l.begin();
+    std::cout << "Avançando list iterator...\n";
+    meu_advance(l_it, 2); // O compilador gera uma chamada para advance_impl com bidirectional_iterator_tag
+    std::cout << "Novo valor: " << *l_it << "\n"; // 3
+    
+    return 0;
+}
+N o h  custo de if ou switch em tempo de execuç o. O compilador seleciona a implementaç o correta e pode até mesmo embutir (inline) a chamada, resultando no código mais otimizado possível.
+
+27.3 Tag Dispatching no C++ Moderno
+Com a introduç o do if constexpr no C++17, muitos casos simples que antes exigiriam tag dispatching podem ser resolvidos de forma mais localizada e talvez mais legível:
+
+cpp
+Copy
+template<typename It>
+void meu_advance_cpp17(It& it, int n) {
+    using Categoria = typename std::iterator_traits<It>::iterator_category;
+    if constexpr (std::is_base_of_v<random_access_iterator_tag, Categoria>) {
+        it += n;
+    } else {
+        if (n > 0) { while (n-- > 0) ++it; }
+    }
+}
+No entanto, o tag dispatching continua a ser um padr o superior quando:
+
+As implementações s o complexas: Se cada _impl tiver dezenas de linhas, separ -las em funções distintas melhora drasticamente a organizaç o e a legibilidade.
+A lógica de despacho é extensível:   mais f cil adicionar uma nova categoria (uma nova tag e uma nova sobrecarga _impl) do que adicionar outra cl usula else if a uma funç o monolítica.
+A clareza é primordial: O padr o separa claramente a "lógica de decis o" (o dispatcher) da "lógica de aç o" (as implementações), o que é um princípio de bom design de software.
+
+** Conclus o:
+
+O tag dispatching é um idioma que encapsula a beleza da programaç o genérica em C++. Ele combina metafunções (para consultar propriedades de tipos) com a resoluç o de sobrecarga (para selecionar código) a fim de criar um mecanismo de despacho est tico, eficiente e limpo. Embora ferramentas como if constexpr ofereçam uma alternativa mais concisa para casos simples, o tag dispatching permanece um padr o de design fundamental para a construç o de bibliotecas genéricas robustas, organizadas e extensíveis.

@@ -1,0 +1,128 @@
+* Capítulo 28: Abstrações genéricas em containers
+
+Quando pensamos em contêineres genéricos, nossa mente se volta imediatamente para a Biblioteca Padrão: std::vector, std::list, std::map. Eles são os exemplos primordiais da programação genérica, contêineres que funcionam com qualquer tipo T que satisfaça certos requisitos. No entanto, a genialidade do design genérico vai muito além da simples parametrização do tipo de dado contido. Ela nos permite construir contêineres onde não apenas o conteúdo, mas o próprio comportamento do contêiner é genérico e customizável.
+
+A abordagem moderna, popularizada por Andrei Alexandrescu em "Modern C++ Design", é o design baseado em políticas (policy-based design). A ideia é que um contêiner não é uma entidade monolítica, mas sim uma composição de várias políticas ortogonais que definem seu comportamento. Em vez de ter uma classe ThreadSafeVector que herda de Vector, criamos um único template Container que aceita uma "política de concorrência" como um de seus parâmetros.
+
+** Decompondo um Contêiner em Políticas
+
+Um contêiner típico pode ser decomposto em várias responsabilidades independentes, cada uma representada por uma política:
+
+  1. *Política de Armazenamento (Storage Policy)*: Como e onde a memória é gerenciada?
+    - Armazenamento dinâmico no heap (como std::vector).
+    - Armazenamento estático na stack (como std::array).
+    - Armazenamento intrusivo (onde os metadados do contêiner são armazenados no próprio objeto).
+
+  2. *Política de Concorrência (Concurrency Policy)*: O contêiner é seguro para uso em múltiplas threads?
+    - Sem travamento (locking), para máxima performance em single-thread.
+    - Travamento com std::mutex para segurança em multi-thread.
+    - Operações atômicas para implementações lock-free.
+
+  3. *Política de Verificação de Limites (Bounds-Checking Policy)*: O que acontece em um acesso fora dos limites?
+    - Nenhuma verificação (comportamento indefinido, máxima performance).
+    - Lançar uma exceção std::out_of_range.
+    - Disparar um assert em modo de depuração.
+
+Ao parametrizar um contêiner com essas políticas, podemos gerar dezenas de variações de comportamento a partir de um único molde de código.
+
+** Exemplo: Um Vetor Baseado em Políticas
+
+Vamos construir um SmartVector cuja alocação e verificação de limites são definidas por políticas.
+
+*Passo 1: Definir as Políticas*
+#+begin_src cpp
+#include <vector>
+#include <stdexcept>
+#include <cassert>
+
+// --- Políticas de Armazenamento ---
+template<typename T>
+struct HeapStorage {
+    std::vector<T> data; // Delega para std::vector para simplicidade
+};
+
+template<typename T, size_t N>
+struct StackStorage {
+    T data[N];
+    size_t count = 0;
+};
+
+// --- Políticas de Verificação ---
+struct NoCheck {
+    template<typename Storage>
+    static void check(size_t index, const Storage& s) { /* Não faz nada */ }
+};
+
+struct ExceptionCheck {
+    template<typename Storage>
+    static void check(size_t index, const Storage& s) {
+        if (index >= s.data.size()) { // Simplificado para HeapStorage
+            throw std::out_of_range("Acesso fora dos limites!");
+        }
+    }
+};
+#+end_src
+
+*Passo 2: Construir o Contêiner "Host"*
+
+O SmartVector atuará como um "host" que combina as políticas. Usaremos herança para que a Otimização de Base Vazia (Empty Base Optimization) possa eliminar o custo de armazenamento para políticas sem estado, como NoCheck.
+
+#+begin_src cpp
+template<typename T,
+         typename StoragePolicy = HeapStorage<T>,
+         typename CheckingPolicy = NoCheck>
+class SmartVector : private StoragePolicy, private CheckingPolicy {
+public:
+    using Storage = StoragePolicy;
+    using Checker = CheckingPolicy;
+
+    T& operator[](size_t index) {
+        Checker::check(index, static_cast<const Storage&>(*this));
+        return this->data[index];
+    }
+
+    void push_back(const T& value) {
+        // A lógica de push_back dependeria da política de armazenamento.
+        // Para HeapStorage, podemos delegar.
+        this->data.push_back(value);
+    }
+    
+    size_t size() const { return this->data.size(); }
+};
+#+end_src
+
+*Passo 3: Compor os Tipos em Tempo de Compilação*
+Agora podemos criar diferentes tipos de vetores simplesmente combinando as políticas.
+
+#+begin_src cpp
+int main() {
+    // Um vetor padrão, rápido, sem verificações.
+    SmartVector<int> vec_rapido;
+    vec_rapido.push_back(10);
+    vec_rapido[0] = 20; // OK
+
+    // Um vetor seguro que lança exceções em acessos inválidos.
+    SmartVector<int, HeapStorage<int>, ExceptionCheck> vec_seguro;
+    vec_seguro.push_back(10);
+    try {
+        vec_seguro[5] = 30; // Lança std::out_of_range
+    } catch (const std::out_of_range& e) {
+        std::cout << e.what() << std::endl;
+    }
+
+    // (A política StackStorage precisaria de uma implementação mais completa
+    //  para size() e push_back() para ser totalmente funcional aqui)
+    
+    return 0;
+}
+#+end_src
+
+** Composição em Tempo de Compilação vs. Herança em Tempo de Execução
+
+Este padrão é uma forma de composição em tempo de compilação. Ele evita o problema da "explosão combinatória" da herança tradicional. Com 2 políticas de armazenamento e 2 de verificação, já podemos gerar 4 tipos de vetores. Adicionar uma política de concorrência com 2 opções nos daria 8 tipos, tudo a partir de um único template de classe principal. Tentar modelar isso com herança resultaria em uma hierarquia de classes complexa e inflexível.
+
+Essa abordagem encapsula perfeitamente a filosofia de custo zero do C++: se você escolher a política NoCheck, o código de verificação simplesmente não é gerado no operator[]. Você não paga (nem em espaço, nem em tempo) por uma funcionalidade que não usa.
+
+** Conclusão:
+
+O design de contêineres genéricos no C++ moderno transcende a simples parametrização de tipo. Ao usar o design baseado em políticas, podemos criar abstrações de contêineres que são verdadeiros "kits de montagem". Eles nos permitem construir a estrutura de dados exata de que precisamos, combinando políticas de armazenamento, concorrência, verificação e outras, tudo em tempo de compilação. Isso resulta em código que é, ao mesmo tempo, altamente abstrato, extremamente reutilizável e perfeitamente otimizado para os requisitos específicos de cada caso de uso.

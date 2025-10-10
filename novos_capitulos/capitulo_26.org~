@@ -1,0 +1,102 @@
+* Capítulo 26: Metafunções e manipulação de tipos
+
+Até agora, usamos templates para gerar código que opera sobre valores. Agora, vamos dar um passo adiante e explorar como os templates podem ser usados para escrever "programas" que operam sobre os próprios tipos. Esta é a essência da metaprogramação com templates (TMP): a manipulação de tipos em tempo de compilação. A ferramenta fundamental para essa tarefa é a metafunção.
+
+Uma metafunção não é uma função em tempo de execução. É um idioma de design, uma class ou struct template que:
+
+  1. Recebe "argumentos" na forma de parâmetros de template (geralmente tipos).
+  2. "Retorna" um resultado, que pode ser um valor (através de um membro estático ::value) ou, mais poderosamente, um novo tipo (através de um alias de tipo aninhado ::type).
+
+O Factorial do capítulo anterior foi nosso primeiro exemplo de uma metafunção que retorna um valor. Agora, nosso foco se volta para aquelas que transformam e geram tipos, o coração da TMP.
+
+** O Léxico da Metaprogramação: A Biblioteca <type_traits>
+
+Escrever metafunções do zero é instrutivo, mas no C++ moderno, raramente é necessário. A biblioteca padrão nos fornece um kit de ferramentas abrangente em <type_traits>. Este cabeçalho contém um vasto conjunto de metafunções prontas para uso que nos permitem consultar, comparar e transformar tipos.
+
+Elas geralmente se enquadram em três categorias:
+
+  - *Propriedades de Tipo*: Questionam uma característica de um tipo e "retornam" um booleano.
+    - std::is_integral<T>: true se T for um tipo integral.
+    - std::is_pointer<T>: true se T for um ponteiro.
+    - std::is_class<T>: true se T for uma classe ou struct.
+
+  - *Transformações de Tipo*: Pegam um tipo e "retornam" um novo tipo modificado.
+std::add_const<T>: Adiciona const a T. ::type é const T.
+std::remove_reference<T>: Remove referências. Para T = int&, ::type é int.
+std::decay<T>: Aplica as conversões que acontecem quando um tipo é passado por valor (remove referências, const/volatile de nível superior, converte arrays e funções em ponteiros).
+Relações de Tipo: Comparam dois tipos e "retornam" um booleano.
+std::is_same<T, U>: true se T e U forem o mesmo tipo.
+std::is_base_of<Base, Derived>: true se Base for uma classe base de Derived.
+Para tornar o uso mais limpo, o C++14 e C++17 introduziram aliases e variáveis de template auxiliares:
+
+std::is_integral_v<T> em vez de std::is_integral<T>::value.
+std::add_const_t<T> em vez de typename std::add_const<T>::type.
+cpp
+Copy
+#include <iostream>
+#include <type_traits>
+
+void testar_tipos() {
+    // Consultando propriedades
+    std::cout << std::boolalpha;
+    std::cout << "int é integral? " << std::is_integral_v<int> << std::endl; // true
+
+    // Transformando tipos
+    using TipoOriginal = int&;
+    using TipoTransformado = std::remove_reference_t<TipoOriginal>; // int
+    std::cout << "int& e int são o mesmo tipo? " << std::is_same_v<TipoOriginal, TipoTransformado> << std::endl; // false
+}
+26.2 Implementando uma Metafunção Recursiva
+Para entender como as ferramentas de <type_traits> são construídas, vamos implementar nossa própria metafunção recursiva: remove_all_pointers<T>, que remove todos os níveis de indireção de ponteiro de um tipo.
+
+cpp
+Copy
+// 1. Template primário (caso base implícito): se T não for um ponteiro, não faz nada.
+template<typename T>
+struct remove_all_pointers {
+    using type = T;
+};
+
+// 2. Especialização parcial (passo recursivo): se T for um ponteiro (T*),
+//    o resultado é a remoção de todos os ponteiros do tipo subjacente T.
+template<typename T>
+struct remove_all_pointers<T*> {
+    using type = typename remove_all_pointers<T>::type;
+};
+
+// Alias auxiliar para conveniência (estilo C++14)
+template<typename T>
+using remove_all_pointers_t = typename remove_all_pointers<T>::type;
+
+int main() {
+    // O compilador instancia recursivamente remove_all_pointers
+    using TipoResultado = remove_all_pointers_t<const int***>;
+    
+    // A saída do programa mostrará 'true', pois o tipo final é 'const int'.
+    std::cout << std::is_same_v<TipoResultado, const int> << std::endl;
+    return 0;
+}
+A instanciação remove_all_pointers<const int***> corresponde à especialização parcial, que define seu ::type como o resultado de remove_all_pointers<const int**>. Isso continua até que remove_all_pointers<const int> seja instanciado. Este último corresponde ao template primário, que define seu ::type como const int, terminando a recursão.
+
+26.3 O if da Metaprogramação: std::conditional
+Uma das metafunções mais importantes é std::conditional. Ela é o análogo de uma instrução if/else para tipos.
+
+std::conditional<CondicaoBooleana, TipoSeVerdadeiro, TipoSeFalso>
+
+Se CondicaoBooleana for true, std::conditional<...>::type será um alias para TipoSeVerdadeiro. Caso contrário, será um alias para TipoSeFalso.
+
+cpp
+Copy
+// Metafunção que escolhe um tipo de armazenamento:
+// para tipos pequenos, armazena por valor; para tipos grandes, por referência constante.
+template<typename T>
+using TipoArmazenamento = std::conditional_t<
+    sizeof(T) <= sizeof(void*), // Condição
+    T,                          // Tipo se verdadeiro (passa por valor)
+    const T&                    // Tipo se falso (passa por referência)
+>;
+
+void processar(TipoArmazenamento<int> x) { /* ... */ } // processar(int x)
+void processar(TipoArmazenamento<std::string> s) { /* ... */ } // processar(const std::string& s)
+Conclusão:
+As metafunções são o motor da programação genérica avançada. Elas nos permitem tratar os tipos como dados, realizando consultas, transformações e seleções condicionais em tempo de compilação. A biblioteca <type_traits> nos fornece os blocos de construção essenciais, enquanto técnicas como a recursão nos permitem construir nossas próprias manipulações de tipo complexas. Este poder de "programar o compilador" é o que nos permite criar componentes de software que não são apenas genéricos, mas que se adaptam de forma inteligente e otimizada às características precisas dos tipos com os quais são usados.
