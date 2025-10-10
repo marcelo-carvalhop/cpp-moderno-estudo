@@ -266,7 +266,8 @@ Ao longo de mais de cem capítulos, cada seção é organizada em torno de temas
 [[./novos_capitulos/capitulo_33.org][33. std::integral_constant e a base de tudo]]
 
 [[./novos_capitulos/capitulo_34.org][34. constexpr em profundidade]]
-35. if constexpr: elegância sem redundância
+
+[[./novos_capitulos/capitulo_35.org][35. if constexpr: elegância sem redundância]]
 36. Tipos em tempo de compilação: std::type_identity, decltype
 37. Expressões lambda em tempo de compilação
 38. Template lambdas e dedução avançada

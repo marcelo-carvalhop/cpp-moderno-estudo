@@ -1,0 +1,147 @@
+* Capítulo 35: if constexpr: elegância sem redundância
+
+Na programação genérica, um dos desafios mais recorrentes é a necessidade de variar sutilmente a implementação de uma função com base nas propriedades de um tipo. Queremos que um único template de função, process(T value), se comporte de uma maneira para tipos integrais, de outra para ponteiros e talvez de uma terceira para classes que possuem uma determinada função membro. Por anos, a solução para este problema foi um conjunto de técnicas poderosas, mas notoriamente complexas, que operavam no nível das assinaturas de função. if constexpr, introduzido no C++17, forneceu uma solução que opera onde a lógica realmente pertence: dentro do corpo da função. Ele não foi apenas uma melhoria; foi uma mudança de paradigma que trouxe clareza e simplicidade a um domínio antes dominado pela complexidade.
+
+** O Mundo Antes do if constexpr: A Complexidade da Seleção de Sobrecarga
+
+Para apreciar a revolução do if constexpr, devemos primeiro entender a complexidade que ele substituiu. Antes do C++17, para compilar seletivamente um código, não tínhamos escolha a não ser criar múltiplas versões da mesma função e usar os mecanismos do sistema de templates para garantir que o compilador escolhesse a correta.
+
+  1. *Tag Dispatching*: Como vimos, esta técnica é elegante, mas verbosa. Ela nos força a dividir uma única operação lógica em múltiplas funções auxiliares, fragmentando o código. A função principal se torna um mero despachante, e a lógica real fica espalhada, tornando o fluxo de controle mais difícil de seguir.
+
+  2. *SFINAE com std::enable_if*: Esta era a ferramenta de força bruta para a seleção de sobrecarga. std::enable_if permite que uma sobrecarga de template seja "removida" do conjunto de candidatas se uma condição de tempo de compilação não for satisfeita. Embora extremamente poderoso, seu uso resultava em assinaturas de função quase ilegíveis, repletas de código boilerplate de metaprogramação.
+Considere uma função get_value que retorna o próprio valor se for um tipo aritmético, ou o valor apontado se for um ponteiro. Com SFINAE, a implementação seria assim:
+
+#+begin_src cpp
+#include <type_traits>
+
+// Versão para tipos aritméticos
+template<typename T>
+std::enable_if_t<std::is_arithmetic_v<T>, T>
+get_value(T value) {
+    return value;
+}
+
+// Versão para ponteiros
+template<typename T>
+std::enable_if_t<std::is_pointer_v<T>, std::remove_pointer_t<T>>
+get_value(T value) {
+    return *value;
+}
+#+end_src
+
+Este código funciona, mas a um custo alto. A intenção lógica (if T is arithmetic... else if T is a pointer...) está obscurecida pela sintaxe. A assinatura da função, que deveria ser um contrato claro, torna-se um feitiço de metaprogramação. A redundância é óbvia: repetimos a assinatura da função para cada caso, mudando apenas a lógica interna e o boilerplate de enable_if.
+
+O problema fundamental de ambas as técnicas é que elas operam no nível da seleção de função. Elas não nos permitem selecionar instruções dentro de uma única função.
+
+** A Revolução: O Ramo Descartado
+
+if constexpr resolve este problema de forma direta e elegante. Ele introduz um if condicional cujo teste é avaliado em tempo de compilação. Sua sintaxe é idêntica à de um if normal, mas sua semântica é profundamente diferente.
+
+#+begin_src cpp
+if constexpr (condição_constante) {
+    // Bloco 'then'
+} else {
+    // Bloco 'else'
+}
+#+end_src
+
+A regra de ouro do if constexpr é esta: o ramo que não é tomado é descartado (discarded). "Descartado" é um termo técnico que significa que o compilador não apenas ignora aquele bloco de código; ele o trata como se nunca tivesse sido escrito. O bloco descartado não é instanciado, não é verificado semanticamente e não precisa ser compilável para o tipo em questão. Esta é a magia.
+
+Vamos reescrever nossa função get_value com if constexpr:
+
+#+begin_src cpp
+template<typename T>
+auto get_value_cpp17(T value) {
+    if constexpr (std::is_arithmetic_v<T>) {
+        return value;
+    } else if constexpr (std::is_pointer_v<T>) {
+        // Este código só é analisado se T for um ponteiro.
+        // Se T for um int, a expressão '*value' nem sequer é considerada
+        // pelo compilador, evitando um erro de compilação.
+        return *value;
+    }
+}
+#+end_src
+
+A diferença é transformadora. Temos agora uma única função. A lógica está co-localizada e expressa de forma linear e legível, exatamente como a pensaríamos. A redundância desapareceu. A elegância foi alcançada sem sacrificar a clareza.
+
+** O Idioma static_assert(always_false<T>)
+
+O que acontece se quisermos proibir explicitamente tipos que não se encaixam em nenhum dos nossos ramos? A primeira intuição seria usar static_assert(false, "...").
+
+#+begin_src cpp
+// VERSÃO QUE NÃO COMPILA
+template<typename T>
+void check(T value) {
+    if constexpr (std::is_integral_v<T>) {
+        // ...
+    } else {
+        static_assert(false, "O tipo deve ser integral.");
+    }
+}
+#+end_src
+
+Este código falhará ao compilar para qualquer tipo, mesmo para int. Por quê? Porque a condição de um static_assert é verificada independentemente de qual ramo do if constexpr é tomado, contanto que a declaração não seja dependente de um parâmetro de template. Como false não depende de T, o compilador o avalia e a compilação falha.
+
+A solução é tornar a condição dependente de T. O idioma padrão para isso é um simples template auxiliar:
+
+#+begin_src cpp
+template<typename T>
+struct always_false : std::false_type {};
+
+template<typename T>
+void check(T value) {
+    if constexpr (std::is_integral_v<T>) {
+        // ...
+    } else {
+        // Agora a condição depende de T. O compilador só a avalia
+        // se este ramo 'else' for realmente instanciado.
+        static_assert(always_false<T>::value, "O tipo deve ser integral.");
+    }
+}
+#+end_src
+
+Agora, check(10) compila com sucesso. O ramo else é descartado, e o static_assert dentro dele nunca é avaliado. check(10.5) falha ao compilar, pois o ramo else é instanciado, always_false<double>::value é avaliado como false, e a asserção estática dispara com nossa mensagem de erro clara.
+
+** Um Exemplo Abrangente: Serialização Genérica
+
+Vamos aplicar if constexpr a um problema mais realista: uma função de serialização genérica que escreve um objeto em um fluxo de bytes.
+
+#+begin_src cpp
+#include <vector>
+#include <string>
+#include <type_traits>
+
+// Função auxiliar para simplificar
+void serialize_bytes(std::vector<char>& buffer, const void* data, size_t size) {
+    const char* bytes = static_cast<const char*>(data);
+    buffer.insert(buffer.end(), bytes, bytes + size);
+}
+
+template<typename T>
+void serialize(std::vector<char>& buffer, const T& value) {
+    if constexpr (std::is_trivial_v<T> && std::is_standard_layout_v<T>) {
+        // Para tipos POD (Plain Old Data), podemos simplesmente copiar os bytes.
+        serialize_bytes(buffer, &value, sizeof(value));
+    }
+    else if constexpr (std::is_same_v<T, std::string>) {
+        // Para strings, serializamos o tamanho e depois os dados.
+        serialize(buffer, value.size());
+        serialize_bytes(buffer, value.data(), value.size());
+    }
+    else if constexpr (requires { value.serialize(buffer); }) {
+        // Se o tipo tiver uma função membro .serialize(), a usamos.
+        // (Isso usa 'requires' do C++20, que funciona perfeitamente com if constexpr)
+        value.serialize(buffer);
+    }
+    else {
+        static_assert(always_false<T>::value, "Tipo não serializável fornecido.");
+    }
+}
+#+end_src
+
+Este único template de função encapsula uma lógica de serialização complexa e adaptável. A clareza é notável: a função se lê como uma receita, uma lista de regras a serem tentadas em ordem. A alternativa em C++14 exigiria múltiplas sobrecargas com std::enable_if e possivelmente tag dispatching, resultando em um código muito mais fragmentado e difícil de manter. A redundância de repetir a assinatura void serialize(std::vector<char>&, const T&) para cada caso é completamente eliminada.
+
+** Conclusão:
+
+if constexpr é a personificação da filosofia do C++ moderno: fornecer abstrações poderosas com uma sintaxe limpa e de custo zero. Ele resolve o problema da compilação condicional de uma forma que é, ao mesmo tempo, mais segura, mais legível e mais eficiente do que todas as técnicas que o precederam. Ao nos permitir colocar a lógica de seleção de código diretamente onde ela pertence — dentro do corpo da função — ele promove um estilo de programação genérica que é linear, coeso e dramaticamente mais fácil de raciocinar. Ele nos dá a elegância de um único ponto de lógica, sem a redundância de múltiplas declarações de função.
