@@ -1,0 +1,125 @@
+* Capítulo 36: Tipos em tempo de compilação: std::type_identity e decltype
+
+Na metaprogramação, nosso meio de trabalho são os tipos. Nós os passamos como argumentos, os transformamos com metafunções e os usamos para controlar a geração de código. No entanto, o próprio sistema de tipos do C++ é complexo, com regras sutis sobre como os tipos são deduzidos e como eles podem "decaírem" — perdendo qualificadores const/volatile e referências. Para escrever metaprogramas robustos, precisamos de ferramentas que nos deem controle preciso sobre esse processo.
+
+Duas dessas ferramentas, uma para consulta e outra para controle, são fundamentais: decltype, que nos permite inspecionar o tipo exato de uma expressão, e std::type_identity (introduzido no C++20), que nos permite "proteger" um tipo de transformações indesejadas em contextos de dedução.
+
+** decltype: O Inspetor de Tipos Perfeito
+
+Antes do C++11, não havia uma maneira direta e confiável de perguntar ao compilador: "Qual é o tipo exato desta expressão?". O operador typeof, uma extensão não-padrão presente em alguns compiladores, era uma tentativa, mas seu comportamento variava. decltype (declarated type) foi a solução padronizada, e sua precisão é sua característica mais importante.
+
+decltype(expressão) produz o tipo da expressão sem avaliá-la. Crucialmente, ele preserva todos os detalhes do tipo, incluindo referências e qualificadores const/volatile.
+
+#+begin_src cpp
+int i = 0;
+const int ci = 1;
+int& ri = i;
+
+decltype(i) x1;   // O tipo de 'i' é int. x1 é um int.
+decltype(ci) x2 = 2; // O tipo de 'ci' é const int. x2 é um const int.
+decltype(ri) x3 = i;  // O tipo de 'ri' é int&. x3 é uma referência para int.
+#+end_src
+
+A regra se torna um pouco mais sutil quando a expressão não é apenas o nome de uma variável. Se a expressão for um lvalue (algo que tem uma identidade e pode estar do lado esquerdo de uma atribuição), decltype deduzirá uma referência a esse tipo. Uma maneira fácil de lembrar é que qualquer expressão entre parênteses extras é tratada como um lvalue.
+
+cpp
+Copy
+decltype((i)) x4 = i; // A expressão '(i)' é um lvalue de tipo int.
+                      // decltype((i)) é int&. x4 é uma referência.
+O Uso Principal: Tipos de Retorno Dependentes
+
+O caso de uso mais poderoso para decltype é na especificação de tipos de retorno para funções template, especialmente quando o tipo de retorno depende dos tipos dos argumentos. Antes do C++14, com a dedução automática de tipo de retorno (auto), a sintaxe para isso era o trailing return type:
+
+cpp
+Copy
+template<typename T, typename U>
+auto add(T t, U u) -> decltype(t + u) {
+    return t + u;
+}
+Aqui, decltype(t + u) inspeciona a expressão t + u e determina qual seria seu tipo resultante, seguindo todas as regras de promoção aritmética do C++. O compilador usa essa informação para declarar o tipo de retorno da função. Isso nos permite escrever uma função add perfeitamente genérica, que funciona para int + double, short + long, ou qualquer outra combinação, sempre produzindo o tipo de retorno correto.
+
+Embora a dedução com auto simples tenha tornado essa sintaxe menos comum para casos simples, decltype continua a ser indispensável sempre que a dedução automática não é suficiente ou quando precisamos do tipo exato de uma expressão para outros fins de metaprogramação.
+
+36.2 O Problema do Contexto de "Não-Dedução"
+A dedução de tipos em templates é um dos recursos mais poderosos do C++, mas às vezes ela é muito inteligente. Em certos contextos, o compilador tentará usar um tipo para deduzir um parâmetro de template, quando na verdade queremos apenas passar o tipo "como está".
+
+Considere uma metafunção transform_type que, por algum motivo, queremos que sempre retorne void, mas que também precise receber um tipo T como parâmetro.
+
+cpp
+Copy
+template<typename T>
+struct transform_type {
+    using type = void;
+};
+Agora, vamos tentar usar isso em uma função template que deduz seu argumento:
+
+cpp
+Copy
+template<typename T>
+void process(typename transform_type<T>::type value) {
+    // ...
+}
+
+// process<int>(/* um void? */); // Como chamar isso?
+O problema aqui é que T aparece em typename transform_type<T>::type em um contexto de dedução. O compilador tentaria usar o tipo do argumento passado para process para descobrir o que T deveria ser, o que é confuso e muitas vezes impossível. O que realmente queremos dizer é: "Não tente deduzir T a partir deste parâmetro. Eu direi qual é o T explicitamente, e você apenas verificará se o tipo do argumento corresponde ao resultado de transform_type<T>::type."
+
+Este é um "contexto de não-dedução" (non-deduced context). Por anos, a solução idiomática para criar artificialmente esse contexto foi usar um truque de metaprogramação.
+
+36.3 std::type_identity: Protegendo Tipos da Dedução
+O C++20 formalizou a solução para este problema com uma ferramenta elegantemente simples: std::type_identity. Sua implementação é trivial:
+
+cpp
+Copy
+template<typename T>
+struct type_identity {
+    using type = T;
+};
+
+template<typename T>
+using type_identity_t = typename type_identity<T>::type;
+Ela é uma metafunção que recebe um tipo T e simplesmente o retorna inalterado. Qual é a sua utilidade? Ela serve como uma "barreira" para a dedução de tipos. Quando um tipo T está aninhado dentro de std::type_identity_t<T>, o compilador sabe que não deve usar essa ocorrência para deduzir T.
+
+Vamos revisitar nosso exemplo anterior, agora com uma intenção mais clara. Queremos uma função que aceite um argumento de qualquer tipo U, mas que seja restrita a funcionar apenas se U for o mesmo tipo que T.
+
+cpp
+Copy
+#include <type_traits>
+
+// Queremos que 'T' seja especificado manualmente, e 'U' seja deduzido.
+// Mas como podemos forçar U a ser igual a T?
+template<typename T, typename U>
+void func(T value_t, U value_u) {
+    static_assert(std::is_same_v<T, U>);
+    // ...
+}
+Isso funciona, mas e se quisermos expressar a restrição na própria assinatura?
+
+cpp
+Copy
+// VERSÃO PROBLEMÁTICA
+template<typename T>
+void func_v2(T value) { /* ... */ }
+Aqui, func_v2<int>(3.14) compilaria (com um estreitamento), pois T é especificado como int, mas o argumento é um double. Como podemos forçar o argumento a ser exatamente do tipo T?
+
+cpp
+Copy
+// VERSÃO COM type_identity
+template<typename T>
+void func_v3(std::type_identity_t<T> value) {
+    // ...
+}
+
+int main() {
+    func_v3<int>(42);      // OK. T é int, o argumento é int.
+    // func_v3<int>(3.14); // ERRO DE COMPILAÇÃO!
+                           // O compilador não consegue deduzir T=int a partir de um double.
+                           // O tipo do parâmetro é fixado como 'int', não há dedução.
+}
+std::type_identity_t<T> cria um contexto de não-dedução. O compilador vê a assinatura como void func_v3(int value). Ele não tenta mais deduzir T a partir do argumento; ele simplesmente verifica se o argumento corresponde ao tipo já especificado.
+
+Um Exemplo Prático: Construtores de Encaminhamento Perfeito
+
+std::type_identity também é útil para resolver ambiguidades em construtores que usam encaminhamento perfeito (T&&). Um construtor template como MyClass(T&& arg) pode ser "ganancioso" e ser escolhido no lugar de um construtor de cópia/movimento. std::type_identity pode ser usado para desabilitar a dedução de template e garantir que a sobrecarga correta seja escolhida.
+
+Conclusão:
+decltype e std::type_identity são as duas faces da mesma moeda do controle de tipos. decltype é a nossa ferramenta de inspeção, permitindo-nos consultar o tipo exato de qualquer expressão com perfeita fidelidade, o que é essencial para a programação genérica que depende de tipos de retorno calculados. std::type_identity, por outro lado, é a nossa ferramenta de proteção, agindo como um escudo que impede a dedução de tipos quando queremos que um tipo seja tratado literalmente, sem as transformações que o sistema de templates poderia aplicar. Juntas, elas nos dão o controle preciso necessário para navegar e manipular o complexo sistema de tipos do C++, garantindo que nossos metaprogramas se comportem exatamente como pretendemos.

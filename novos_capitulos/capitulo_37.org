@@ -1,0 +1,129 @@
+* Capítulo 37: Expressões lambda em tempo de compilação
+
+As expressões lambda, introduzidas no C++11, rapidamente se tornaram uma das funcionalidades mais queridas e utilizadas da linguagem. Elas nos deram a capacidade de criar objetos-função anônimos e locais, simplificando drasticamente o uso de algoritmos da STL e a escrita de código assíncrono. Inicialmente, no entanto, as lambdas eram estritamente uma ferramenta de tempo de execução. O C++17 mudou esse cenário, permitindo que as lambdas fossem declaradas como constexpr, efetivamente unindo a conveniência da sintaxe lambda com o poder da computação em tempo de compilação.
+
+Esta integração não foi apenas uma melhoria incremental; ela desbloqueou novos padrões de design e tornou a metaprogramação mais acessível e expressiva. Agora, podemos definir pequenas "metafunções" locais e anônimas exatamente onde precisamos delas, sem a verbosidade de definir uma struct ou uma função constexpr separada.
+
+** A Evolução: De Objeto-Função a Metafunção Local
+
+Para entender o significado de uma lambda constexpr, é preciso lembrar o que uma lambda realmente é. Uma expressão como [](int x){ return x * 2; } instrui o compilador a gerar uma classe anônima com um operator() sobrecarregado.
+
+#+begin_src cpp
+// O que o compilador gera (conceitualmente) para a lambda acima:
+class __Lambda_1_ {
+public:
+    int operator()(int x) const {
+        return x * 2;
+    }
+};
+#+end_src
+
+O C++17 simplesmente permitiu que este operator() gerado pudesse ser constexpr, contanto que seu corpo obedecesse às regras da computação em tempo de compilação.
+
+#+begin_src cpp
+// C++17 em diante
+auto my_lambda = [](int x) constexpr {
+    return x * 2;
+};
+#+end_src
+
+A palavra-chave constexpr aqui é, na verdade, opcional na maioria dos casos. Se o corpo da lambda for naturalmente compatível com constexpr (ou seja, ele só usa outras funções e tipos constexpr), o operator() gerado será constexpr por padrão. A declaração explícita serve para forçar o compilador a verificar a compatibilidade em tempo de compilação, agindo como uma asserção.
+
+** Lambdas como Argumentos de Template de Ordem Superior
+
+O verdadeiro poder das lambdas constexpr se manifesta quando as combinamos com outras ferramentas de metaprogramação. Elas se tornam o equivalente a "funções de ordem superior" para o tempo de compilação, permitindo-nos passar comportamento como um parâmetro para outras metafunções.
+
+Vamos construir uma metafunção static_transform que aplica uma operação a cada elemento de um std::array em tempo de compilação, produzindo um novo std::array.
+
+#+begin_src cpp
+#include <array>
+#include <utility>
+
+template<typename T, std::size_t N, typename Func>
+constexpr std::array<T, N> static_transform(const std::array<T, N>& arr, Func f) {
+    std::array<T, N> result{};
+    for (std::size_t i = 0; i < N; ++i) {
+        result[i] = f(arr[i]);
+    }
+    return result;
+}
+
+int main() {
+    constexpr std::array<int, 5> arr1 = {1, 2, 3, 4, 5};
+
+    // Definimos a operação de transformação localmente com uma lambda constexpr.
+    constexpr auto arr2 = static_transform(arr1, [](int x) constexpr {
+        return x * x; // Eleva ao quadrado
+    });
+
+    static_assert(arr2[0] == 1);
+    static_assert(arr2[1] == 4);
+    static_assert(arr2[2] == 9);
+    static_assert(arr2[3] == 16);
+    static_assert(arr2[4] == 25);
+
+    // Outro exemplo: criar um array de booleanos
+    constexpr auto arr3 = static_transform(arr1, [](int x) { // constexpr implícito
+        return (x % 2) == 0;
+    });
+
+    static_assert(arr3[0] == false);
+    static_assert(arr3[1] == true);
+    static_assert(arr3[2] == false);
+}
+#+end_src
+
+Este exemplo é notável por sua clareza. A lógica de transformação (x * x ou (x % 2) == 0) é definida exatamente no ponto de uso, sem a necessidade de poluir o escopo com pequenas funções auxiliares. A lambda constexpr nos permite tratar o comportamento como um dado, passando-o para nosso "meta-algoritmo" static_transform.
+
+** Lambdas sem Captura e a Conversão para Ponteiro de Função
+
+Uma característica importante das lambdas é que, se elas não capturam nenhuma variável de seu escopo circundante, elas podem ser convertidas para um ponteiro de função. Isso também se aplica a lambdas constexpr.
+
+Essa conversão nos permite usar lambdas como parâmetros de template que esperam um ponteiro de função, uma técnica poderosa para configurar o comportamento de uma classe em tempo de compilação.
+
+#+begin_src cpp
+// Um template de classe que usa uma função para validar dados.
+// A função de validação é passada como um parâmetro de template.
+template<typename T, bool (*Validator)(T)>
+class ValidatedValue {
+private:
+    T m_value;
+public:
+    constexpr ValidatedValue(T value) : m_value(value) {
+        if (!Validator(m_value)) {
+            throw std::domain_error("Valor inválido na construção");
+        }
+    }
+    // ...
+};
+
+int main() {
+    // A lambda sem captura é convertida para um ponteiro de função
+    // e usada para instanciar o template.
+    constexpr auto is_positive = [](int x) constexpr { return x > 0; };
+    
+    using PositiveInt = ValidatedValue<int, is_positive>;
+
+    constexpr PositiveInt p1(10); // OK
+    // constexpr PositiveInt p2(-5); // Descomente para ver o erro em tempo de compilação
+                                   // (o throw em um contexto constexpr causa falha na compilação)
+    
+    return 0;
+}
+#+end_src
+
+Aqui, a lambda is_positive se torna parte do tipo PositiveInt. A lógica de validação é "embutida" na classe em tempo de compilação, permitindo que o compilador verifique a validade de objetos constexpr e garantindo que a regra de negócio seja aplicada sem nenhum custo de indireção (como um std::function) em tempo de execução.
+
+** Limitações e Considerações
+
+Apesar de seu poder, as lambdas constexpr têm algumas limitações a serem consideradas:
+
+  1. *Capturas*: Uma lambda constexpr não pode capturar variáveis por referência, a menos que o tempo de vida do objeto referenciado seja conhecido e constante (uma área complexa e em evolução da linguagem). A captura por valor é geralmente permitida, pois o valor capturado se torna um membro do objeto-função.
+
+  2. *Estado Mutável*: Embora o C++14 tenha permitido a mutação de variáveis locais em funções constexpr, uma lambda constexpr só pode modificar seus membros capturados se for declarada como mutable. No entanto, o uso de mutable em um contexto constexpr é um tópico avançado e pode ser restritivo.
+
+  3. *Clareza vs. Complexidade*: Para operações muito simples, uma lambda é imbatível em clareza. Para lógicas de metaprogramação mais complexas, especialmente aquelas que envolvem manipulação de tipos, uma struct de metafunção tradicional ainda pode ser a ferramenta mais apropriada e legível.
+
+** Conclusão:
+
+A introdução de lambdas constexpr no C++17 foi um passo crucial para tornar a metaprogramação mais pragmática e expressiva. Elas nos permitem encapsular lógica de tempo de compilação em pacotes anônimos e locais, tratando o comportamento como um valor que pode ser passado para outras funções e templates. Isso promove um estilo de programação de ordem superior, onde "meta-algoritmos" podem ser parametrizados com operações definidas no ponto de uso. Ao preencher a lacuna entre a sintaxe concisa das lambdas e o poder da avaliação em tempo de compilação, elas se tornaram uma ferramenta indispensável no arsenal do programador C++ moderno, tornando o código mais limpo, mais localizado e mais declarativo.

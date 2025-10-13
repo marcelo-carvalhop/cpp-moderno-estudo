@@ -268,8 +268,10 @@ Ao longo de mais de cem capítulos, cada seção é organizada em torno de temas
 [[./novos_capitulos/capitulo_34.org][34. constexpr em profundidade]]
 
 [[./novos_capitulos/capitulo_35.org][35. if constexpr: elegância sem redundância]]
-36. Tipos em tempo de compilação: std::type_identity, decltype
-37. Expressões lambda em tempo de compilação
+
+[[./novos_capitulos/capitulo_36.org][36. Tipos em tempo de compilação: std::type_identity, decltype]]
+    
+[[./novos_capitulos/capitulo_37.org][37. Expressões lambda em tempo de compilação]]
 38. Template lambdas e dedução avançada
 39. Reflection: presente e futuro
 40. Gerando código em tempo de compilação
