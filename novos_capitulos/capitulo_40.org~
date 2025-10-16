@@ -1,0 +1,137 @@
+Capítulo 40: Gerando código em tempo de compilação
+A ideia de "gerar código" geralmente evoca imagens de scripts externos, pré-processadores ou ferramentas complexas que manipulam arquivos de código-fonte como texto. No C++, a metaprogramação nos oferece uma abordagem fundamentalmente diferente e mais poderosa: a capacidade de usar a própria linguagem para gerar e compor tipos, funções e estruturas de dados em tempo de compilação. Não estamos manipulando texto; estamos construindo abstrações e lógica diretamente dentro do sistema de tipos do compilador.
+
+Este capítulo explora as técnicas e os padrões de design que nos permitem usar o C++ como sua própria ferramenta de geração de código, resultando em programas mais flexíveis, eficientes e seguros.
+
+40.1 A Fábrica de Tipos: Metafunções como Geradores
+O bloco de construção mais fundamental da geração de código em tempo de compilação é a metafunção. Como vimos, uma metafunção é uma struct template que recebe tipos (e/ou valores) como entrada e produz um tipo ou valor como saída. Ao compor essas metafunções, podemos construir "pipelines" de compilação que geram tipos complexos a partir de especificações simples.
+
+Um exemplo clássico é a geração de uma tupla de ponteiros a partir de uma lista de tipos.
+
+cpp
+Copy
+#include <tuple>
+#include <type_traits>
+
+// Nossa lista de tipos fundamental
+template<typename... Ts>
+struct type_list {};
+
+// Metafunção para adicionar um ponteiro a um tipo
+template<typename T>
+struct add_pointer {
+    using type = T*;
+};
+
+// Metafunção principal que gera a tupla
+template<typename TypeList>
+struct generate_pointer_tuple;
+
+// Especialização para operar sobre a type_list
+template<typename... Ts>
+struct generate_pointer_tuple<type_list<Ts...>> {
+    // Usamos um fold expression (C++17) para aplicar add_pointer a cada tipo
+    // e construir a tupla.
+    using type = std::tuple<typename add_pointer<Ts>::type...>;
+};
+
+// Alias para conveniência
+template<typename TypeList>
+using generate_pointer_tuple_t = typename generate_pointer_tuple<TypeList>::type;
+
+int main() {
+    // Entrada: uma especificação simples de tipos.
+    using MinhaLista = type_list<int, char, double>;
+
+    // Geração: o compilador executa o pipeline.
+    // 1. Expande Ts... para int, char, double.
+    // 2. Aplica add_pointer<T>::type para cada um, resultando em int*, char*, double*.
+    // 3. Instancia std::tuple<int*, char*, double*>.
+    using MinhaTuplaDePonteiros = generate_pointer_tuple_t<MinhaLista>;
+
+    // Verificação em tempo de compilação
+    static_assert(std::is_same_v<
+        MinhaTuplaDePonteiros,
+        std::tuple<int*, char*, double*>
+    >);
+}
+Neste exemplo, generate_pointer_tuple é um gerador de código. Ele não executa em tempo de execução; seu único propósito é instruir o compilador sobre como construir um novo tipo (std::tuple<...>) a partir de uma especificação de entrada (type_list<...>).
+
+40.2 Geração de Funções com Lambdas Genéricas e auto
+Podemos estender essa ideia para gerar não apenas tipos, mas também comportamento. As lambdas genéricas (e especialmente as template lambdas do C++20) são ferramentas perfeitas para isso. Podemos escrever uma função de ordem superior que retorna uma nova função (uma lambda) cujo comportamento é parametrizado pela entrada.
+
+Vamos criar um gerador de funções que produz validadores. A função geradora receberá um valor mínimo e um máximo e retornará uma lambda que verifica se seu argumento está dentro desse intervalo.
+
+cpp
+Copy
+#include <iostream>
+#include <functional> // Para std::function, por simplicidade de tipo
+
+// Função geradora de código (comportamento)
+auto make_range_validator(int min_val, int max_val) {
+    // A lambda captura os parâmetros do gerador.
+    // Ela se torna uma "fábrica" de comportamento.
+    return [=](int value_to_check) {
+        return value_to_check >= min_val && value_to_check <= max_val;
+    };
+}
+
+int main() {
+    // Geração: chamamos a fábrica para criar duas funções distintas.
+    auto is_valid_age = make_range_validator(0, 120);
+    auto is_valid_percentage = make_range_validator(0, 100);
+
+    // Uso: as funções geradas são usadas como qualquer outra função.
+    std::cout << "25 é uma idade válida? " << std::boolalpha << is_valid_age(25) << std::endl;
+    std::cout << "110 é uma porcentagem válida? " << std::boolalpha << is_valid_percentage(110) << std::endl;
+}
+Embora este exemplo seja de tempo de execução, ele ilustra o princípio. Se min_val e max_val fossem constexpr, a lambda gerada poderia ser constexpr também, permitindo que a lógica de validação fosse usada em contextos de tempo de compilação.
+
+40.3 O Padrão "Static Visitor"
+Uma das técnicas mais poderosas de geração de código em tempo de compilação é a implementação do padrão de projeto Visitor usando std::variant e lambdas. std::variant é um tipo de união segura que pode conter um valor de um conjunto de tipos alternativos. O desafio é como operar sobre o valor contido sem saber seu tipo exato em tempo de compilação.
+
+A função std::visit resolve isso gerando, em tempo de compilação, um conjunto de chamadas de função para todas as alternativas possíveis.
+
+cpp
+Copy
+#include <variant>
+#include <string>
+#include <iostream>
+
+// Um "visitante" que pode lidar com todos os tipos no variant.
+// A lambda genérica é perfeita para isso.
+auto PrintVisitor = [](const auto& value) {
+    using T = std::decay_t<decltype(value)>;
+    if constexpr (std::is_same_v<T, int>) {
+        std::cout << "É um int: " << value << std::endl;
+    } else if constexpr (std::is_same_v<T, std::string>) {
+        std::cout << "É uma string: '" << value << "'" << std::endl;
+    } else {
+        static_assert(always_false<T>::value, "Tipo não tratado no visitor!");
+    }
+};
+
+// (Definição de always_false omitida por brevidade)
+
+int main() {
+    std::variant<int, std::string> v;
+
+    v = 123;
+    // Geração de código: o compilador vê que 'v' pode ser int ou string.
+    // Ele instancia o corpo de PrintVisitor para T=int e T=string.
+    // Em tempo de execução, ele despacha para a versão correta.
+    std::visit(PrintVisitor, v);
+
+    v = "hello";
+    std::visit(PrintVisitor, v);
+}
+std::visit é um gerador de código. Ele pega um objeto chamável (nosso PrintVisitor) e um variant e gera um switch (ou equivalente) perfeito em tempo de compilação que cobre todos os casos possíveis. Se o nosso visitante não pudesse lidar com um dos tipos do variant, o código não compilaria — uma garantia de segurança poderosa.
+
+40.4 O Futuro: Geração de Código com Reflexão
+Como discutido no capítulo anterior, a futura reflexão estática será o gerador de código definitivo. A capacidade de iterar sobre os membros de um tipo em tempo de compilação nos permitirá gerar funções de serialização, comparação, hashing e muito mais, de forma totalmente automática.
+
+O loop for constexpr sobre os meta-objetos dos membros de uma classe será a sintaxe explícita para a geração de código em tempo de compilação, transformando padrões que hoje exigem boilerplate complexo em algumas linhas de código genérico e legível.
+
+Conclusão:
+
+A geração de código em tempo de compilação em C++ é a prática de escrever código que escreve código. Em vez de usar ferramentas externas, usamos os próprios mecanismos da linguagem — templates, metafunções, lambdas e constexpr — para construir e compor tipos e comportamentos. Essa abordagem nos permite criar abstrações de alto nível que se resolvem em código altamente eficiente e especializado em tempo de compilação. Ela nos permite escrever programas que são seguros por construção, onde o compilador pode verificar se todos os casos foram tratados (como em std::visit) ou se uma transformação de tipo foi aplicada corretamente. Dominar essa técnica é dominar a arte de fazer o compilador trabalhar para nós, automatizando a criação de código repetitivo e garantindo a correção através do sistema de tipos.

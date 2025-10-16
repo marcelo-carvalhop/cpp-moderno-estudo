@@ -1,0 +1,123 @@
+Capítulo 42: Construção de DSLs internas
+Uma das aplicações mais elegantes e avançadas da metaprogramação em C++ é a criação de Linguagens Específicas de Domínio Internas (Internal Domain-Specific Languages, ou DSLs). Uma DSL interna não é uma nova linguagem que requer um novo compilador; em vez disso, é uma forma de usar a sintaxe e o sistema de tipos de uma linguagem anfitriã (neste caso, o C++) para criar uma nova gramática e semântica que parecem "naturais" para um domínio de problema específico.
+
+Em vez de escrever código que resolve um problema, escrevemos código que descreve o problema em uma linguagem de alto nível, e o compilador, através da metaprogramação, traduz essa descrição em código C++ eficiente. Esta técnica nos permite criar APIs que são, ao mesmo tempo, extremamente expressivas, seguras em tipos e de alto desempenho.
+
+42.1 A Filosofia: Descrever, Não Prescrever
+O objetivo de uma DSL é mudar o foco do programador do "como" para o "o quê". Em vez de escrever laços, condicionais e chamadas de função de baixo nível (prescrevendo a solução), o programador usa os construtos da DSL para montar uma descrição declarativa do resultado desejado.
+
+Considere a tarefa de construir uma consulta SQL:
+
+Abordagem Prescritiva: std::string query = "SELECT name, age FROM users WHERE age > " + std::to_string(min_age) + " AND country = '" + country_name + "';";
+Abordagem Descritiva (DSL): auto query = select(users.name, users.age).from(users).where(users.age > min_age && users.country == country_name);
+A versão da DSL é superior em todos os aspectos:
+
+Segurança de Tipos: O compilador pode verificar se users.age é comparável com min_age. Uma concatenação de strings não tem essa segurança.
+Prevenção de Erros: É impossível cometer um erro de sintaxe SQL, como esquecer uma vírgula ou uma aspa. A DSL garante que a consulta gerada seja sempre sintaticamente correta.
+Composição: Os objetos da DSL podem ser construídos e combinados programaticamente, algo que é muito mais difícil e propenso a erros com strings.
+42.2 Blocos de Construção de uma DSL Interna
+A criação de uma DSL em C++ geralmente combina várias técnicas que já exploramos:
+
+Tipos Expressivos: Criamos structs ou classes que representam os conceitos do domínio (ex: SelectStatement, WhereClause, Column). Esses tipos não contêm dados complexos; seu propósito é carregar informações no sistema de tipos.
+Sobrecarga de Operadores: Esta é a técnica chave para criar uma gramática fluente. Sobrecarregamos operadores como +, *, ==, &&, | para que eles não realizem a operação padrão, mas sim construam objetos de expressão que representam a operação. users.age > min_age não retorna um bool; ele retorna um objeto GreaterThanExpression<Column, int>.
+Funções constexpr e Construtores: Usamos funções e construtores constexpr para iniciar as expressões da DSL (como as funções select e from no exemplo).
+Avaliação Preguiçosa (Lazy Evaluation): As expressões da DSL não são executadas imediatamente. Elas constroem uma árvore de expressão (Expression Tree). Apenas no final, quando o resultado é realmente necessário, um "motor" de avaliação percorre a árvore e gera o código final (a string SQL, o código de máquina, etc.).
+42.3 Exemplo: Uma DSL para Análise de Pacotes de Rede
+Vamos construir uma DSL muito simples para definir regras de firewall. Queremos ser capazes de escrever regras como (protocolo == TCP && porta_destino == 80) || protocolo == UDP.
+
+Passo 1: Tipos Expressivos
+Primeiro, definimos os tipos que representam os elementos do nosso domínio. Eles são "placeholders" de tempo de compilação.
+
+cpp
+Copy
+struct Protocolo { constexpr bool operator==(const char*) const; /* ... */ };
+struct PortaDestino { constexpr bool operator==(int) const; /* ... */ };
+
+// Placeholders globais para usar na DSL
+constexpr Protocolo protocolo;
+constexpr PortaDestino porta_destino;
+Passo 2: Árvore de Expressão
+Agora, definimos os tipos que representarão nossa árvore de expressão.
+
+cpp
+Copy
+// Nó base para qualquer expressão
+struct ExpressaoRegra { };
+
+// Nós para operações lógicas
+template<typename L, typename R> struct AndExpr : ExpressaoRegra { L lhs; R rhs; };
+template<typename L, typename R> struct OrExpr : ExpressaoRegra { L lhs; R rhs; };
+
+// Nó para uma comparação específica
+template<typename Field, typename Value>
+struct EqExpr : ExpressaoRegra { Field f; Value v; };
+Passo 3: Sobrecarga de Operadores
+Esta é a mágica que constrói a árvore.
+
+cpp
+Copy
+// Sobrecarga para '==' nos nossos placeholders
+template<typename T>
+constexpr auto operator==(Protocolo, T val) { return EqExpr<Protocolo, T>{}; }
+template<typename T>
+constexpr auto operator==(PortaDestino, T val) { return EqExpr<PortaDestino, T>{}; }
+
+// Sobrecarga para '&&' e '||' nas nossas expressões
+template<typename L, typename R>
+constexpr auto operator&&(L lhs, R rhs) { return AndExpr<L, R>{lhs, rhs}; }
+template<typename L, typename R>
+constexpr auto operator||(L lhs, R rhs) { return OrExpr<L, R>{lhs, rhs}; }
+
+*Passo 4: O Motor de Avaliação*
+
+Finalmente, uma função que recebe a árvore de expressão e a "executa" em um pacote de dados real.
+
+#+begin_src cpp
+struct Pacote { const char* protocolo; int porta_dst; };
+
+// O motor que percorre a árvore
+template<typename Field, typename Value>
+bool avaliar(const EqExpr<Field, Value>& expr, const Pacote& p); // Implementações abaixo
+
+template<typename L, typename R>
+bool avaliar(const AndExpr<L, R>& expr, const Pacote& p) {
+    return avaliar(expr.lhs, p) && avaliar(expr.rhs, p);
+}
+template<typename L, typename R>
+bool avaliar(const OrExpr<L, R>& expr, const Pacote& p) {
+    return avaliar(expr.lhs, p) || avaliar(expr.rhs, p);
+}
+
+// Especializações para as comparações reais
+template<> bool avaliar(const EqExpr<Protocolo, const char*>& expr, const Pacote& p) {
+    // (Em um caso real, strcmp seria usado)
+    return std::string(p.protocolo) == std::string(expr.v);
+}
+template<> bool avaliar(const EqExpr<PortaDestino, int>& expr, const Pacote& p) {
+    return p.porta_dst == expr.v;
+}
+#+end_src
+
+*Uso Final*:
+
+#+begin_src cpp
+int main() {
+    // A descrição do problema, usando a sintaxe da nossa DSL.
+    // O compilador constrói uma árvore de tipos complexa aqui.
+    constexpr auto regra_http_ou_dns = (protocolo == "TCP" && porta_destino == 80) ||
+                                       (protocolo == "UDP" && porta_destino == 53);
+
+    Pacote pacote_web{"TCP", 80};
+    Pacote pacote_aleatorio{"UDP", 1234};
+
+    // O motor de avaliação executa a lógica.
+    std::cout << "Pacote web corresponde? " << std::boolalpha << avaliar(regra_http_ou_dns, pacote_web) << std::endl;
+    std::cout << "Pacote aleatório corresponde? " << std::boolalpha << avaliar(regra_http_ou_dns, pacote_aleatorio) << std::endl;
+}
+#+end_src
+
+O objeto regra_http_ou_dns tem um tipo complexo como OrExpr<AndExpr<...>, AndExpr<...>>. A construção dessa árvore de tipos acontece inteiramente em tempo de compilação. A função avaliar usa a resolução de sobrecarga para percorrer essa árvore e executar a lógica correspondente.
+
+** Conclusão:
+
+A construção de DSLs internas é o ápice da metaprogramação expressiva. Ela nos permite encapsular a complexidade de um domínio em uma API limpa, segura e declarativa. Ao sobrecarregar operadores e usar o sistema de tipos para construir árvores de expressão, podemos criar "mini-linguagens" que tornam o código do cliente mais legível e menos propenso a erros. Bibliotecas como Boost.Spirit (parsers), Boost.Proto (ferramenta para criar DSLs), e as ranges do C++20 são exemplos proeminentes dessa técnica. Dominar a construção de DSLs é dominar a arte de dobrar a sintaxe do C++ para servir perfeitamente ao domínio do seu problema.

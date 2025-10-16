@@ -1,0 +1,121 @@
+* Capítulo 41: Tabelas e algoritmos constexpr
+
+A palavra-chave constexpr fez mais do que apenas permitir a verificação de constantes em tempo de compilação; ela transformou o compilador em um poderoso motor de pré-computação. Com constexpr, podemos executar algoritmos complexos e gerar extensas tabelas de dados durante o processo de compilação. O resultado desse trabalho é então "embutido" diretamente no binário do programa como dados estáticos e puros.
+
+Esta técnica representa uma troca fundamental: investimos tempo de compilação, que acontece uma vez na máquina do desenvolvedor, para economizar tempo de execução, que acontece toda vez na máquina do usuário. Para aplicações de alta performance, sistemas embarcados ou qualquer cenário onde a latência é crítica, essa troca é imensamente vantajosa.
+
+** A Tabela de Consulta (Lookup Table - LUT): Otimização Clássica, Implementação Moderna
+
+A tabela de consulta é uma das técnicas de otimização mais antigas e eficazes da computação. A ideia é simples: se uma função é cara de calcular, mas seus resultados para um conjunto de entradas são frequentemente necessários, podemos pré-calcular esses resultados e armazená-los em um array. Em tempo de execução, a "chamada de função" se torna uma simples e ultrarrápida operação de acesso a um índice de array.
+
+Antes do C++ moderno, a criação dessas tabelas muitas vezes envolvia scripts externos que geravam arquivos de código-fonte. Com constexpr, podemos criar essas tabelas de forma segura e integrada, usando a própria linguagem.
+
+*Exemplo: Gerando uma Tabela de Fatoriais*
+
+Vamos criar uma tabela contendo os 15 primeiros números fatoriais.
+
+#+begin_src cpp
+#include <array>
+#include <cstdint>
+
+// 1. A função de cálculo, marcada como constexpr.
+constexpr std::uint64_t factorial(int n) {
+    return (n <= 1) ? 1 : n * factorial(n - 1);
+}
+
+// 2. A função geradora da tabela, também constexpr.
+//    Ela retorna um std::array, que é um tipo literal e pode ser constexpr.
+template<std::size_t N>
+constexpr std::array<std::uint64_t, N> generate_factorial_table() {
+    std::array<std::uint64_t, N> table{};
+    for (std::size_t i = 0; i < N; ++i) {
+        table[i] = factorial(i);
+    }
+    return table;
+}
+
+// 3. A declaração da tabela global.
+//    O compilador executa generate_factorial_table<15>() AQUI.
+constexpr auto FactorialLUT = generate_factorial_table<15>();
+
+// 4. Verificação e uso.
+int main() {
+    // Verificação em tempo de compilação. Custo zero em tempo de execução.
+    static_assert(FactorialLUT[0] == 1);
+    static_assert(FactorialLUT[5] == 120);
+    static_assert(FactorialLUT[10] == 3628800);
+
+    // Uso em tempo de execução. Acesso instantâneo.
+    // Nenhuma função 'factorial' é chamada aqui.
+    std::uint64_t result = FactorialLUT[7]; 
+}
+#+end_src
+
+O compilador executa o laço for e as chamadas recursivas de factorial uma única vez. O objeto FactorialLUT é gravado na seção de dados somente leitura (.rodata) do executável, tão constante e imutável quanto uma string literal.
+
+** Algoritmos constexpr: Mais do que Apenas Tabelas
+
+Podemos levar essa ideia além da geração de tabelas. Podemos executar algoritmos inteiros em tempo de compilação para produzir um único resultado ou para validar uma estrutura de dados complexa. Com o C++20 permitindo o uso de std::vector e std::string em contextos constexpr, as possibilidades se tornaram vastas.
+
+*Exemplo: Ordenando Dados em Tempo de Compilação*
+
+Imagine que temos uma pequena lista de identificadores que precisa estar ordenada para buscas binárias eficientes em tempo de execução. Em vez de ordenar o array toda vez que o programa inicia, podemos ordená-lo uma vez, durante a compilação.
+
+#+begin_src cpp
+#include <array>
+#include <algorithm> // para std::sort (constexpr a partir de C++20)
+
+// Função geradora que ordena o array.
+template<std::size_t N>
+constexpr std::array<int, N> create_sorted_array(std::array<int, N> arr) {
+    // std::sort é constexpr a partir do C++20!
+    std::sort(arr.begin(), arr.end());
+    return arr;
+}
+
+// Dados de entrada, conhecidos em tempo de compilação.
+constexpr std::array<int, 7> UnsortedIDs = {10, 2, 7, 5, 8, 1, 9};
+
+// O algoritmo de ordenação é executado pelo compilador.
+constexpr auto SortedIDs = create_sorted_array(UnsortedIDs);
+
+int main() {
+    // A prova de que a ordenação aconteceu em tempo de compilação.
+    static_assert(SortedIDs[0] == 1);
+    static_assert(SortedIDs[1] == 2);
+    static_assert(SortedIDs[2] == 5);
+    static_assert(SortedIDs[3] == 7);
+    static_assert(SortedIDs[4] == 8);
+    static_assert(SortedIDs[5] == 9);
+    static_assert(SortedIDs[6] == 10);
+
+    // Em tempo de execução, podemos usar o array já ordenado.
+    // bool found = std::binary_search(SortedIDs.begin(), SortedIDs.end(), 7);
+}
+#+end_src
+
+O trabalho pesado da ordenação é feito pelo compilador. O programa final simplesmente carrega um array de inteiros já perfeitamente ordenado em memória.
+
+** Vantagens e Desvantagens
+
+A decisão de mover a computação para o tempo de compilação é uma troca de engenharia com prós e contras claros.
+
+*Vantagens*:
+
+  - *Performance de Tempo de Execução*: O custo da computação em tempo de execução é zero ou drasticamente reduzido. Isso melhora a latência de inicialização e a performance geral.
+
+  - *Segurança e Correção*: A lógica pode ser validada com static_assert. Erros em dados de entrada ou na lógica do algoritmo se tornam erros de compilação, não bugs em tempo de execução.
+
+  - *Ideal para Sistemas Embarcados*: Os dados pré-calculados residem na ROM (memória somente leitura), que é muitas vezes mais abundante que a RAM em sistemas embarcados.
+
+*Desvantagens*:
+
+  - *Tempo de Compilação*: A desvantagem mais significativa. Executar algoritmos complexos pode aumentar drasticamente os tempos de build. Um cálculo que leva 100ms em tempo de execução pode levar vários segundos em tempo de compilação.
+
+  - *Flexibilidade Limitada*: A abordagem só funciona para dados e algoritmos cujas entradas são conhecidas em tempo de compilação. Não pode ser usada para processar entradas dinâmicas do usuário.
+
+  - *Depuração*: Depurar um algoritmo constexpr é mais difícil. Os erros são mensagens de template enigmáticas do compilador, em vez de um ponto de parada em um depurador interativo.
+
+** Conclusão:
+
+As tabelas e algoritmos constexpr são uma das ferramentas de otimização mais poderosas do C++ moderno. Eles nos permitem aplicar o princípio de "não pague pelo que você pode pré-calcular". Ao tratar o compilador como um ambiente de execução para inicialização e pré-processamento, podemos criar programas que não são apenas rápidos, mas que são rápidos por construção, com a garantia de que o trabalho pesado já foi feito antes mesmo de o programa ser entregue ao usuário. É a manifestação definitiva da filosofia do C++ de "deslocar a computação para a esquerda" — o mais próximo possível do tempo de compilação.

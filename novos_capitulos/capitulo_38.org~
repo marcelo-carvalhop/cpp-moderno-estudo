@@ -1,0 +1,133 @@
+* Capítulo 38: Template lambdas e dedução avançada
+
+A jornada das lambdas em direção à paridade com as funções nomeadas tem sido um dos temas centrais da evolução do C++ moderno. O C++14 deu um passo importante com as lambdas genéricas, que nos permitiram usar auto na lista de parâmetros para deduzir os tipos dos argumentos. Isso foi um avanço significativo, mas ainda era uma forma de "magia" do compilador, com limitações em seu poder expressivo. O C++20 removeu essas limitações ao introduzir a sintaxe de template lambdas, permitindo que uma lambda declare sua própria lista de parâmetros de template, exatamente como uma função template nomeada. Esta não é uma mera mudança sintática; é uma mudança fundamental que desbloqueia novos níveis de precisão, restrição e poder na programação genérica.
+
+** O Precursor: Lambdas Genéricas com auto (C++14)
+
+Uma lambda genérica usa auto para seus parâmetros. O compilador, nos bastidores, transforma isso em um operator() que é, ele mesmo, um template de função.
+
+#+begin_src cpp
+// Lambda genérica do C++14
+auto print_anything = [](const auto& value) {
+    std::cout << value << std::endl;
+};
+
+// O que o compilador gera (conceitualmente):
+struct __Print_Lambda_ {
+    template<typename T>
+    void operator()(const T& value) const {
+        std::cout << value << std::endl;
+    }
+};
+#+end_src
+
+Isso é incrivelmente útil para casos simples. No entanto, essa abordagem tem limitações importantes:
+
+Falta de Nomes para Tipos: Não temos um nome para o tipo deduzido T na assinatura da lambda. Se precisarmos nos referir a ele (por exemplo, para um static_cast ou para declarar uma variável local), somos forçados a usar decltype(value).
+Restrições Difíceis: Antes dos concepts, restringir o auto era extremamente difícil, exigindo técnicas SFINAE complexas aplicadas à classe gerada, o que estava além do alcance da maioria dos programadores.
+Impossibilidade de Parâmetros Não-Tipo: Não havia sintaxe para uma lambda genérica aceitar um parâmetro de template não-tipo, como int N.
+38.2 A Solução do C++20: A Sintaxe de Template Explícita
+As template lambdas do C++20 resolvem todos esses problemas, introduzindo uma sintaxe familiar para qualquer pessoa que já escreveu uma função template.
+
+cpp
+Copy
+// Sintaxe de Template Lambda (C++20)
+auto add = []<typename T, typename U>(T a, U b) -> decltype(a + b) {
+    return a + b;
+};
+A lista de parâmetros de template <typename T, typename U> pertence à própria lambda. Isso nos dá controle total, exatamente como teríamos em uma struct com um operator() template.
+
+Vantagem 1: Restrições com Concepts
+
+A vantagem mais imediata e poderosa é a capacidade de aplicar concepts diretamente. Isso torna as lambdas participantes de primeira classe no ecossistema de programação com restrições, levando a um código mais seguro e com diagnósticos de erro imensamente superiores.
+
+cpp
+Copy
+#include <concepts>
+#include <iostream>
+
+void run_constrained_lambda_example() {
+    // Esta lambda SÓ aceitará tipos que satisfaçam std::integral.
+    auto process_integral = []<std::integral T>(T i) {
+        std::cout << "Processando integral: " << i << " (tamanho: " << sizeof(T) << " bytes)\n";
+    };
+
+    process_integral(10);      // OK, T é int
+    process_integral(20L);     // OK, T é long
+    // process_integral(3.14); // ERRO DE COMPILAÇÃO!
+                               // A mensagem de erro será clara:
+                               // 'double' não satisfaz o concept 'std::integral'.
+}
+A clareza e a segurança obtidas aqui são impossíveis de alcançar de forma tão limpa com as lambdas genéricas do C++14.
+
+Vantagem 2: Encaminhamento Perfeito Explícito
+
+Com nomes de tipo explícitos, o idioma do encaminhamento perfeito (std::forward) torna-se direto e claro, eliminando qualquer ambiguidade que auto&& pudesse ter.
+
+cpp
+Copy
+#include <utility>
+
+void some_function(int&, double&&) { /* ... */ }
+
+void run_forwarding_lambda_example() {
+    // Uma lambda que atua como um wrapper, encaminhando perfeitamente seus argumentos.
+    auto wrapper = []<typename... Args>(Args&&... args) {
+        // Agora temos nomes para os tipos no pacote de parâmetros,
+        // tornando o std::forward explícito e idêntico a uma função nomeada.
+        some_function(std::forward<Args>(args)...);
+    };
+
+    int x = 10;
+    wrapper(x, 3.14); // Encaminha um lvalue (int&) e um rvalue (double&&)
+}
+Vantagem 3: Parâmetros de Template Não-Tipo
+
+As template lambdas abrem a porta para padrões de metaprogramação que antes eram exclusivos de structs ou funções nomeadas. Um exemplo clássico é o acesso a elementos de um std::tuple em tempo de compilação.
+
+cpp
+Copy
+#include <tuple>
+
+void run_nontype_lambda_example() {
+    constexpr std::tuple my_tuple{10, 'a', 3.14};
+
+    // Uma lambda que aceita um índice de tempo de compilação.
+    auto get_nth = []<std::size_t N>(const auto& tpl) {
+        static_assert(N < std::tuple_size_v<std::decay_t<decltype(tpl)>>, "Índice fora dos limites");
+        return std::get<N>(tpl);
+    };
+
+    // A chamada usa a sintaxe de chamada de função template.
+    constexpr char val = get_nth.operator()<1>(my_tuple);
+    static_assert(val == 'a');
+    
+    // Sintaxe alternativa mais limpa a partir do C++23
+    // constexpr char val_cpp23 = get_nth<1>(my_tuple);
+}
+Este exemplo demonstra um "meta-algoritmo" local e anônimo. A lambda get_nth é uma ferramenta de tempo de compilação poderosa que pode ser definida e usada dentro do escopo de uma única função, melhorando drasticamente a localidade e a legibilidade do código.
+
+38.3 Dedução Avançada e Composição
+A combinação de template lambdas com constexpr e auto nos permite criar blocos de construção genéricos de altíssimo nível. Podemos escrever uma função que recebe uma template lambda como argumento, permitindo uma forma de composição extremamente poderosa.
+
+cpp
+Copy
+// Uma função que recebe um callable genérico (como uma template lambda)
+// e o aplica a dois argumentos.
+template<typename Callable>
+void apply_generic(Callable c) {
+    c(10);          // Chama com int
+    c("hello");     // Chama com const char*
+    c(3.14);        // Chama com double
+}
+
+void run_composition_example() {
+    // Passamos uma template lambda que só funciona para tipos aritméticos.
+    apply_generic([]<typename T> requires std::is_arithmetic_v<T> (T val) {
+        std::cout << "Aritmético: " << val << std::endl;
+    });
+}
+Neste caso, a chamada c("hello") dentro de apply_generic simplesmente falhará a substituição de template de forma silenciosa (SFINAE), pois a restrição requires da lambda não será satisfeita. O programa compila e executa, chamando a lambda apenas para 10 e 3.14. Isso demonstra um nível de interação e dedução entre templates que é incrivelmente expressivo.
+
+Conclusão:
+As template lambdas não são apenas uma conveniência; elas representam a maturação completa das expressões lambda como uma ferramenta central da programação genérica. Ao nos dar acesso explícito aos parâmetros de template — com nomes, restrições e a capacidade de usar parâmetros não-tipo — elas eliminam as últimas barreiras que separavam as lambdas das funções template nomeadas. Elas nos permitem escrever código de metaprogramação que é, ao mesmo tempo, mais poderoso, mais seguro e mais localizado. No C++ moderno, especialmente em conjunto com constexpr e concepts, as template lambdas são os blocos de construção ideais para criar algoritmos e abstrações genéricas que são tão concisos quanto robustos.
