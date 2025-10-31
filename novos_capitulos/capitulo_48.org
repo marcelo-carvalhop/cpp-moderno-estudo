@@ -1,0 +1,118 @@
+* Capítulo 48: Interfaces robustas em bibliotecas C++
+
+A interface de um componente ou biblioteca é seu contrato com o resto do mundo. É a soma de todas as classes, funções, tipos e constantes que ele expõe publicamente. A robustez de um sistema de larga escala é diretamente proporcional à robustez de suas interfaces. Uma interface robusta não é apenas funcional; ela é projetada para resistir a uso indevido, comunicar a intenção claramente e evoluir de forma estável.
+
+Em C++, o design de interfaces robustas exige uma atenção deliberada a dois aspectos: a API (Application Programming Interface), que governa a estabilidade do código-fonte, e a ABI (Application Binary Interface), que governa a estabilidade binária, um ponto crucial para bibliotecas dinâmicas.
+
+** 48.1 Princípio 1: Minimalismo e Encapsulamento Estrito
+
+A melhor interface é a menor interface possível que ainda resolve o problema. Cada função, tipo ou constante adicionada a uma interface pública aumenta a "superfície de acoplamento" do componente. Isso significa mais código que os clientes podem usar (e usar indevidamente) e mais código que você se compromete a manter para sempre.
+
+    - *Regra*: Se algo pode ser privado, deve ser privado.
+    - *Técnica*: Use ~class~ em vez de ~struct~ por padrão para forçar a declaração explícita de membros públicos.
+    - *Técnica Avançada*: Utilize o padrão pImpl (pointer to implementation), que será detalhado em um capítulo posterior, para ocultar completamente todos os membros privados e funções auxiliares da definição da classe no cabeçalho. Isso dissocia a interface da implementação de forma tão eficaz que você pode adicionar membros privados a uma classe sem forçar a recompilação dos clientes e sem quebrar a compatibilidade binária (ABI).
+
+** 48.2 Princípio 2: Gerenciamento de Recursos com RAII
+
+Uma interface C++ robusta nunca deve sobrecarregar o cliente com a responsabilidade de gerenciar recursos manualmente. O idioma RAII (Resource Acquisition Is Initialization) é a ferramenta fundamental para isso.
+
+*Interface Incorreta (Estilo C):*
+#+begin_src cpp
+// A interface força o cliente a lembrar de chamar delete_widget().
+// Isso é frágil e propenso a vazamentos de memória.
+Widget* create_widget(const std::string& name);
+void delete_widget(Widget* w);
+
+// Uso propenso a erro:
+Widget* my_w = create_widget("meu_widget");
+if (condicao_de_erro) {
+    // Oops, vazamento de memória se retornarmos aqui.
+    return; 
+}
+delete_widget(my_w);
+#+end_src
+
+*Interface Robusta (Estilo C++)*:
+#+begin_src cpp
+#include <memory>
+#include <string>
+
+// A interface retorna um ponteiro inteligente que gerencia o tempo de vida do objeto.
+// A propriedade é transferida de forma clara e segura.
+std::unique_ptr<Widget> create_widget(const std::string& name);
+
+// Uso seguro:
+auto my_w = create_widget("meu_widget");
+if (condicao_de_erro) {
+    // Sem vazamento. O destrutor de unique_ptr é chamado automaticamente.
+    return; 
+}
+// O widget é destruído quando 'my_w' sai de escopo.
+#+end_src
+
+A interface RAII é superior porque a correção é garantida pela linguagem, não pela disciplina do programador.
+
+** 48.3 Princípio 3: Contratos Claros com ~const~, ~noexcept~ e Tipos Expressivos
+
+A assinatura de uma função é um contrato. Use os recursos da linguagem para torná-lo o mais explícito e restritivo possível.
+
+    - *const Correctness*: O uso de const é mandatório. Ele documenta quais funções modificam o estado do objeto e quais não, permitindo que o compilador impeça violações desse contrato.
+
+    - ~noexcept~: Se uma função garante que não lançará exceções, declare-a como ~noexcept~. Isso não é apenas documentação; permite que o compilador e os contêineres da STL realizem otimizações significativas (por exemplo, usando operações de move em vez de copy para ~std::vector~, que requer que o construtor de movimento seja ~noexcept~).
+
+    - Parâmetros e Retornos Expressivos:
+        - Use ~std::string_view~ (C++17) para passar strings que não precisam de posse. É mais eficiente que const ~std::string&~ e mais seguro que ~const char*~.
+        - Use ~std::optional<T>~ (C++17) para retornar um valor que pode estar ausente. É mais seguro e expressivo do que retornar um ponteiro nulo ou um "valor mágico" (como -1).
+        - Use ~gsl::span<T>~ (da Guideline Support Library) ou ~std::span<T>~ (C++20) para passar sequências de dados de memória contígua. Ele carrega o tamanho e os dados juntos, prevenindo uma classe inteira de bugs de buffer overflow.
+
+*Exemplo de Refatoração de Assinatura:*
+#+begin_src cpp
+// Assinatura Fraca
+// - O que 'output_size' significa? É entrada ou saída?
+// - O que acontece se 'name' for nullptr?
+// - O que o retorno -1 significa?
+int find_user(const char* name, User* output_buffer, int* output_size);
+
+// Assinatura Robusta
+// - string_view não pode ser nulo e evita cópias.
+// - optional<User> comunica claramente a possibilidade de "não encontrado".
+// - O cliente não gerencia buffers.
+// - noexcept se a busca não puder lançar exceções.
+[[nodiscard]] std::optional<User> find_user(std::string_view name) noexcept;
+#+end_src
+
+O atributo ~[[nodiscard]]~ (C++17) avisa o compilador se o cliente ignorar o valor de retorno, prevenindo bugs onde o resultado de uma função é acidentalmente descartado.
+
+** 48.4 Princípio 4: Garantias de Segurança contra Exceções
+
+Conforme popularizado por Herb Sutter em "Exceptional C++", uma interface robusta deve fornecer garantias claras sobre seu comportamento na presença de exceções.
+
+    1. *Garantia Básica*: Se uma exceção é lançada, o programa permanece em um estado válido. Nenhum recurso é vazado e os invariantes do objeto são mantidos. Esta é a garantia mínima aceitável.
+    2. *Garantia Forte (Commit-ou-Rollback)*: Se uma operação termina por exceção, o estado do programa é revertido para o estado exato em que estava antes da chamada da operação. Isso é frequentemente alcançado pela técnica de copy-and-swap.
+    3. *Garantia de Não Lançamento (Nothrow)*: A operação garante que não lançará exceções (marcada com ~noexcept~).
+
+Uma interface deve se esforçar para fornecer a garantia mais forte que seja prática. Documentar (ou, idealmente, impor via ~noexcept~) essas garantias é parte do contrato da interface.
+
+** Conclusão
+
+Projetar interfaces robustas em C++ é uma disciplina que combina minimalismo, o uso idiomático dos recursos da linguagem e um foco incansável na segurança e clareza. Uma interface bem projetada guia o desenvolvedor para o uso correto, torna o uso incorreto difícil ou impossível, e permanece estável diante da evolução do sistema. Ao aplicar os princípios de RAII, contratos explícitos e segurança contra exceções, criamos componentes que são blocos de construção sólidos, em vez de passivos frágeis, em nossa arquitetura de software.
+
+** Leitura Externa Sugerida:
+
+    Série de Artigos: [[http://www.gotw.ca/gotw/][Guru of the Week (GotW) por Herb Sutter]]. Em particular, os artigos sobre exception safety (como o [[../complementos/capitulo_48_exception_safety.org][GotW #8]]) são leituras fundamentais que detalham as garantias de segurança contra exceções.
+
+    [[../antigos/capitulo_8.org][Indireção e Memória — Uma Análise de Ponteiros]]
+
+    [[../antigos/capitulo_9.org][A Arquitetura da Memória e o Gerenciamento Dinâmico]]
+
+    [[../antigos/capitulo_10_errado.org][Gerenciamento de Recursos como um Princípio — Ponteiros Inteligentes e a Semântica de Posse]]
+
+    [[../antigos/capitulo_10.org][Posse Exclusiva e Gerenciamento de Recursos — Uma Análise de std::unique_ptr]]
+
+    [[../antigos/capitulo_11.org][Posse Compartilhada e o Ciclo de Vida Colaborativo — std::shared_ptr]]
+
+    [[../antigos/capitulo_12.org][Observação Não-Proprietária e a Quebra de Ciclos de Referência — std::weak_ptr]]
+
+    [[../antigos/capitulo_13.org][Manipulação de Tipos e Auto-Referência em Posse Compartilhada]]
+
+    [[../antigos/analose_const.org][Análise da Palavra-chave const em Métodos de Membro]]

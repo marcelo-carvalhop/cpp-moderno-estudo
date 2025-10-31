@@ -1,0 +1,127 @@
+* Capítulo 46: O peso de um sistema em C++
+
+Em engenharia de software, "peso" (weight) é uma metáfora para a resistência de um sistema à mudança. Um sistema "pesado" é um sistema onde uma alteração aparentemente pequena exige um esforço desproporcional para ser implementada, validada e implantada. Em C++, essa metáfora se manifesta de formas muito concretas e mensuráveis, que vão muito além do tamanho do executável ou do consumo de memória. O peso de um sistema C++ é a soma de suas fricções internas: físicas, lógicas e cognitivas. Gerenciar esse peso é o objetivo principal da arquitetura de software em larga escala.
+
+** 46.1 O Peso Físico: A Tirania do Pré-processador
+
+Conforme extensivamente detalhado por John Lakos em "Large-Scale C++ Software Design", a dimensão mais fundamental e C++-específica do peso de um sistema é sua dependência física. Essa dependência é ditada pela diretiva ~#include~. Ao contrário de sistemas de módulos mais modernos, um ~#include~ é uma operação textual bruta: o conteúdo do arquivo incluído é copiado e colado no local da diretiva antes que o compilador comece seu trabalho.
+
+As implicações disso são profundas:
+
+    1. *Cascata de Compilação*: Se um arquivo de cabeçalho de baixo nível (~string_utils.h~) é modificado, todo e qualquer arquivo de implementação (.cpp) que o inclua, direta ou indiretamente, deve ser recompilado. Em um sistema com milhares de arquivos, uma mudança em um cabeçalho fundamental pode desencadear a recompilação de todo o projeto, transformando o tempo de build de segundos para horas.
+    2. *Acoplamento Físico*: A inclusão de um cabeçalho (~#include "componente_A.h"~) cria uma dependência física explícita. Isso significa que o arquivo atual não pode ser compilado sem que o componente_A.h esteja disponível. Isso dita a estrutura do build e a ordem de compilação.
+
+A estrutura de dependências físicas de um sistema deve formar um Grafo Acíclico Dirigido (DAG). Uma dependência cíclica (A.h inclui B.h, e B.h inclui A.h) é um erro de design grave que torna os componentes inseparáveis e impossíveis de compilar de forma isolada.
+
+*Exemplo: Dependência Desnecessária vs. Forward Declaration*
+
+Considere uma classe Gerente que possui um ponteiro para um Relatorio.
+
+*Abordagem Incorreta (Pesada):*
+#+begin_src cpp
+// relatorio.h
+#pragma once
+#include <string>
+
+class Relatorio {
+public:
+    void gerar() { /* ... */ }
+private:
+    std::string dados;
+};
+
+// gerente.h
+#pragma once
+#include "relatorio.h" // Inclusão completa
+
+class Gerente {
+public:
+    void gerarRelatorioDePerformance();
+private:
+    // O cabeçalho só precisa saber que Relatorio é um tipo,
+    // não precisa de sua definição completa.
+    Relatorio* relatorio_anual_; 
+};
+#+end_src
+
+Neste caso, ~gerente.h~ tem uma dependência física de ~relatorio.h~. Qualquer mudança em ~relatorio.h~ (como adicionar um membro privado) forçará a recompilação de todos os arquivos que incluem ~gerente.h~, mesmo que eles não usem Relatorio diretamente.
+
+*Abordagem Correta (Leve):*
+#+begin_src cpp
+// gerente.h
+#pragma once
+
+// Forward Declaration: Prometemos ao compilador que a classe Relatorio existe.
+// Isso é suficiente para declarar um ponteiro ou referência.
+class Relatorio; 
+
+class Gerente {
+public:
+    void gerarRelatorioDePerformance();
+private:
+    Relatorio* relatorio_anual_; 
+};
+
+// gerente.cpp
+#include "gerente.h"
+#include "relatorio.h" // A inclusão completa só é necessária no .cpp
+
+void Gerente::gerarRelatorioDePerformance() {
+    // Agora precisamos da definição completa para chamar métodos.
+    relatorio_anual_->gerar();
+}
+#+end_src
+
+A dependência física foi movida do cabeçalho para o arquivo de implementação. O "peso" de gerente.h diminuiu drasticamente, quebrando a cascata de compilação.
+
+** 46.2 O Peso Lógico: Acoplamento e Dependências Conceituais
+
+O peso lógico refere-se ao acoplamento entre os conceitos e as responsabilidades do sistema, um tema central em obras como "Clean Architecture" de Robert C. Martin. Mesmo que não haja uma dependência física, dois componentes podem estar logicamente acoplados se uma mudança na lógica de um exigir uma mudança na lógica do outro.
+
+O peso lógico aumenta quando:
+
+    - *Componentes conhecem detalhes de implementação de outros*: Uma classe de alto nível não deveria depender de detalhes de uma classe de baixo nível, mas sim de uma abstração (Interface).
+    - *Responsabilidades são mal distribuídas*: Uma classe que faz "coisas demais" (baixa coesão) se torna um ponto central de acoplamento, onde muitas outras partes do sistema dependem dela.
+    - *O fluxo de dependências é incorreto*: Dependências devem apontar de detalhes (UI, Banco de Dados) para a lógica de negócio, e não o contrário (Princípio da Inversão de Dependência).
+
+*Exemplo: Acoplamento Lógico a uma Implementação Concreta*
+#+begin_src cpp
+// Abordagem Incorreta (Acoplamento Forte)
+class ServicoDeLogOracle { // Uma implementação concreta
+public:
+    void logarErro(const std::string& msg) { /* ... código específico do Oracle ... */ }
+};
+
+class ProcessadorDePedidos {
+private:
+    ServicoDeLogOracle logger_; // Dependência direta da classe concreta
+public:
+    void processar(int pedidoId) {
+        if (/* erro */) {
+            logger_.logarErro("Falha no pedido " + std::to_string(pedidoId));
+        }
+    }
+};
+#+end_src
+
+ProcessadorDePedidos está logicamente acoplado a ServicoDeLogOracle. Se a empresa decidir mudar o sistema de log para um arquivo de texto ou para a nuvem, a classe ProcessadorDePedidos precisará ser modificada. Isso viola o Princípio Aberto/Fechado. O peso lógico aqui é o custo de adaptação a essa mudança.
+
+** 46.3 O Peso Cognitivo: A Carga de Entendimento
+
+O peso cognitivo é o resultado direto dos pesos físico e lógico. É a dificuldade que um desenvolvedor enfrenta para entender uma parte do sistema o suficiente para modificá-la com segurança.
+
+Um sistema com alto peso cognitivo exige que o desenvolvedor:
+
+    - Mantenha um mapa mental de um grande número de interações entre componentes.
+    - Navegue por uma teia complexa de includes para entender de onde um tipo ou função vem.
+    - Entenda a lógica de múltiplos componentes para prever o impacto de uma única mudança.
+
+Reduzir o peso cognitivo é o objetivo final. Isso é alcançado através de interfaces claras, baixo acoplamento (físico e lógico) e alta coesão, permitindo que um desenvolvedor possa trabalhar em um componente de forma isolada, confiando nos contratos estabelecidos por outros componentes sem precisar conhecer sua implementação interna.
+
+** Conclusão
+
+O peso de um sistema C++ não é um conceito abstrato; é uma força mensurável que dita a velocidade de desenvolvimento, a frequência de bugs e o custo de manutenção. Uma arquitetura bem-sucedida é aquela que gerencia ativamente esse peso, tratando as dependências físicas com o mesmo rigor que as dependências lógicas. As decisões de design, desde o uso de uma forward declaration em vez de um #include, até a introdução de uma interface para quebrar uma dependência, são as ferramentas que usamos para manter o sistema leve, ágil e resiliente a décadas de evolução.
+
+** Leitura Externa Sugerida:
+
+Palestra: Large-Scale C++ Design - Uma palestra de John Lakos na CppCon que resume muitos dos conceitos de seu livro, focando na importância de gerenciar dependências físicas.

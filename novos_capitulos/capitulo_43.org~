@@ -1,0 +1,104 @@
+* Capítulo 43: Biblioteca MPL e seu legado
+
+Muito antes de constexpr, if constexpr e variadic templates se tornarem parte do C++ padrão, a necessidade de realizar computações complexas em tempo de compilação já era evidente. A resposta a essa necessidade foi a Boost Metaprogramming Library (MPL), criada por Aleksey Gurtovoy e David Abrahams. A MPL não foi apenas uma biblioteca; foi um tour de force que demonstrou que a metaprogramação de templates (TMP) poderia ser sistemática, poderosa e, até certo ponto, legível.
+
+Embora o C++ moderno tenha fornecido alternativas sintaticamente mais agradáveis para muitas das funcionalidades da MPL, seu legado é imenso. Ela estabeleceu o vocabulário, os algoritmos e a filosofia da metaprogramação que influenciaram diretamente o design de funcionalidades da biblioteca padrão, como <type_traits> e <tuple>. Estudar a MPL hoje é como estudar latim: pode não ser a língua que você usa no dia a dia, mas é a chave para entender as raízes de onde a linguagem moderna veio.
+
+** 43.1 A Filosofia: Algoritmos da STL para Tipos
+
+A genialidade central da MPL foi reconhecer que os padrões de design da Standard Template Library (STL) — contêineres, iteradores e algoritmos — poderiam ser reimplementados para operar não sobre dados em tempo de execução, mas sobre tipos em tempo de compilação.
+
+    Meta-Contêineres: Em vez de std::vector<int>, a MPL fornecia meta-contêineres como boost::mpl::vector<int, char, double>. Esses eram, na prática, as type_lists que vimos anteriormente, mas com uma interface padronizada.
+    Meta-Iteradores: A MPL definia o conceito de um iterador de tempo de compilação, que poderia ser "avançado" (mpl::next) e "desreferenciado" (mpl::deref) para obter o tipo atual.
+    Meta-Algoritmos: O coração da biblioteca. A MPL fornecia um conjunto abrangente de algoritmos que espelhavam a STL: mpl::transform, mpl::find_if, mpl::copy_if, mpl::fold, etc.
+
+Essa analogia com a STL tornou a biblioteca acessível (pelo menos conceitualmente) para programadores que já estavam familiarizados com a programação de algoritmos genéricos.
+43.2 Como Funciona: Um Exemplo de mpl::transform
+
+Vamos ver como a MPL seria usada para resolver um problema que já abordamos: transformar uma lista de tipos em uma lista de ponteiros para esses tipos.
+
+cpp
+
+Copy
+#include <boost/mpl/vector.hpp>
+#include <boost/mpl/transform.hpp>
+#include <boost/mpl/placeholders.hpp>
+#include <boost/type_traits/add_pointer.hpp>
+#include <type_traits> // Para std::is_same_v
+
+namespace mpl = boost::mpl;
+using namespace mpl::placeholders; // Para _1
+
+int main() {
+    // 1. O contêiner de entrada (uma lista de tipos)
+    using TiposDeEntrada = mpl::vector<int, char, double>;
+
+    // 2. A operação de transformação (uma metafunção)
+    //    Aqui, usamos boost::add_pointer, que é o análogo do nosso add_pointer.
+    //    _1 é um placeholder que representa o elemento atual da sequência.
+    using Operacao = boost::add_pointer<_1>;
+
+    // 3. O algoritmo que aplica a operação ao contêiner
+    using TiposDeSaida = mpl::transform<TiposDeEntrada, Operacao>::type;
+
+    // 4. Verificação do resultado
+    using TiposEsperados = mpl::vector<int*, char*, double*>;
+    static_assert(mpl::equal<TiposDeSaida, TiposEsperados>::value);
+}
+
+A sintaxe é densa e cheia de ::type, mas a estrutura lógica é clara e paralela a um algoritmo da STL: transform(begin, end, operation). A MPL abstraiu a complexa recursão de templates necessária para implementar o transform por trás de uma interface limpa e algorítmica. Os placeholders como _1 foram uma inovação crucial, permitindo a criação de "meta-lambdas" anônimas muito antes de as lambdas existirem na linguagem.
+43.3 Placeholders e a Expressividade da Lógica
+
+Os placeholders foram a resposta da MPL para a falta de lambdas. Eles permitiam que expressões complexas fossem construídas no local.
+
+Imagine que queremos filtrar uma lista de tipos para manter apenas os tipos integrais e constantes.
+
+cpp
+
+Copy
+#include <boost/mpl/vector.hpp>
+#include <boost/mpl/filter_view.hpp>
+#include <boost/mpl/and.hpp>
+#include <boost/type_traits/is_integral.hpp>
+#include <boost/type_traits/is_const.hpp>
+
+namespace mpl = boost::mpl;
+using namespace mpl::placeholders;
+
+int main() {
+    using MinhaLista = mpl::vector<
+        const int, 
+        int, 
+        const double, 
+        char, 
+        const unsigned char
+    >;
+
+    // O predicado é uma composição de outras metafunções usando 'and_' e placeholders.
+    using Predicado = mpl::and_<
+        boost::is_integral<_1>, 
+        boost::is_const<_1>
+    >;
+
+    // filter_view cria uma "visão" preguiçosa da lista filtrada.
+    using TiposFiltrados = mpl::filter_view<MinhaLista, Predicado>::type;
+
+    using TiposEsperados = mpl::vector<const int, const unsigned char>;
+    static_assert(mpl::equal<TiposFiltrados, TiposEsperados>::value);
+}
+
+A expressão mpl::and_<boost::is_integral<_1>, boost::is_const<_1>> é uma "meta-função lambda" que captura a lógica "é integral E é const". Isso demonstrou um nível de expressividade composicional que era revolucionário para a época.
+43.4 O Legado da MPL
+
+Embora hoje possamos resolver muitos desses problemas com uma sintaxe mais limpa, o impacto da MPL é inegável.
+
+    Prova de Conceito: A MPL provou que a metaprogramação de templates em larga escala era viável e útil. Ela mostrou que era possível construir abstrações de custo zero para problemas complexos.
+    Influência no Padrão C++:
+        A biblioteca <type_traits> do C++11 é uma descendente direta e uma padronização das funcionalidades da Boost.TypeTraits, que foi desenvolvida em conjunto com a MPL.
+        O std::tuple foi fortemente influenciado pelos contêineres da MPL.
+        Os variadic templates do C++11 foram, em parte, uma resposta à necessidade de contêineres de tipos mais simples, como os da MPL.
+        O std::conditional é a versão padrão do mpl::if_.
+    Fundamento para Outras Bibliotecas: A MPL se tornou a infraestrutura de metaprogramação para inúmeras outras bibliotecas Boost, como Boost.Spirit (parsers), Boost.Fusion (operações em tuplas) e Boost.Units (biblioteca de unidades físicas).
+
+Conclusão:
+A Boost MPL é um marco na história do C++. Ela pegou as regras esotéricas da instanciação de templates e as forjou em um framework disciplinado e algorítmico. Embora a sintaxe da TMP Clássica que ela emprega tenha sido em grande parte superada pela conveniência do C++ moderno, os conceitos que ela introduziu — sequências de tipos, algoritmos sobre tipos, placeholders e composição de metafunções — permanecem no cerne da metaprogramação. Estudar a MPL é entender a fundação sobre a qual grande parte da biblioteca padrão moderna foi construída e apreciar a jornada que a linguagem percorreu, de uma sintaxe verbosa e baseada em ::type para a expressividade mais limpa de constexpr e auto.

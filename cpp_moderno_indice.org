@@ -282,9 +282,12 @@ Ao longo de mais de cem capítulos, cada seção é organizada em torno de temas
 [[./novos_capitulos/capitulo_41.org][41. Tabelas e algoritmos constexpr]]
 
 [[./novos_capitulos/capitulo_42.org][42. Construção de DSLs internas]]
-43. Biblioteca MPL e seu legado
-44. Boost.Hana e metaprogramação moderna
-45. Filosofia: programar no compilador
+
+[[./novos_capitulos/capitulo_43.org][43. Biblioteca MPL e seu legado]]
+
+[[./novos_capitulos/capitulo_44.org][44. Boost.Hana e metaprogramação moderna]]
+
+[[./novos_capitulos/capitulo_45.org][45. Filosofia: programar no compilador]]
 
 /Leituras complementares/: C++ Template Metaprogramming (Abrahams & Gurtovoy), artigos sobre boost::mpl e std::mp.
 *Livros:*
@@ -307,11 +310,16 @@ CppCon e Meeting C++ (talks sobre metaprogramação).
 
 /Capítulos/:
 
-46. O peso de um sistema em C++
-47. Design orientado a componentes
-48. Interfaces robustas em bibliotecas C++
-49. Polimorfismo estático vs. dinâmico
-50. Padrão pImpl (pointer to implementation)
+[[./novos_capitulos/capitulo_46.org][46. O peso de um sistema em C++]]
+
+[[./novos_capitulos/capitulo_47.org][47. Design orientado a componentes]]
+
+[[./novos_capitulos/capitulo_48.org][48. Interfaces robustas em bibliotecas C++]]
+
+[[./novos_capitulos/capitulo_49.org][49. Polimorfismo estático vs. dinâmico]]
+
+[[./novos_capitulos/capitulo_50.org][50. Padrão pImpl (pointer to implementation)]]
+
 51. Gerenciamento explícito de dependências
 52. Dependency Injection em C++
 53. Modelagem com mixins e traits

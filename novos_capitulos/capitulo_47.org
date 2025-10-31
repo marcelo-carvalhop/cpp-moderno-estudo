@@ -1,0 +1,135 @@
+* Capítulo 47: Design orientado a componentes
+
+Um componente é a unidade fundamental de design em um sistema C++ de larga escala. É muito mais do que uma classe; é um conjunto coeso de classes, funções e outros artefatos de código que colaboram para fornecer uma capacidade específica e bem definida. Fisicamente, um componente geralmente corresponde a um diretório, que é compilado em uma biblioteca estática (.a, .lib) ou dinâmica (.so, .dll).
+
+O objetivo do design orientado a componentes é particionar o sistema em um conjunto de "mini-aplicativos" que podem ser desenvolvidos, testados e mantidos de forma independente. A arquitetura do sistema é, então, definida pelas dependências permitidas entre esses componentes.
+
+** 47.1 A Anatomia de um Componente
+
+Um componente bem estruturado possui uma anatomia física e lógica clara:
+
+    - *Interface Pública*: Um ou mais cabeçalhos (.h, .hpp) que declaram os tipos e funções que o componente expõe ao resto do sistema. Esta é a "fachada" do componente, seu contrato público.
+    - *Implementação Privada*: Um ou mais arquivos de implementação (.cpp) que contêm a lógica interna. Estes arquivos podem incluir cabeçalhos privados (~_impl.h~, ~_p.h~) que não são expostos a outros componentes.
+    - *Buildfile*: Um arquivo (~CMakeLists.txt~, ~Makefile~, etc.) que define como o componente é compilado e quais são suas dependências.
+
+*Exemplo de Estrutura de Diretório*:
+
+sistema/
+├── componentes/
+│   ├── logger/
+│   │   ├── include/
+│   │   │   └── logger.h         // Interface Pública
+│   │   ├── src/
+│   │   │   ├── logger.cpp       // Implementação
+│   │   │   └── file_writer.h    // Cabeçalho privado
+│   │   │   └── file_writer.cpp
+│   │   └── CMakeLists.txt
+│   └── processador_pedidos/
+│       ├── include/
+│       │   └── processador.h    // Interface Pública
+│       ├── src/
+│       │   └── processador.cpp
+│       └── CMakeLists.txt       // Declara dependência do 'logger'
+└── main.cpp
+
+Nesta estrutura, ~processador_pedidos~ pode incluir ~logger.h~, mas nunca deve incluir ~file_writer.h~. O conhecimento sobre como o log é escrito no disco está encapsulado dentro do componente logger.
+
+** 47.2 A Regra de Ouro: O Grafo Acíclico de Dependências (DAG)
+
+A regra mais importante no design de componentes é que o grafo de dependências entre eles deve ser um Grafo Acíclico Dirigido (DAG). Em termos simples: não pode haver dependências cíclicas. Se o componente A depende de B, então B não pode, de forma alguma, depender de A.
+
+Uma dependência cíclica é um sintoma de um design falho e tem consequências desastrosas:
+
+    1. *Compilação Impossível*: Torna impossível compilar os componentes de forma isolada. A e B devem ser compilados juntos, sempre.
+    2. *Fusão de Componentes*: A e B deixam de ser componentes independentes. Eles se fundem em um "super-componente" emaranhado, eliminando os benefícios da modularidade.
+    3. *Teste Dificultado*: É impossível testar A sem trazer todo o B (e vice-versa), aumentando drasticamente a complexidade dos testes unitários.
+
+*Exemplo de Ciclo e Como Quebrá-lo*:
+
+Imagine um componente ~MotorDeCalculo~ que precisa logar erros e um componente Logger que, por algum motivo, precisa saber o status do motor.
+
+*Estrutura Cíclica (Incorreta)*:
+#+begin_src cpp
+// motor_de_calculo.h
+#include "logger.h" // Depende de Logger
+class MotorDeCalculo { /* ... */ };
+
+// logger.h
+#include "motor_de_calculo.h" // Depende de MotorDeCalculo -> CICLO!
+class Logger { /* ... */ };
+#+end_src
+
+Este sistema não pode ser construído de forma limpa. A solução é aplicar o Princípio da Inversão de Dependência. Componentes de alto nível não devem depender de componentes de baixo nível; ambos devem depender de abstrações.
+
+*Estrutura Acíclica (Correta)*:
+
+Introduzimos uma nova interface de baixo nível, ~StatusProvider~, que não depende de nada.
+
+#+begin_src cpp
+// status_provider.h (Novo componente, Nível 0)
+#pragma once
+#include <string>
+class StatusProvider {
+public:
+    virtual ~StatusProvider() = default;
+    virtual std::string getStatus() const = 0;
+};
+
+// motor_de_calculo.h (Componente de alto nível, Nível 1)
+#pragma once
+#include "status_provider.h" // Depende da abstração
+#include "logger.h"          // Depende de Logger
+class MotorDeCalculo : public StatusProvider { /* ... */ };
+
+// logger.h (Componente de utilidade, Nível 1)
+#pragma once
+#include "status_provider.h" // Depende da abstração
+class Logger {
+public:
+    void logStatus(const StatusProvider& sp);
+};
+#+end_src
+
+O ciclo foi quebrado. Agora, tanto ~MotorDeCalculo~ quanto Logger dependem da abstração ~StatusProvider~. O fluxo de dependências é claro e acíclico.
+
+** 47.3 Níveis e Arquitetura em Camadas
+
+O conceito de DAG leva naturalmente a uma arquitetura em camadas. Cada componente pode ser atribuído a um "nível" (conforme a métrica de "nível" de John Lakos).
+
+    - *Nível 0*: Componentes sem dependências de outros componentes do sistema (ex: ~string_utils~, ~logger_interface~).
+    - *Nível 1*: Componentes que dependem apenas de componentes de Nível 0.
+    - *Nível N*: Componentes que dependem de componentes de níveis < N.
+
+Essa "nivelização" fornece um mapa mental claro da arquitetura. Ela impõe uma disciplina rigorosa: um componente de nível baixo (como um utilitário de string) nunca pode depender de um componente de nível alto (como a lógica de negócio). Isso garante que as dependências sempre fluam de componentes de política de alto nível para componentes de detalhes de baixo nível.
+
+*Exemplo de Camadas:*
+
+    - *Nível 0*: ~core_types~, ~utilities~
+    - *Nível 1*: ~database_interface~, ~logging_interface~
+    - *Nível 2*: ~domain_model~ (ex: Pedido, Cliente) - depende de ~core_types~.
+    - *Nível 3*: ~business_logic~ (ex: ~ProcessadorDePedidos~) - depende de ~domain_model~ e das interfaces.
+    - *Nível 4*: ~application~ (ex: main, ui) - depende de ~business_logic~.
+
+** 47.4 O Contrato do Componente: A Interface Pública
+
+A interface pública de um componente deve ser o mais minimalista possível para reduzir o acoplamento.
+
+    - *Use Forward Declarations*: Sempre prefira ~class MyType;~ a ~#include "my_type.h"~ em arquivos de cabeçalho públicos.
+    - *Não Exponha Detalhes de Implementação*: Tipos usados apenas internamente não devem aparecer na interface pública. O padrão pImpl (discutido em um capítulo futuro) é uma técnica poderosa para alcançar isso.
+    - *Evite using namespace em Cabeçalhos*: Isso polui o namespace de todos os consumidores do seu componente e pode levar a colisões de nomes.
+
+** Conclusão
+
+O design orientado a componentes é a principal estratégia para construir sistemas C++ que são escaláveis, manuteníveis e resilientes à mudança. Ao tratar componentes como unidades de design, impor a aciclicidade das dependências e gerenciar cuidadosamente as interfaces públicas, transformamos um potencial "emaranhado de includes" em uma arquitetura limpa e em camadas. Isso não apenas acelera os tempos de compilação, mas, mais importante, reduz o peso cognitivo sobre os desenvolvedores, permitindo que eles raciocinem sobre partes do sistema de forma isolada e segura.
+
+** Leitura Complementar
+
+[[../antigos/capitulo_18.org][(Revisado e Aprofundado): Dominando o Modelo Clássico — Headers, Linkagem e o Pré-processador]]
+
+[[../antigos/capitulo_19.org][A Arquitetura Moderna — Módulos, Partições e Interfaces]]
+
+[[../antigos/capitulo_21_errado.org][A Anatomia de um Projeto CPP Canônico — Estrutura de Diretórios e Filosofia]]
+
+[[../antigos/capitulo_21.org][A Filosofia da Estrutura de Diretórios — Um Blueprint para a Clareza]]
+
+[[../antigos/capitulo_22.org][Gerenciamento de Dependências — Construindo Sobre os Ombros de Gigantes]]

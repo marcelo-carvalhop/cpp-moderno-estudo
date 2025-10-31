@@ -1,0 +1,98 @@
+* Capítulo 44: Boost.Hana e metaprogramação moderna
+
+Se a Boost MPL foi a resposta para a pergunta "Como podemos aplicar os princípios da STL aos tipos?", a Boost.Hana, criada por Louis Dionne, é a resposta para uma pergunta muito mais moderna e ambiciosa: "O que acontece se pararmos de tratar tipos e valores como coisas separadas e construirmos um framework unificado para a metaprogramação?".
+
+A Hana representa uma mudança de paradigma fundamental em relação à TMP Clássica e à MPL. Ela abandona a sintaxe de ~structs~ e ~::type~ em favor de uma abordagem baseada em constexpr, auto e lambdas. Ao fazer isso, ela apaga a fronteira artificial entre a computação em tempo de compilação e a computação em tempo de execução, permitindo que algoritmos operem sobre coleções heterogêneas de tipos e valores de forma transparente. Estudar a Hana é vislumbrar o futuro da programação genérica em C++.
+
+** 44.1 O Problema da Separação
+
+A maior limitação da MPL, vista da perspectiva do C++ moderno, era sua estrita separação entre os mundos. A MPL era para manipular tipos. Funções constexpr eram para manipular valores. Se você quisesse fazer algo que envolvesse ambos — como iterar sobre os membros de uma struct e obter seus nomes (strings, que são valores) e seus tipos — você se encontrava em uma encruzilhada, precisando de técnicas complexas para fazer as duas metades conversarem.
+
+A Hana resolve este problema com uma única e poderosa ideia: tudo é um valor.
+
+** 44.2 A Filosofia Hana: Tipos como Valores
+
+O truque central da Hana é "elevar" os tipos ao nível dos valores. Isso é feito através de um wrapper simples, ~hana::type<T>~. Um objeto ~hana::type<int>{}~ é um valor constexpr que pode ser armazenado em uma variável, passado para funções e, crucialmente, colocado dentro de um contêiner junto com outros valores.
+
+O contêiner principal da Hana é a ~hana::tuple~, uma versão superpoderosa da ~std::tuple~ que pode conter qualquer coisa: valores de tempo de execução, valores de tempo de compilação, e tipos (envelopados em ~hana::type~).
+
+Com essa unificação, os algoritmos da Hana, como ~hana::transform~ e ~hana::filter~, não precisam de versões separadas para tipos e valores. Eles são simplesmente funções constexpr que operam sobre tuplas e retornam novas tuplas.
+
+** 44.3 O Exemplo Definitivo: Introspecção de Structs
+
+A melhor maneira de entender o poder da Hana é vê-la em ação em um problema que é quase impossível de resolver elegantemente com outras técnicas: a introspecção de structs. A Hana fornece macros que transformam uma ~struct~ comum em um "meta-contêiner" que pode ser iterado em tempo de compilação.
+
+Vamos definir uma ~struct~ e, em seguida, escrever uma função ~to_json~ genérica para ela.
+
+#+begin_src cpp
+#include <boost/hana.hpp>
+#include <iostream>
+#include <string>
+
+namespace hana = boost::hana;
+
+struct Pessoa {
+    // Macro da Hana que define os membros para introspecção
+    BOOST_HANA_DEFINE_STRUCT(Pessoa,
+        (std::string, nome),
+        (int, idade)
+    );
+};
+
+int main() {
+    Pessoa joao{"João", 30};
+    std::string json_output = "{";
+
+    // hana::for_each itera sobre os membros da struct em tempo de compilação.
+    // 'membro' é um hana::pair<hana::string<...>, tipo_do_membro>.
+    hana::for_each(hana::members(joao), [&](const auto& membro) {
+        // hana::first(membro) é o nome do membro, um objeto hana::string.
+        // c_str() o converte para uma string C em tempo de compilação.
+        json_output += "\"";
+        json_output += hana::to<char const*>(hana::first(membro));
+        json_output += "\": ";
+
+        // hana::second(membro) é o VALOR do membro do objeto 'joao'.
+        // Isso mistura perfeitamente a informação de tempo de compilação (nome)
+        // com a informação de tempo de execução (valor).
+        auto valor = hana::second(membro);
+
+        // Usamos if constexpr para tratar strings de forma diferente de outros tipos.
+        if constexpr (std::is_same_v<decltype(valor), std::string>) {
+            json_output += "\"" + valor + "\"";
+        } else {
+            json_output += std::to_string(valor);
+        }
+        json_output += ",";
+    });
+
+    if (json_output.back() == ',') json_output.pop_back();
+    json_output += "}";
+
+    std::cout << json_output << std::endl; // Saída: {"nome": "João", "idade": 30}
+}
+#+end_src
+
+Este exemplo é a personificação da filosofia Hana:
+
+    1. *Unificação*: O ~hana::for_each~ itera sobre uma coleção de pares. Cada par contém o nome do membro (um valor de tempo de compilação, ~hana::string~) e o valor do membro (um valor de tempo de execução, ~std::string~ ou ~int~).
+
+    2. *Sintaxe Moderna*: O código usa uma lambda, ~auto~, e ~if constexpr~. Ele se parece com C++ moderno, não com a TMP Clássica.
+
+    3. *Poder Genérico*: Esta função ~to_json~ (se extraída) funcionaria para /qualquer/ ~struct~ adaptada com ~BOOST_HANA_DEFINE_STRUCT~, sem precisar de alterações.
+
+Tentar fazer isso com a MPL seria um pesadelo de macros e recursão de templates, e a ponte entre os nomes dos membros e seus valores de tempo de execução seria extremamente difícil de construir.
+
+** 44.4 O Legado da Hana
+
+A Hana é mais do que apenas uma biblioteca; é um manifesto e um campo de provas para o futuro do C++.
+
+    - *Influência na Reflexão*: A abordagem da Hana para a introspecção de structs é um protótipo funcional para as propostas de reflexão estática que estão sendo discutidas pelo comitê de padronização. A capacidade de iterar sobre membros, obter seus nomes como strings e acessar seus valores é exatamente o objetivo final da reflexão nativa.
+
+    - *Promoção do Estilo Funcional*: A Hana demonstra a eficácia de um estilo de programação funcional (~constexpr~, imutabilidade, funções de ordem superior) para a metaprogramação.
+
+    - *Superando a Dicotomia*: A Hana provou que a separação entre metaprogramação de tipos e de valores não é uma necessidade fundamental, mas sim um artefato histórico. Ela nos mostrou como uma abordagem unificada pode levar a um código mais limpo, mais poderoso e mais expressivo.
+
+** Conclusão:
+
+A Boost.Hana pegou a tocha da MPL e a levou para o mundo do C++11 e além. Ao abraçar constexpr como seu pilar central e unificar os mundos dos tipos e valores, ela resolveu os problemas mais espinhosos da metaprogramação de uma forma que é, ao mesmo tempo, elegante e pragmática. Embora possa não se tornar parte do padrão C++ da mesma forma que ~<type_traits>~ o fez, sua influência é profunda. Ela nos dá hoje um vislumbre do que o C++ com reflexão nativa será amanhã e estabelece um novo padrão para o que significa escrever código verdadeiramente genérico e inteligente.

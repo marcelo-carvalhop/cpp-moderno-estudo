@@ -1,0 +1,133 @@
+* Capítulo 49: Polimorfismo estático vs. dinâmico
+
+Polimorfismo, do grego "muitas formas", é a capacidade de uma interface ser implementada por múltiplos tipos subjacentes. Em C++, essa capacidade pode se manifestar de duas maneiras fundamentalmente diferentes, cada uma com um conjunto distinto de trade-offs em termos de performance, flexibilidade e acoplamento: polimorfismo dinâmico (em tempo de execução) e polimorfismo estático (em tempo de compilação).
+
+A escolha entre eles não é uma questão de "qual é melhor?", mas sim "qual é o mais apropriado para o problema em questão?". Uma arquitetura madura frequentemente utiliza ambos, aplicando cada um onde seus pontos fortes são mais vantajosos.
+
+** 49.1 Polimorfismo Dinâmico: Herança e Funções Virtuais
+
+O polimorfismo dinâmico é a abordagem clássica da programação orientada a objetos, implementada em C++ através de herança pública de uma classe base com funções virtuais.
+
+    - *Mecanismo*: Uma classe base define uma interface através de funções virtuais. Classes derivadas fornecem implementações concretas ao sobrescrever (override) essas funções. O comportamento é selecionado em tempo de execução através de um ponteiro ou referência para a classe base. O compilador gera uma tabela de funções virtuais (vtable) para cada classe, e a chamada de uma função virtual envolve uma indireção através dessa tabela para encontrar o endereço da implementação correta.
+
+*Exemplo Clássico: Formas Geométricas*
+#+begin_src cpp
+#include <iostream>
+#include <vector>
+#include <memory>
+
+// A interface é definida pela classe base abstrata
+class Forma {
+public:
+    virtual ~Forma() = default; // Destrutor virtual é mandatório
+    virtual void desenhar() const = 0; // Função virtual pura
+};
+
+class Circulo : public Forma {
+public:
+    void desenhar() const override { std::cout << "Desenhando um Círculo.\n"; }
+};
+
+class Quadrado : public Forma {
+public:
+    void desenhar() const override { std::cout << "Desenhando um Quadrado.\n"; }
+};
+
+// O código cliente opera sobre a interface, ignorando os tipos concretos.
+void desenharTodasAsFormas(const std::vector<std::unique_ptr<Forma>>& formas) {
+    for (const auto& forma : formas) {
+        forma->desenhar(); // A chamada correta é resolvida em tempo de execução.
+    }
+}
+#+end_src
+
+*Vantagens do Polimorfismo Dinâmico:*
+
+    1. *Flexibilidade de Tempo de Execução*: É a principal vantagem. Permite que o comportamento seja decidido dinamicamente. Novos tipos derivados podem ser adicionados ao sistema (por exemplo, através de plugins ou bibliotecas dinâmicas) sem que o código cliente precise ser recompilado.
+
+    2. *Separação de Interface e Implementação*: O código cliente depende apenas do cabeçalho da classe base, promovendo um baixo acoplamento físico.
+
+    3. *Contêineres Heterogêneos*: Permite armazenar objetos de tipos diferentes, mas relacionados, em um único contêiner (ex: ~std::vector<std::unique_ptr<Forma>>~).
+
+*Desvantagens:*
+
+    1. *Custo de Performance*:
+        - *Indireção da vtable*: Cada chamada virtual tem um pequeno custo de indireção de ponteiro.
+        - *Inibição de Otimizações*: O compilador não pode realizar inlining de chamadas virtuais (exceto em casos de devirtualização, quando o tipo concreto é conhecido), que é uma das otimizações mais importantes.
+
+    2. *Alocação de Memória*: Objetos polimórficos são quase sempre alocados no heap (via new ou std::make_unique), o que introduz custos de alocação/desalocação e pode levar a uma localidade de dados ruim.
+
+    3. *Acoplamento de Herança*: As classes derivadas estão fortemente acopladas à sua classe base (o "problema da classe base frágil").
+
+** 49.2 Polimorfismo Estático: Templates e Concepts
+
+O polimorfismo estático alcança o mesmo objetivo — permitir que diferentes tipos implementem uma interface comum — mas a seleção do comportamento ocorre em tempo de compilação. O mecanismo principal são os templates.
+
+    - *Mecanismo*: Uma função ou classe template opera sobre um tipo genérico T. A "interface" não é definida por uma classe base, mas sim por um conjunto de expressões e operações que o tipo T deve suportar para que o template compile. Isso é conhecido como duck typing ("se anda como um pato e grasna como um pato, então deve ser um pato"). Com C++20, essa interface implícita pode ser tornada explícita e verificada pelo compilador através de concepts.
+
+*Exemplo: O Mesmo Problema com Templates*
+#+begin_src cpp
+#include <iostream>
+#include <vector>
+
+// Não há classe base. As classes são independentes.
+struct Circulo {
+    void desenhar() const { std::cout << "Desenhando um Círculo.\n"; }
+};
+
+struct Quadrado {
+    void desenhar() const { std::cout << "Desenhando um Quadrado.\n"; }
+};
+
+// O código cliente é uma função template.
+// A "interface" é a exigência de que o tipo T tenha um método .desenhar().
+template<typename T>
+void desenharForma(const T& forma) {
+    forma.desenhar(); // A chamada é resolvida em tempo de compilação.
+}
+
+// Com C++20, podemos tornar a interface explícita:
+template<typename T>
+concept Desenhavel = requires(const T& t) {
+    { t.desenhar() } -> std::same_as<void>;
+};
+
+template<Desenhavel T>
+void desenharFormaComConcept(const T& forma) {
+    forma.desenhar();
+}
+#+end_src
+
+*Vantagens do Polimorfismo Estático:*
+
+    1. *Performance Máxima*: Não há indireção de vtable. As chamadas de função são diretas e podem ser agressivamente otimizadas e inlinadas pelo compilador. O código gerado é tão rápido quanto uma chamada de função não polimórfica.
+
+    2. *Flexibilidade de Tipos*: Não requer uma relação de herança. Qualquer tipo, incluindo tipos primitivos (int) ou classes de bibliotecas de terceiros, pode ser adaptado para satisfazer a interface do template.
+
+    3. *Alocação na Stack*: Objetos podem ser criados na stack, evitando os custos da alocação dinâmica e melhorando a localidade de dados.
+
+*Desvantagens:*
+
+    1. *Flexibilidade de Tempo de Execução Limitada*: O tipo de cada objeto deve ser conhecido em tempo de compilação. Não é possível ter um único std::vector contendo Circulos e Quadrados diretamente. (Soluções como std::variant ou std::any podem mitigar isso, mas reintroduzem uma forma de dispatch em tempo de execução).
+
+    2. *Acoplamento de Compilação*: O código cliente (a função template) precisa ver a definição completa dos tipos concretos no momento da instanciação, o que pode aumentar os tempos de compilação.
+
+    3. *"Code Bloat"*: O compilador gera uma versão separada da função template para cada tipo concreto utilizado, o que pode aumentar o tamanho do executável.
+
+** 49.3 Tabela de Decisão: Quando Usar Cada Um?
+
+#+CAPTION: Comparação entre Polimorfismo Dinâmico e Estático em C++
+#+ATTR_HTML: :align center :border 2 :rules all :frame all
+#+ATTR_LATEX: :align |l|l|l|
+| *Característica*             | *Polimorfismo Dinâmico (Herança)*                                | *Polimorfismo Estático (Templates)*                                   |
+|----------------------------+----------------------------------------------------------------+---------------------------------------------------------------------|
+| *Resolução do Comportamento* | Tempo de Execução                                              | Tempo de Compilação                                                 |
+| *Caso de Uso Principal*      | Contêineres heterogêneos, plugins, ABI estável                 | Algoritmos genéricos, otimizações de alta performance               |
+| *Performance*                | Menor (custo da vtable, alocação no heap)                      | Maior (chamadas diretas, inlining, alocação na stack)               |
+| *Flexibilidade*              | Alta em tempo de execução (novos tipos sem recompilar cliente) | Alta em tempo de compilação (qualquer tipo pode ser adaptado)       |
+| *Acoplamento*                | Lógico (herança), Físico baixo                                 | Físico alto (requer definição completa), Lógico baixo (sem herança) |
+| *Exemplo na STL*             | =std::istream= / =std::ostream=                                    | =std::sort=, =std::find=, a maioria dos algoritmos                      |
+
+*Conclusão*
+
+A escolha entre polimorfismo estático e dinâmico é uma decisão de design fundamental que impacta a performance, flexibilidade e estrutura de acoplamento do sistema. O polimorfismo dinâmico é a ferramenta ideal quando a flexibilidade em tempo de execução é o requisito principal, como em sistemas de plugins, GUIs ou quando se lida com coleções de objetos verdadeiramente heterogêneas. O polimorfismo estático, por outro lado, brilha em domínios onde a performance é crítica e a generalidade pode ser resolvida em tempo de compilação, sendo a espinha dorsal da Standard Template Library e de bibliotecas de computação de alto desempenho. Um arquiteto eficaz entende os trade-offs de ambos e os utiliza como ferramentas complementares para construir um sistema robusto e eficiente.
