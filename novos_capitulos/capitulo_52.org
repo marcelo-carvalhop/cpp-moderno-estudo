@@ -1,0 +1,153 @@
+* Capítulo 52: Dependency Injection em C++
+
+Enquanto o capítulo anterior estabeleceu o "porquê" do gerenciamento explícito de dependências — testabilidade, clareza e flexibilidade —, este capítulo foca no "como": os padrões e técnicas específicas da Injeção de Dependência (Dependency Injection - DI) em C++. A DI não é um framework ou uma biblioteca, mas sim um princípio de design para implementar o Princípio da Inversão de Controle (Inversion of Control - IoC).
+
+A ideia central é simples: o controle sobre a criação de uma dependência é invertido. Em vez de uma classe criar sua própria dependência (~new ConcreteLogger()~), o controle é entregue a uma entidade externa, que "injeta" a dependência na classe. Em C++, isso se manifesta principalmente de duas formas: Injeção por Construtor e Injeção por Setter.
+
+** 52.1 Injeção por Construtor (Constructor Injection)
+
+Esta é a forma mais comum, robusta e preferível de DI. A classe declara suas dependências como parâmetros em seu construtor. Isso cria um contrato claro: para construir um objeto desta classe, você deve fornecer suas dependências.
+
+*Características*:
+
+    - *Dependências Obrigatórias*: Garante que o objeto nunca existirá em um estado "incompleto" ou sem suas dependências essenciais.
+    - *Imutabilidade*: As dependências podem ser armazenadas como referências ou ponteiros para const, e se a referência for ~const (ILogger& const logger_)~, a própria referência não pode ser alterada após a construção, garantindo que a dependência é estável durante todo o tempo de vida do objeto.
+    - *Clareza*: O cabeçalho da classe serve como uma documentação precisa de suas necessidades.
+
+*Exemplo (Revisitando o ~ProcessadorDePedidos~)*:
+#+begin_src cpp
+// processador_de_pedidos.h
+#pragma once
+#include "ilogger.h"
+
+class ProcessadorDePedidos {
+public:
+    // A dependência é obrigatória para a construção.
+    explicit ProcessadorDePedidos(ILogger& logger);
+    void processar(int pedidoId);
+private:
+    // Armazenado como referência, pois a posse não pertence a esta classe
+    // e a dependência não pode ser nula.
+    ILogger& logger_; 
+};
+#+end_src
+
+O uso de explicit no construtor é uma boa prática para evitar conversões implícitas indesejadas.
+
+** 52.2 Injeção por Setter (Setter Injection)
+
+Nesta abordagem, a dependência é fornecida através de um método público (um "setter") após a construção do objeto.
+
+*Características*:
+
+    - *Dependências Opcionais*: É a escolha ideal para dependências que não são estritamente necessárias para o funcionamento do objeto. Por exemplo, um cache opcional que melhora a performance, mas sem o qual a classe ainda funciona.
+
+    - *Mutabilidade*: Permite que a dependência seja alterada durante o tempo de vida do objeto, o que pode ser útil em alguns cenários dinâmicos, mas também pode adicionar complexidade.
+
+    - *Requer Verificação*: O objeto deve ser capaz de lidar com o caso em que a dependência não foi injetada (geralmente armazenada como um ponteiro que pode ser ~nullptr~).
+
+*Exemplo: Um Cache Opcional*
+#+begin_src cpp
+// icache.h
+class ICache { /* ... */ };
+
+// data_repository.h
+#include "icache.h"
+#include <optional>
+
+class DataRepository {
+public:
+    // O construtor não exige o cache.
+    DataRepository() = default;
+
+    // O setter permite a injeção opcional.
+    void setCache(ICache& cache) {
+        cache_ = &cache;
+    }
+
+    void fetchData(int id) {
+        if (cache_) {
+            // Tenta buscar do cache primeiro...
+        }
+        // ... Lógica para buscar da fonte primária.
+    }
+private:
+    // Armazenado como ponteiro para permitir o estado "não injetado".
+    ICache* cache_ = nullptr; 
+};
+#+end_src
+
+** 52.3 Gerenciamento de Posse e Tempo de Vida
+
+Uma questão crucial em C++ é: quem é o dono da dependência injetada? A forma como a dependência é passada (referência, ponteiro bruto, ponteiro inteligente) documenta a política de posse.
+
+    - *Referência (ILogger&)*: A escolha mais comum. Indica que a classe não possui a dependência. Ela é apenas uma usuária. O tempo de vida da dependência injetada deve ser maior que o tempo de vida desta classe. É responsabilidade do código que realiza a injeção garantir isso.
+
+    - *Ponteiro Bruto (~ILogger*~)*: Similar à referência, mas permite ~nullptr~, tornando-o adequado para dependências opcionais na injeção por construtor. Também não implica posse.
+
+    - *Ponteiro Compartilhado (~std::shared_ptr<ILogger>~)*: Usado quando a posse da dependência é compartilhada entre múltiplos objetos. A dependência viverá enquanto pelo menos um dos ~shared_ptrs~ existir. Isso simplifica o gerenciamento do tempo de vida, mas introduz a sobrecarga da contagem de referências.
+
+    - *Ponteiro Único (~std::unique_ptr<ILogger>~)*: Usado quando a classe assume a posse exclusiva da dependência. Isso é comum em padrões como Factory, onde a fábrica cria e transfere a posse de um objeto para o cliente. A injeção é feita via ~std::move~.
+
+*Exemplo com ~std::unique_pt~~:*
+#+begin_src cpp
+class Servico {
+public:
+    // Assume a posse do logger.
+    explicit Servico(std::unique_ptr<ILogger> logger) 
+        : logger_(std::move(logger)) {}
+private:
+    std::unique_ptr<ILogger> logger_;
+};
+
+// Uso:
+auto logger = std::make_unique<FileLogger>();
+// A posse é movida para dentro do objeto 'servico'.
+Servico servico(std::move(logger)); 
+#+end_src
+
+** 52.4 O Ponto de Montagem (Composition Root)
+
+Uma pergunta natural surge: se as classes não criam suas dependências, quem o faz?
+
+A resposta é o Composition Root: uma única localização no programa (ou o mais próximo possível de uma única localização) onde os componentes são montados e as dependências são injetadas. Em muitas aplicações, este local é a função main() ou uma classe de inicialização chamada por main().
+
+#+begin_src cpp
+#include "processador_de_pedidos.h"
+#include "console_logger.h" // Implementação concreta
+#include "data_repository.h"
+#include "redis_cache.h"     // Implementação concreta
+
+int main() {
+    // ===================================================
+    // Início do Composition Root
+    // Este é o único lugar que conhece os tipos concretos.
+    // ===================================================
+
+    // 1. Cria as instâncias das dependências (os serviços).
+    ConsoleLogger logger;
+    RedisCache cache;
+    
+    // 2. Cria as instâncias das classes de negócio, injetando as dependências.
+    DataRepository repository;
+    repository.setCache(cache); // Injeção por Setter
+
+    ProcessadorDePedidos processador(logger, repository); // Injeção por Construtor
+
+    // ===================================================
+    // Fim do Composition Root
+    // ===================================================
+
+    // 3. Executa a lógica da aplicação.
+    //    O resto da aplicação opera apenas com abstrações.
+    processador.processar(42);
+
+    return 0;
+}
+#+end_src
+
+Manter o Composition Root contido desacopla a lógica de construção do objeto da lógica de negócio, permitindo que a maior parte do sistema seja agnóstica em relação às implementações concretas. Para sistemas muito grandes, frameworks de DI (como boost::di) podem automatizar a construção desse grafo de objetos, mas o princípio permanece o mesmo.
+
+** Conclusão
+
+A Injeção de Dependência é a aplicação prática do gerenciamento explícito de dependências. Ao escolher a estratégia de injeção correta (construtor para obrigatórias, setter para opcionais) e ao gerenciar a posse de forma clara com os ponteiros inteligentes do C++, criamos um código que é modular, flexível e, crucialmente, testável. O padrão Composition Root centraliza a fiação do sistema, permitindo que o resto do código seja escrito contra abstrações, resultando em uma arquitetura limpa e resiliente.

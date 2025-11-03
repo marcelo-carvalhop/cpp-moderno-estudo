@@ -1,0 +1,112 @@
+* Capítulo 55: Herança como problema, composição como solução
+
+No cânone do design de software, poucas frases são tão influentes quanto "favoreça a composição de objetos em vez da herança de classes". Este princípio, popularizado pelo livro "Design Patterns" (Gang of Four), não é uma condenação da herança, mas sim um aviso contra seu uso indiscriminado. A herança de implementação, embora pareça uma ferramenta intuitiva para reutilização de código, cria a forma mais forte de acoplamento entre classes, levando a designs frágeis, rígidos e difíceis de manter. A composição, por outro lado, oferece um caminho para a flexibilidade, o encapsulamento e a verdadeira modularidade.
+
+** 55.1 As Armadilhas da Herança de Implementação
+
+Quando uma classe Derivada herda de uma classe Base, ela não está apenas ganhando acesso aos seus membros ~public~ e ~protected;~ ela está se comprometendo com um contrato implícito e profundo. Essa relação "é-um" é a fonte de vários problemas arquiteturais.
+
+    1. *O Problema da Classe Base Frágil*: Esta é a falha mais crítica da herança. Uma modificação aparentemente segura na classe base pode quebrar, de forma inesperada e silenciosa, as classes derivadas. Se o autor da classe Base adiciona uma nova função, altera a implementação de uma função virtual ou mesmo muda um membro protected, ele pode violar os invariantes de uma classe Derivada que ele nem sabia que existia. O acoplamento é tão forte que a Derivada depende dos detalhes de implementação da Base.
+
+    2. *Encapsulamento Quebrado*: A herança de implementação viola o encapsulamento. A classe derivada tem acesso aos membros protected da base, o que significa que ela está ciente de sua estrutura interna. Isso torna a refatoração da classe base um pesadelo, pois qualquer mudança interna pode ter efeitos em cascata por toda a hierarquia de herança.
+
+    3. *Hierarquias Rígidas e Infladas*: A herança é definida em tempo de compilação. Uma vez que uma classe é parte de uma hierarquia, ela está presa a ela. Isso torna difícil modelar objetos cujo comportamento ou papel muda dinamicamente. Além disso, para adicionar uma nova variação de comportamento, muitas vezes somos forçados a criar outra classe na hierarquia, levando a uma "explosão de classes".
+
+*Exemplo Clássico do Anti-padrão: Stack herda de Vector*
+
+Uma implementação ingênua de uma Pilha (Stack) poderia herdar de std::vector para reutilizar a funcionalidade de armazenamento.
+
+#+begin_src cpp
+#include <vector>
+
+// Abordagem Incorreta
+template<typename T>
+class Stack : public std::vector<T> { // Stack "é-um" Vector? Não.
+public:
+    void push(const T& value) {
+        this->push_back(value);
+    }
+    void pop() {
+        this->pop_back();
+    }
+    T& top() {
+        return this->back();
+    }
+};
+#+end_src
+
+O problema: Stack agora herda toda a interface pública de ~std::vector~, incluindo métodos como ~insert()~, ~erase()~ e o operador []. Um cliente pode chamar ~my_stack.insert(my_stack.begin(), value)~, quebrando completamente o invariante ~LIFO (Last-In, First-Out)~ da pilha. A herança expôs detalhes de implementação que deveriam estar ocultos.
+
+** 55.2 Composição como Solução: O Princípio "Tem-Um"
+
+A composição modela uma relação "tem-um" ou "usa-um". Em vez de uma classe ser outra coisa, ela contém outra coisa. A classe externa (o "todo") delega o trabalho para a classe interna (a "parte").
+
+*Refatorando a Pilha com Composição*:
+
+A solução correta é que a Stack tenha um contêiner, em vez de ser um contêiner.
+
+#+begin_src cpp
+#include <vector>
+
+// Abordagem Correta
+template<typename T>
+class Stack {
+public:
+    void push(const T& value) {
+        container_.push_back(value);
+    }
+    void pop() {
+        container_.pop_back();
+    }
+    T& top() {
+        return container_.back();
+    }
+    bool empty() const {
+        return container_.empty();
+    }
+private:
+    // Stack "tem-um" Vector. A implementação está encapsulada.
+    std::vector<T> container_; 
+};
+#+end_src
+
+Nesta versão, a interface pública de Stack é limpa e controlada. Ela expõe apenas as operações de pilha. O fato de que ela usa um std::vector internamente é um detalhe de implementação completamente oculto. Podemos trocar o std::vector por um std::deque no futuro sem que nenhum código cliente seja afetado. O acoplamento foi drasticamente reduzido.
+
+** 55.3 Composição + Interfaces = Design Flexível
+
+A verdadeira força da composição é revelada quando combinada com interfaces (classes base abstratas). A classe externa não contém um tipo concreto, mas sim um ponteiro ou referência para uma interface.
+
+*Exemplo: O Serviço que Usa um Logger*
+
+    - *Herança (Incorreto)*: ~MyService : public FileLogger~ (Um serviço não "é-um" logger).
+    - *Composição (Correto)*: ~MyService~ tem um membro ~std::unique_ptr<ILogger>~.
+
+#+begin_src cpp
+class ILogger { /* ... */ };
+
+class MyService {
+public:
+    // A dependência da interface é injetada.
+    explicit MyService(std::unique_ptr<ILogger> logger) 
+        : logger_(std::move(logger)) {}
+
+    void doWork() {
+        // Delega o trabalho de log para o componente.
+        logger_->log("Doing work...");
+    }
+private:
+    std::unique_ptr<ILogger> logger_;
+};
+#+end_src
+
+Este design é o epítome da flexibilidade. MyService não está acoplado a nenhuma implementação de log. Em produção, podemos injetar um FileLogger; nos testes, podemos injetar um MockLogger. O comportamento pode ser alterado em tempo de execução, algo impossível com a herança estática.
+
+** 55.4 Quando a Herança Ainda é a Resposta Certa?
+
+A herança não deve ser eliminada, mas usada com precisão para seu propósito principal: polimorfismo de subtipo.
+
+O uso correto da herança pública é para implementar uma interface. Quando uma classe PostgresConnection herda de IDatabaseConnection, ela está fazendo uma promessa: "Eu sou um IDatabaseConnection e cumpro o contrato definido por sua interface". Aqui, a relação "é-um" é conceitualmente correta e é o mecanismo que habilita o polimorfismo dinâmico. Note que, neste caso, a herança é de uma classe base abstrata (uma interface), não de uma classe concreta com implementação.
+
+** Conclusão
+
+A transição de um designer de software júnior para sênior muitas vezes envolve a desaprendizagem do reflexo de usar a herança para reutilização de código. A composição deve ser a ferramenta padrão. Ela leva a sistemas onde os componentes são pequenos, com responsabilidades únicas e interfaces bem definidas. As conexões entre eles são explícitas (via injeção de dependência) e flexíveis. Reserve a herança de implementação para os raros casos em que a relação "é-um" é inegável e a hierarquia é estável, e abrace a herança de interface como o pilar do polimorfismo dinâmico.

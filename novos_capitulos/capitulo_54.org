@@ -1,0 +1,154 @@
+* Capítulo 54: Builders e factories modernos
+
+A criação de objetos é uma das atividades mais fundamentais em qualquer programa. Em sistemas simples, um construtor público é suficiente. No entanto, em arquiteturas complexas, a decisão de qual objeto criar e como montá-lo pode depender de configurações, estado do programa ou de uma lógica de construção multifacetada. Acoplar o código cliente diretamente aos construtores de tipos concretos torna o sistema rígido e difícil de modificar.
+
+Os padrões de criação (Creational Patterns), como Factory e Builder, resolvem esse problema ao encapsular e abstrair o processo de instanciação. O C++ moderno, com seus ponteiros inteligentes, semântica de movimento e templates, nos permite implementar esses padrões de forma mais segura, expressiva e eficiente do que nunca.
+
+** 54.1 Factory: Abstraindo a Seleção do Objeto
+
+O padrão Factory é utilizado quando um sistema precisa criar objetos que aderem a uma interface comum, mas o tipo concreto exato a ser criado é determinado em tempo de execução. O objetivo é centralizar a lógica de criação, desacoplando o cliente da responsabilidade de conhecer todas as implementações possíveis.
+
+O Factory Method Moderno com ~std::unique_ptr~
+
+A forma mais comum e útil do padrão é o Factory Method, frequentemente implementado como um método estático que retorna um ponteiro inteligente, garantindo que a posse do objeto criado seja transferida de forma clara e segura, sem risco de vazamento de memória.
+
+*Exemplo: Uma Factory de Conexões de Banco de Dados*
+
+Imagine uma aplicação que pode se conectar a diferentes bancos de dados (PostgreSQL, SQLite) com base em um arquivo de configuração.
+
+#+begin_src cpp
+#include <memory>
+#include <string>
+#include <stdexcept>
+
+// 1. A interface comum (abstração)
+class IDatabaseConnection {
+public:
+    virtual ~IDatabaseConnection() = default;
+    virtual void connect() = 0;
+    virtual void query(const std::string& q) = 0;
+};
+
+// 2. Implementações concretas (ocultas do cliente)
+namespace Details {
+    class PostgresConnection : public IDatabaseConnection { /* ... */ };
+    class SQLiteConnection : public IDatabaseConnection { /* ... */ };
+}
+
+// 3. A Factory
+class ConnectionFactory {
+public:
+    // O método estático que encapsula a lógica de criação.
+    // Retorna um unique_ptr para transferir a posse de forma segura.
+    static std::unique_ptr<IDatabaseConnection> create(const std::string& type) {
+        if (type == "postgres") {
+            return std::make_unique<Details::PostgresConnection>();
+        }
+        if (type == "sqlite") {
+            return std::make_unique<Details::SQLiteConnection>();
+        }
+        throw std::runtime_error("Tipo de banco de dados não suportado: " + type);
+    }
+};
+
+// 4. O código cliente
+void run_application(const std::string& db_type) {
+    // O cliente não conhece PostgresConnection ou SQLiteConnection.
+    // Ele só conhece a interface e a factory.
+    auto db_connection = ConnectionFactory::create(db_type);
+    db_connection->connect();
+    db_connection->query("SELECT * FROM users;");
+}
+#+end_src
+
+O cliente está completamente desacoplado dos tipos concretos. Para adicionar suporte a um novo banco de dados (ex: MySQL), basta modificar a ~ConnectionFactory~ e adicionar a nova classe de conexão; nenhum código cliente precisa ser alterado.
+
+** 54.2 Builder: Dominando a Construção de Objetos Complexos
+
+O padrão Builder é a solução para o anti-padrão do "construtor telescópico" — uma classe com múltiplos construtores sobrecarregados ou um único construtor com uma longa lista de parâmetros, muitos dos quais opcionais e com valores padrão. Esse tipo de construtor é difícil de ler, propenso a erros (trocar a ordem dos parâmetros) e inflexível.
+
+O Builder resolve isso separando a construção de um objeto complexo de sua representação, permitindo que o mesmo processo de construção possa criar diferentes representações. Em C++ moderno, ele é frequentemente implementado com uma interface fluente (fluent interface), que permite o encadeamento de métodos.
+
+*Exemplo: Construindo uma Requisição HTTP*
+
+Uma requisição HTTP pode ter muitos campos opcionais: cabeçalhos, corpo, timeout, etc.
+
+#+begin_src cpp
+#include <string>
+#include <map>
+#include <chrono>
+
+class HttpRequest {
+public:
+    // A classe Builder é frequentemente aninhada e pública.
+    class Builder {
+    public:
+        // Métodos retornam referência para o próprio builder para permitir encadeamento.
+        Builder& method(std::string m) { method_ = std::move(m); return *this; }
+        Builder& url(std::string u) { url_ = std::move(u); return *this; }
+        Builder& header(std::string key, std::string val) { headers_[key] = val; return *this; }
+        Builder& body(std::string b) { body_ = std::move(b); return *this; }
+        Builder& timeout(std::chrono::milliseconds t) { timeout_ = t; return *this; }
+
+        // O método final que constrói o objeto.
+        HttpRequest build() {
+            // Pode conter lógica de validação (ex: URL e método são obrigatórios).
+            if (url_.empty() || method_.empty()) {
+                throw std::logic_error("URL e método são obrigatórios.");
+            }
+            return HttpRequest(*this); // Chama o construtor privado.
+        }
+
+    private:
+        friend class HttpRequest; // Permite que HttpRequest acesse os membros privados.
+        std::string method_;
+        std::string url_;
+        std::map<std::string, std::string> headers_;
+        std::string body_;
+        std::chrono::milliseconds timeout_{30000}; // Valor padrão
+    };
+
+private:
+    // O construtor do objeto principal é privado.
+    // Ele só pode ser chamado pelo Builder.
+    explicit HttpRequest(const Builder& builder)
+        : method_(builder.method_),
+          url_(builder.url_),
+          headers_(builder.headers_),
+          body_(builder.body_),
+          timeout_(builder.timeout_)
+    {}
+
+    // Membros da classe...
+    std::string method_;
+    std::string url_;
+    // ...
+};
+
+// O código cliente é limpo, legível e auto-documentado.
+int main() {
+    HttpRequest request = HttpRequest::Builder()
+        .method("POST")
+        .url("https://api.example.com/v1/data")
+        .header("Authorization", "Bearer my-token")
+        .header("Content-Type", "application/json")
+        .body(R"({"key":"value"})")
+        .build();
+    
+    // ... usar o objeto 'request' ...
+}
+#+end_src
+
+*Vantagens do Builder Moderno*:
+
+    1. *Legibilidade*: O código de criação se torna declarativo e fácil de entender.
+
+    2. *Flexibilidade*: Lida elegantemente com um grande número de parâmetros opcionais.
+
+    3. *Imutabilidade*: O objeto ~HttpRequest~ pode ser tornado imutável após a construção, pois seu estado é definido de uma só vez pelo builder. Isso é excelente para a segurança em ambientes com múltiplas threads.
+
+    4. *Validação Centralizada*: O método ~build()~ é o local perfeito para garantir que o objeto seja construído em um estado válido.
+
+** Conclusão
+
+Factories e Builders são ferramentas arquiteturais essenciais para gerenciar a complexidade da criação de objetos. A Factory desacopla o cliente da seleção de qual tipo concreto instanciar, centralizando essa decisão. O Builder desacopla o cliente da complexidade de como montar um objeto, proporcionando um processo de construção passo a passo e legível. Ao implementá-los com as ferramentas do C++ moderno, como ponteiros inteligentes e interfaces fluentes, criamos sistemas mais robustos, flexíveis e fáceis de manter.

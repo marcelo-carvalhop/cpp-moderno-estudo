@@ -320,11 +320,15 @@ CppCon e Meeting C++ (talks sobre metaprogramação).
 
 [[./novos_capitulos/capitulo_50.org][50. Padrão pImpl (pointer to implementation)]]
 
-51. Gerenciamento explícito de dependências
-52. Dependency Injection em C++
-53. Modelagem com mixins e traits
-54. Builders e factories modernos
-55. Herança como problema, composição como solução
+[[./novos_capitulos/capitulo_51.org][51. Gerenciamento explícito de dependências]]
+
+[[./novos_capitulos/capitulo_52.org][52. Dependency Injection em C++]]
+
+[[./novos_capitulos/capitulo_53.org][53. Modelagem com mixins e traits]]
+
+[[./novos_capitulos/capitulo_54.org][54. Builders e factories modernos]]
+
+[[./novos_capitulos/capitulo_55.org][55. Herança como problema, composição como solução]]
 56. Coesão e acoplamento em sistemas C++
 57. APIs seguras e versionáveis
 58. Testabilidade em arquiteturas grandes
