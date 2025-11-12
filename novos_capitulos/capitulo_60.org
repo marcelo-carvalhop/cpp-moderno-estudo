@@ -1,0 +1,57 @@
+* Capítulo 60: Manutenibilidade em décadas de código legado
+
+Código legado não é simplesmente código antigo. Michael Feathers, em seu livro seminal "Working Effectively with Legacy Code", oferece a definição mais útil e precisa: legado é código sem testes. É o código que inspira medo. É o código que os desenvolvedores temem modificar porque as consequências de uma mudança são imprevisíveis. Ele pode ter décadas ou apenas seis meses de idade, mas se carece de uma rede de segurança de testes, ele é legado.
+
+Este código, no entanto, é frequentemente o coração da empresa. Ele gera receita, atende clientes e encapsula décadas de lógica de negócio que ninguém entende completamente. A tarefa de um arquiteto não é apenas construir o novo, mas também pastorear o antigo, garantindo que ele possa continuar a evoluir e a entregar valor sem entrar em colapso.
+
+** 60.1 O Juramento de Hipócrates do Desenvolvedor: Primeiro, Não Quebre Nada
+
+A primeira regra ao lidar com código legado é: não piore as coisas. O sistema, com todas as suas falhas, funciona. Uma mudança mal planejada que quebra uma funcionalidade existente é muito pior do que deixar o código como está. Cada intervenção deve ser deliberada, precisa e, acima de tudo, segura. O objetivo não é uma reescrita heróica, mas uma série de melhorias incrementais e controladas. Pense nisso como a restauração de uma pintura antiga, não a demolição de um prédio.
+
+** 60.2 A Rede de Segurança: Testes de Caracterização
+
+Se legado é código sem testes, a primeira etapa para redimi-lo é colocar uma parte dele sob teste. Mas como testar um código que não foi projetado para isso, cheio de dependências concretas e estado global? A resposta são os testes de caracterização (characterization tests).
+
+Um teste de caracterização não verifica se o código está correto. Ele verifica o comportamento atual do código, incluindo seus bugs. O processo é:
+
+    1. Identifique uma parte do código que você precisa mudar.
+    2. Escreva um teste que chame essa parte do código e capture sua saída (o valor de retorno, as mudanças de estado, os arquivos escritos, etc.).
+    3. Execute o teste. Ele pode passar ou falhar, não importa. O que importa é que a saída seja consistente.
+    4. Ajuste as asserções do seu teste para que ele valide a saída que você acabou de observar. Agora você tem um teste que caracteriza o comportamento atual.
+    5. Agora, e somente agora, você pode começar a refatorar o código. Se o seu teste quebrar, você sabe que alterou o comportamento de forma não intencional.
+
+Para escrever esses testes, você precisa encontrar "costuras" (seams) no código — lugares onde você pode alterar o comportamento do programa sem editar o código-fonte. Isso pode envolver técnicas avançadas como substituição de links (link-time substitution) ou, mais comumente, pequenas refatorações para quebrar dependências e permitir a injeção de um dublê de teste.
+
+** 60.3 O Padrão Estrangulador (Strangler Fig Pattern)
+
+Para mudanças em larga escala, a reescrita total (Big Bang Rewrite) é quase sempre um desastre. Ela consome anos, o sistema antigo continua a evoluir em paralelo, e no final, o novo sistema muitas vezes falha em replicar toda a funcionalidade crítica do antigo.
+
+Martin Fowler descreve uma alternativa muito mais segura: o *Padrão Estrangulador (Strangler Fig Pattern)*. A metáfora é a de uma figueira estranguladora que cresce em volta de uma árvore antiga, eventualmente substituindo-a por completo.
+O processo é:
+
+    1. Identifique uma parte do sistema legado que você deseja substituir (por exemplo, o módulo de faturamento).
+    2. Crie uma nova implementação para essa funcionalidade, seguindo os princípios de design modernos (alta coesão, baixo acoplamento, DI, etc.).
+    3. Coloque uma "fachada" ou um proxy na frente do sistema antigo. Inicialmente, todas as chamadas passam direto para a implementação legada.
+    4. Modifique a fachada para que as chamadas relacionadas ao novo módulo sejam redirecionadas para a nova implementação. O resto continua indo para o sistema antigo.
+    5. Gradualmente, ao longo de meses ou anos, mais e mais funcionalidades são migradas para o novo sistema, e a fachada redireciona mais chamadas.
+    6. Eventualmente, o sistema legado não recebe mais nenhuma chamada. Ele foi "estrangulado" e pode ser desativado e removido com segurança.
+
+Esta abordagem é de baixo risco, permite a entrega contínua de valor e evita o risco de um projeto de reescrita monolítico.
+
+** 60.4 Refatoração Oportunista: A Regra do Escoteiro
+
+Nem toda melhoria precisa ser um grande projeto. Adote a "Regra do Escoteiro": *deixe o acampamento um pouco mais limpo do que você o encontrou*.
+
+Sempre que você precisar tocar em uma parte do código legado para corrigir um bug ou adicionar um pequeno recurso, aproveite a oportunidade para fazer uma pequena melhoria:
+
+    - Substitua um ponteiro bruto por um ~std::unique_ptr~.
+    - Mude um ~int~ que representa um estado para um enum class.
+    - Dê um nome melhor a uma variável ou função.
+    - Extraia uma função longa para duas menores e mais focadas.
+    - Adicione um teste de caracterização antes de sua mudança.
+
+Essa cultura de melhoria contínua e incremental, praticada por toda a equipe, transforma a base de código ao longo do tempo. A dívida técnica não é paga em uma única parcela grande, mas em milhares de pequenos pagamentos.
+
+** Conclusão
+
+Lidar com código legado em C++ é um dos desafios mais complexos da engenharia de software. Exige paciência, disciplina e uma mentalidade estratégica. Não se trata de buscar a perfeição, mas de gerenciar o risco e promover a melhoria contínua. Ao usar testes de caracterização como rede de segurança, o Padrão Estrangulador para substituições em larga escala e a Regra do Escoteiro para melhorias diárias, podemos transformar gradualmente uma base de código temida e frágil em um sistema robusto e sustentável. É a jornada que transforma um programador em um verdadeiro arquiteto de software, capaz não apenas de criar o novo, mas também de redimir o antigo.

@@ -329,11 +329,16 @@ CppCon e Meeting C++ (talks sobre metaprogramação).
 [[./novos_capitulos/capitulo_54.org][54. Builders e factories modernos]]
 
 [[./novos_capitulos/capitulo_55.org][55. Herança como problema, composição como solução]]
-56. Coesão e acoplamento em sistemas C++
-57. APIs seguras e versionáveis
-58. Testabilidade em arquiteturas grandes
-59. Evolução de bibliotecas internas
-60. Manutenibilidade em décadas de código legado
+
+[[./novos_capitulos/capitulo_56.org][56. Coesão e acoplamento em sistemas C++]]
+
+[[./novos_capitulos/capitulo_57.org][57. APIs seguras e versionáveis]]
+
+[[./novos_capitulos/capitulo_58.org][58. Testabilidade em arquiteturas grandes]]
+
+[[./novos_capitulos/capitulo_59.org][59. Evolução de bibliotecas internas]]
+
+[[./novos_capitulos/capitulo_60.org][60. Manutenibilidade em décadas de código legado]]
 
 /Leituras complementares/:
 *Livros*:
@@ -360,9 +365,11 @@ Palestras de John Lakos em CppCon.
 
 /Capítulos/:
 
-61. A relação íntima com o hardware
-62. Ponteiros crus em ecossistema moderno
-63. Smart pointers além do óbvio
+[[./novos_capitulos/capitulo_61.org][61. A relação íntima com o hardware]]
+
+[[./novos_capitulos/capitulo_62.org][62. Ponteiros crus em ecossistema moderno]]
+
+[[./novos_capitulos/capitulo_63.org][63. Smart pointers além do óbvio]]
 64. Alocadores customizados em containers
 65. placement new e técnicas avançadas
 66. Alinhamento de memória e performance

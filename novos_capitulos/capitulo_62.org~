@@ -1,0 +1,128 @@
+* Capítulo 62: Ponteiros crus em ecossistema moderno
+
+Ponteiros crus (T*), herdados diretamente da linguagem C, são a ferramenta original e mais fundamental para indireção e gerenciamento de memória em C++. Por décadas, o par new e delete foi o pilar da programação dinâmica. No entanto, a filosofia do C++ moderno, consolidada a partir do C++11, redefiniu radicalmente o papel dos ponteiros crus. Entender essa nova filosofia não é apenas uma questão de estilo; é o alicerce para escrever código seguro, expressivo e livre de vazamentos de memória.
+62.1 O Pecado Original: Ponteiros Crus para Gerenciamento de Posse
+
+A regra mais importante do C++ moderno, repetida incansavelmente nos C++ Core Guidelines de Bjarne Stroustrup e Herb Sutter, é: um ponteiro cru não deve ser dono de um recurso. "Ser dono" (ownership) significa ser responsável por liberar o recurso, tipicamente chamando delete para a memória alocada com new.
+
+Confiar a posse a um ponteiro cru é a fonte de três dos bugs mais notórios da programação:
+
+    Vazamentos de Memória (Memory Leaks): Se todos os caminhos de execução de um código não levarem a um delete correspondente para cada new, o recurso é perdido para sempre. Isso é especialmente comum na presença de exceções ou retornos antecipados.
+    Deleção Dupla (Double Deletes): Se o mesmo ponteiro for deletado mais de uma vez, o comportamento é indefinido, geralmente resultando em corrupção do heap e um crash imediato.
+    Ponteiros Pendentes (Dangling Pointers): Após um delete p, o ponteiro p em si não muda de valor; ele continua apontando para a memória agora liberada. Qualquer tentativa de usar esse ponteiro (dereferenciá-lo) resulta em comportamento indefinido.
+
+Exemplo do Anti-padrão:
+
+cpp
+
+Copy
+// Uma factory que retorna um ponteiro cru, transferindo a posse para o chamador.
+// Este é um design perigoso e obsoleto.
+Widget* create_widget() {
+    return new Widget(); // O chamador agora é o dono.
+}
+
+void process_widgets() {
+    Widget* w_ptr = create_widget();
+
+    if (some_error_condition()) {
+        // Se uma exceção for lançada aqui, ou se retornarmos,
+        // a linha 'delete w_ptr' nunca é alcançada. Vazamento de memória.
+        throw std::runtime_error("Erro!"); 
+    }
+
+    // ... usar w_ptr ...
+
+    delete w_ptr; // O programador deve lembrar de fazer isso.
+}
+
+Este código é frágil. A correção depende inteiramente da disciplina do programador. O princípio RAII (Resource Acquisition Is Initialization), implementado através de smart pointers, resolve esse problema de forma sistemática, garantindo que a liberação do recurso esteja ligada ao tempo de vida de um objeto na stack.
+62.2 O Papel Legítimo: Ponteiros como Observadores Não-Proprietários
+
+Se ponteiros crus não são para posse, qual é seu papel? No C++ moderno, um ponteiro cru é um observador (ou "view", "handle"). Ele é um tipo leve e não-proprietário que se refere a um objeto, mas não tem nenhuma responsabilidade sobre seu tempo de vida. Ele "pega emprestado" o acesso ao objeto, sob a premissa de que alguma outra entidade (geralmente um smart pointer ou um objeto na stack) é a verdadeira dona e garantirá que o objeto observado permaneça vivo.
+
+Os usos legítimos de ponteiros crus se enquadram em algumas categorias principais:
+62.2.1 Observando um Recurso Gerenciado
+
+Este é o caso de uso mais comum. Uma função pode precisar operar em um objeto que é gerenciado por um std::unique_ptr ou std::shared_ptr, sem precisar assumir a posse.
+
+cpp
+
+Copy
+void process_widget_data(Widget* w) { // 'w' é um observador.
+    // Esta função não se importa com o tempo de vida de 'w',
+    // apenas que ele seja válido durante sua execução.
+    if (w) {
+        w->do_something();
+    }
+}
+
+void owner_code() {
+    auto widget_owner = std::make_unique<Widget>();
+
+    // Passamos um ponteiro cru para a função, mas a posse permanece
+    // segura dentro do unique_ptr.
+    process_widget_data(widget_owner.get()); 
+}
+
+O método .get() de um smart pointer é a ponte explícita entre o mundo da posse gerenciada e o mundo da observação via ponteiros crus.
+62.2.2 Interoperabilidade com APIs em C
+
+Bibliotecas em C, que são onipresentes, usam ponteiros crus extensivamente. Ao interagir com elas, C++ precisa fornecer ponteiros crus. Novamente, .get() é a ferramenta para isso.
+
+cpp
+
+Copy
+// Assuma uma biblioteca C com esta função:
+extern "C" void c_style_api_process_handle(widget_handle_t* handle);
+
+void cpp_interop() {
+    auto widget_owner = std::make_unique<Widget>();
+
+    // Obtemos um ponteiro cru para passar para a API C.
+    // A posse e o tempo de vida continuam sendo gerenciados pelo C++.
+    c_style_api_process_handle(widget_owner.get());
+}
+
+62.2.3 Parâmetros de Saída (com ressalvas)
+
+Um padrão histórico em C é usar ponteiros como parâmetros de saída para "retornar" valores adicionais.
+
+cpp
+
+Copy
+void get_screen_dimensions(int* width, int* height) {
+    *width = 1920;
+    *height = 1080;
+}
+
+Embora válido, o C++ moderno oferece alternativas mais seguras e expressivas. Para múltiplos valores de retorno, retornar um std::pair ou uma struct é geralmente preferível. Se o parâmetro for opcional, uma referência é mais clara para indicar que não pode ser nulo.
+62.2.4 Representando Relacionamentos Opcionais (com extremo cuidado)
+
+Em estruturas de dados como árvores ou listas duplamente encadeadas, um ponteiro pode ser usado para se referir a outro nó (ex: Node* parent_). O uso de nullptr indica a ausência de um pai (como no nó raiz). Este é um uso válido, mas perigoso. O gerenciamento do tempo de vida de todos os nós deve ser impecável e centralizado, pois é muito fácil criar um ponteiro pendente se um nó for deletado enquanto outros ainda apontam para ele. Para grafos de objetos onde a posse é compartilhada, std::shared_ptr e std::weak_ptr são uma solução muito mais robusta para modelar esses relacionamentos e evitar ciclos de referência.
+62.3 Diretrizes de Segurança para Ponteiros Observadores
+
+Ao usar um ponteiro cru como observador, a responsabilidade do programador muda de gerenciar para garantir a validade.
+
+    Nunca Chame delete em um Ponteiro Observador: Isso violaria o contrato de não-posse e levaria a uma deleção dupla.
+    Cuidado com o Tempo de Vida: O maior perigo de um ponteiro observador é se tornar pendente. Ele é apenas tão seguro quanto o tempo de vida do objeto que ele observa. Se o dono do objeto (o smart pointer) for destruído, o observador se torna inválido instantaneamente.
+    Prefira Referências (T&) a Ponteiros (T*) para Parâmetros: Se uma função espera um objeto que não pode ser nulo, use uma referência. Isso comunica a intenção de forma mais clara e elimina a necessidade de o chamador e a função verificarem a nulidade. Use um ponteiro apenas quando a nulidade for uma entrada válida e significativa.
+    Documente o Contrato de Tempo de Vida: Para APIs complexas, documente explicitamente por quanto tempo um ponteiro observador retornado permanecerá válido (ex: "válido enquanto o objeto Factory existir").
+
+62.4 Ferramentas Modernas: gsl::not_null
+
+Para reforçar a segurança, bibliotecas como a Guideline Support Library (GSL) da Microsoft oferecem tipos como gsl::not_null<T*>. Este é um wrapper leve que se comporta como um T*, mas garante (através de asserções em tempo de execução ou análise estática) que ele nunca pode ser nulo. Usá-lo na assinatura de uma função comunica um contrato ainda mais forte do que uma referência, pois pode ser reatribuído, mas nunca para nullptr.
+
+cpp
+
+Copy
+#include <gsl/gsl>
+
+void process_guaranteed_widget(gsl::not_null<Widget*> w) {
+    // Não há necessidade de 'if (w)' aqui. O contrato garante que não é nulo.
+    w->do_something();
+}
+
+Conclusão
+
+O ponteiro cru não está morto no C++ moderno, mas seu papel foi rebaixado de protagonista a coadjuvante. Ele abdicou do trono da posse de recursos para os smart pointers baseados em RAII. Sua função legítima e essencial agora é a de um observador leve, temporário e não-proprietário. Tratar T* como um "view" em vez de um "owner" é uma das mudanças de mentalidade mais cruciais para escrever código C++ que seja seguro por design, e não por acaso.

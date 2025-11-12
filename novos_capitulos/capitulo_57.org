@@ -1,0 +1,115 @@
+* Capítulo 57: APIs seguras e versionáveis
+
+Uma API (Application Programming Interface) é a face pública de um componente. É o contrato que ele oferece ao resto do sistema. Uma API bem-sucedida possui duas qualidades essenciais e interligadas: ela é *segura e versionável*.
+
+    - *Segurança*: Uma API segura é difícil de usar incorretamente. Ela utiliza o sistema de tipos e os idiomas do C++ para guiar o desenvolvedor ao uso correto, tornando os erros comuns de programação difíceis ou impossíveis de cometer em tempo de compilação.
+
+    - *Versionabilidade*: Uma API versionável é aquela que pode evoluir. É possível adicionar novas funcionalidades e corrigir bugs sem quebrar o código cliente existente. Isso é absolutamente crítico para o desenvolvimento de bibliotecas e para a manutenção de sistemas de larga escala a longo prazo.
+
+** 57.1 Projetando para a Segurança
+
+Segurança em uma API C++ significa transferir a responsabilidade pela correção do programador para o compilador.
+
+1. *Use Tipos Expressivos para Evitar a "Obsessão Primitiva"*
+
+Um dos erros mais comuns é usar tipos primitivos (~int~, ~bool~, ~std::string~) para representar conceitos de domínio. Isso leva a interfaces ambíguas e propensas a erros.
+
+*API Fraca (Primitiva)*:
+#+begin_src cpp
+// O que é o primeiro bool? O que é o segundo?
+// É fácil trocar a ordem dos parâmetros 'width' e 'height'.
+void set_dimensions(int width, int height);
+void create_user(const std::string& name, const std::string& email);
+void set_option(bool is_visible, bool is_modal);
+#+end_src
+
+*API Segura (Tipos Fortes)*:
+Crie tipos simples, mas distintos, para representar seus conceitos. structs com um único membro (strong typedefs) são perfeitos para isso.
+
+#+begin_src cpp
+// Tipos fortes que carregam semântica
+struct Width { int value; };
+struct Height { int value; };
+struct UserName { std::string value; };
+struct Email { std::string value; };
+enum class Visibility { Visible, Hidden };
+enum class Modality { Modal, Modeless };
+
+// A nova API é auto-documentada e à prova de erros de ordenação.
+// O compilador não permitirá set_dimensions(Height{480}, Width{640});
+void set_dimensions(Width w, Height h);
+void create_user(UserName name, Email email);
+void set_option(Visibility v, Modality m);
+#+end_src
+
+2. *Deixe Claro o Contrato de Retorno com ~[[nodiscard]]~ e* ~std::optional~ 
+
+   - ~[[nodiscard]]~ *(C++17)*: Se uma função retorna um valor que o chamador deve inspecionar (como um código de erro ou o resultado de uma operação), anote-a com ~[[nodiscard]]~. O compilador emitirá um aviso se o cliente ignorar o valor de retorno.
+
+   - ~std::optional~ *(C++17)*: Para funções que podem ou não retornar um valor (como uma busca que pode não encontrar nada), ~std::optional<T>~ é imensamente superior a retornar um ponteiro nulo ou um "valor mágico". Ele comunica explicitamente a possibilidade de ausência e força o cliente a desempacotar o valor de forma segura.
+
+#+begin_src cpp
+[[nodiscard]] std::optional<User> find_user_by_id(UserID id);
+
+if (auto user = find_user_by_id(some_id)) {
+    // O código aqui dentro só executa se o usuário foi encontrado.
+    // 'user' é um std::optional, mas o if o desempacota de forma segura.
+    process_user(*user); 
+}
+#+end_src
+
+3. *Gerencie a Posse de Recursos com RAII*
+
+Este ponto não pode ser enfatizado o suficiente. Uma API segura nunca retorna um ponteiro bruto para um recurso que o cliente precisa deletar. Use std::unique_ptr para transferir a posse exclusiva e std::shared_ptr para compartilhar a posse.
+
+** 57.2 Projetando para a Versionabilidade (Estabilidade de API e ABI)
+
+Versionar uma API significa ser capaz de lançar a versão 1.1, que adiciona recursos à 1.0, sem quebrar os clientes que foram compilados com a 1.0. Isso requer o gerenciamento de duas formas de compatibilidade:
+
+  - *Compatibilidade de API (Fonte)*: O código cliente antigo ainda compila com os novos cabeçalhos.
+  - *Compatibilidade de ABI (Binária)*: Um executável compilado com a biblioteca antiga pode ser executado com a nova biblioteca dinâmica (.so, .dll) sem precisar ser recompilado. A compatibilidade de ABI é muito mais frágil e difícil de manter em C++.
+
+*Regras para Manter a Compatibilidade*:
+
+   1. *O Padrão pImpl é Essencial*: Como visto no Capítulo 50, o pImpl é a principal ferramenta para a estabilidade da ABI. Ao ocultar todos os membros privados, você pode adicioná-los ou removê-los à vontade sem alterar o tamanho ou o layout da classe, preservando a ABI.
+
+   2. *Nunca Altere Assinaturas Públicas* : Uma vez que uma função é publicada, sua assinatura está "congelada".
+        - Não adicione parâmetros (mesmo com valores padrão, pois isso muda a ABI).
+        - Não remova parâmetros.
+        - Não altere o tipo de um parâmetro ou do retorno.
+
+   3. *Como Adicionar Funcionalidade de Forma Segura*:
+       - *Adicione novas funções (não virtuais)*: Adicionar uma nova função sobrecarregada ou uma função com um novo nome é sempre seguro para a API e a ABI.
+
+       #+begin_src cpp
+       // Versão 1.0
+       void process_data(const std::string& data);
+
+       // Versão 1.1 (Seguro)
+       void process_data(const std::string& data);
+       void process_data(const std::string& data, ProcessingOptions options); // Nova sobrecarga	
+       #+end_src
+       
+       - *Não adicione funções virtuais*: Adicionar uma nova função virtual a uma classe existente quebra a ABI. Isso altera a vtable da classe, e o código antigo que espera a vtable antiga irá chamar o endereço errado, resultando em um crash. A solução é criar uma nova interface que herda da antiga.
+
+        #+begin_src cpp
+        // Versão 1.0
+        class IWidget { virtual void doA() = 0; };
+
+        // Versão 1.1 (Quebra a ABI!)
+        // class IWidget { virtual void doA() = 0; virtual void doB() = 0; }; // INCORRETO
+
+        // Versão 1.1 (Correto)
+        class IWidgetV2 : public IWidget { virtual void doB() = 0; };
+        // O cliente pode usar dynamic_cast<IWidgetV2*>(widget_ptr) para ver se a nova
+        // funcionalidade está disponível.
+        #+end_src
+        
+   4. *Use o Versionamento Semântico (SemVer)*: Adote o padrão MAJOR.MINOR.PATCH para comunicar a natureza das mudanças.
+        - *MAJOR (ex: 2.0.0)*: Mudança que quebra a API ou a ABI. Requer que os clientes modifiquem seu código ou recompilem.
+        - *MINOR (ex: 1.1.0)*: Adição de funcionalidade de forma retrocompatível.
+        - *PATCH (ex: 1.0.1)*: Correção de bug de forma retrocompatível.
+
+** Conclusão
+
+Projetar uma API é um ato de empatia para com os futuros desenvolvedores (incluindo você mesmo). Uma API *segura* usa o poder do sistema de tipos do C++ para prevenir erros antes que eles aconteçam. Uma API *versionável* reconhece que o software está em constante evolução e fornece um caminho para o crescimento sem causar dor aos seus usuários. Ao combinar tipos fortes, gerenciamento de recursos com RAII, o padrão pImpl e uma disciplina rigorosa de versionamento, criamos interfaces que não são apenas funcionais, mas também robustas, resilientes e agradáveis de usar.

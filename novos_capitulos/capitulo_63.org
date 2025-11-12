@@ -1,0 +1,140 @@
+* Capítulo 63: Smart pointers além do óbvio
+
+Os smart pointers do C++11 — ~std::unique_ptr~, ~std::shared_ptr~ e ~std::weak_ptr~ — são a personificação da filosofia RAII (Resource Acquisition Is Initialization) e a principal ferramenta para eliminar o gerenciamento manual de memória. A compreensão básica é que eles automatizam delete. A compreensão avançada, no entanto, exige uma análise de suas implicações de desempenho, suas garantias de custo zero (ou a falta delas) e seus padrões de uso que resolvem problemas complexos de design muito além da simples posse de memória.
+
+** 63.1 std::unique_ptr: A Abstração de Custo Zero em Detalhe
+
+O ~std::unique_ptr~ foi projetado para ser a substituição direta e de custo zero para um ponteiro cru que gerencia a posse. A afirmação "custo zero" não é marketing; é uma garantia de design. Em uma compilação otimizada, o uso de um ~unique_ptr~ não impõe nenhuma sobrecarga de memória ou de tempo de execução em comparação com o código equivalente usando um ponteiro cru e delete manual.
+
+A razão para isso é sua simplicidade. Um ~std::unique_ptr<T>~ é, em sua forma mais comum, nada mais do que um wrapper em torno de um único ~T*~. As operações como ~->~ e ~*~ são triviais e embutidas (inlined) pelo compilador, resultando em um acesso direto à memória, idêntico ao de um ponteiro cru. A única "mágica" acontece em seu destrutor, que chama delete no ponteiro encapsulado. Como o destrutor é chamado automaticamente quando o ~unique_ptr~ sai de escopo, a liberação do recurso é garantida sem nenhum custo de verificação em tempo de execução.
+
+*Além do Óbvio 1: Custom Deleters*
+
+A verdadeira flexibilidade do ~unique_ptr~ se revela com o uso de "custom deleters". Por padrão, ele chama ~delete~, mas você pode fornecer qualquer objeto "chamável" (função, lambda, functor) para lidar com a liberação do recurso. Isso é crucial para interoperabilidade e gerenciamento de recursos que não são apenas memória alocada com ~new~.
+
+Um exemplo clássico é a interação com APIs C, como a ~FILE*~ da stdio.
+
+#+begin_src cpp
+#include <cstdio>
+#include <memory>
+
+// Um deleter customizado para fechar um FILE* usando fclose.
+struct FileCloser {
+    void operator()(FILE* f) const {
+        if (f) {
+            fclose(f);
+            // std::puts("Arquivo fechado."); // Para depuração
+        }
+    }
+};
+
+// Usando um alias para clareza.
+using UniqueFilePtr = std::unique_ptr<FILE, FileCloser>;
+
+void process_file(const char* filename) {
+    // O recurso (handle do arquivo) é adquirido e a posse é imediatamente
+    // entregue ao smart pointer com o deleter correto.
+    UniqueFilePtr file_ptr(fopen(filename, "r"));
+
+    if (!file_ptr) {
+        // Se fopen falhar, file_ptr será nulo.
+        return;
+    }
+
+    // Use o arquivo...
+    // Se qualquer exceção ocorrer ou a função retornar, o destrutor de
+    // UniqueFilePtr será chamado, que por sua vez invocará FileCloser,
+    // garantindo que fclose(f) seja executado. Não há vazamento de recurso.
+}
+#+end_src
+
+A beleza desta abordagem é que o tipo do deleter faz parte do tipo do ~unique_ptr~ (~std::unique_ptr<T, Deleter>~). Se o deleter for um tipo sem estado (como uma lambda sem captura ou um functor vazio como FileCloser), o compilador pode aplicar a "Empty Base Optimization" (EBO). O resultado é que o ~sizeof(std::unique_ptr<FILE, FileCloser>)~ é o mesmo que ~sizeof(FILE*)~. A abstração permanece de custo zero em termos de memória.
+
+** 63.2 std::shared_ptr: O Custo Explícito da Posse Compartilhada
+
+Ao contrário do ~unique_ptr~, o ~std::shared_ptr~ *não* é uma abstração de custo zero. Usá-lo implica uma sobrecarga deliberada em troca de uma funcionalidade poderosa: a posse compartilhada. Como enfatizado por Herb Sutter e Andrei Alexandrescu em "C++ Coding Standards", shared_ptr deve ser usado apenas quando a semântica de posse compartilhada é realmente necessária.
+
+A sobrecarga vem da necessidade de um *bloco de controle (control block)*. Este é um segundo bloco de memória, alocado no heap, que gerencia o estado da posse compartilhada. Um ~std::shared_ptr~ é, na verdade, um objeto que contém dois ponteiros:
+
+  1.  Um ponteiro para o objeto gerenciado (~T*~).
+  2.  Um ponteiro para o bloco de controle.
+
+O bloco de controle contém, no mínimo:
+
+   - A *contagem de referências fortes (strong reference count)*: o número de ~shared_ptrs~ que atualmente possuem o objeto.
+   - A *contagem de referências fracas (weak reference count)*: o número de ~std::weak_ptrs~ que observam o objeto.
+
+*Os Custos Detalhados*:
+
+    1. *Sobrecarga de Memória*: Um ~shared_ptr~ tem o dobro do tamanho de um ponteiro cru.
+    2. *Sobrecarga de Alocação*: Uma construção ingênua como ~std::shared_ptr<T>(new T())~ resulta em duas alocações de heap: uma para o T e outra para o bloco de controle. Alocações de heap são lentas, e duas são piores que uma.
+    3. *Sobrecarga Atômica*: A contagem de referências deve ser segura para uso em ambientes com múltiplas threads. Portanto, suas operações de incremento e decremento são *atômicas*. Operações atômicas, como apontado por especialistas em performance como Agner Fog, são significativamente mais lentas que operações normais, pois requerem "memory fences" para sincronizar o estado entre os caches dos núcleos da CPU.
+
+*Além do Óbvio 2*: ~std::make_shared~
+
+Para mitigar o custo da dupla alocação, a biblioteca padrão oferece ~std::make_shared<T>(...)~. Esta função realiza uma *única alocação de heap*, grande o suficiente para conter tanto o bloco de controle quanto o objeto ~T~ em si, de forma contígua.
+
+*Vantagens*:
+
+    - *Performance*: Uma alocação é muito mais rápida que duas.
+    - *Localidade de Cache*: Como o bloco de controle e o objeto estão próximos na memória, há uma chance maior de que, ao acessar um, o outro também seja carregado na mesma cache line, melhorando o desempenho (um conceito explorado em profundidade por Kurt Guntheroth em "Optimized C++").
+
+*A Armadilha* do ~make_shared~: Há uma desvantagem sutil. Como o objeto e o bloco de controle vivem no mesmo bloco de memória, a memória só pode ser liberada quando ambos os contadores (forte e fraco) chegam a zero. Se todos os ~shared_ptrs~ forem destruídos, mas ainda existir um ~weak_ptr~ observando o objeto, o contador forte será zero, o destrutor do objeto ~T~ será chamado, mas a memória do bloco inteiro permanecerá alocada até que o último ~weak_ptr~ seja destruído. Isso pode manter a memória "viva" por mais tempo do que o esperado.
+
+** 63.3 std::weak_ptr: O Observador Seguro
+
+O papel óbvio do ~std::weak_ptr~ é quebrar ciclos de referência em estruturas de dados (ex: um nó de árvore que aponta para seu pai). Se ambos os ponteiros (parent->child e child->parent) fossem ~shared_ptrs~, eles criariam um ciclo que impediria a destruição de ambos, resultando em um vazamento. Usar um ~weak_ptr~ para o ponteiro "para trás" quebra o ciclo.
+
+*Além do Óbvio 3: Gerenciando o Tempo de Vida em Sistemas Assíncronos*
+
+Um uso mais avançado e poderoso do ~weak_ptr~ é para observar objetos com segurança em sistemas assíncronos ou orientados a eventos. Imagine uma operação de rede que é iniciada e, quando concluída, executa uma função de callback que precisa acessar o objeto Session que a iniciou.
+
+*O Problema*: Entre o início e o fim da operação, o usuário pode ter fechado a sessão. O objeto Session foi destruído. Se o callback capturar um ponteiro cru ou um ~shared_ptr~, ele pode se deparar com um ponteiro pendente ou manter o objeto vivo artificialmente.
+
+*A Solução* ~weak_ptr~:
+
+#+begin_src cpp
+class Session : public std::enable_shared_from_this<Session> {
+public:
+    void start_async_operation() {
+        // Cria um weak_ptr para si mesmo.
+        std::weak_ptr<Session> weak_self = shared_from_this();
+
+        // O callback captura o weak_ptr.
+        network_library::async_read([weak_self](Data data) {
+            // Ao ser executado, tenta "travar" o weak_ptr.
+            if (auto shared_self = weak_self.lock()) {
+                // Sucesso! O objeto Session ainda existe.
+                // 'shared_self' é um shared_ptr que garante que o objeto
+                // permanecerá vivo durante a execução deste callback.
+                shared_self->process_data(data);
+            } else {
+                // O objeto Session foi destruído. Não faz nada.
+            }
+        });
+    }
+    // ...
+};
+#+end_src
+
+O método ~lock()~ tenta atomicamente converter o ~weak_ptr~ em um ~shared_ptr~. Se for bem-sucedido, significa que o objeto ainda existe, e o shared_ptr retornado garante sua existência pelo menos até o final do escopo do callback. Se falhar, ele retorna um shared_ptr nulo, sinalizando que o objeto foi destruído. Este padrão é a maneira canônica e robusta de lidar com tempos de vida de objetos em código concorrente e assíncrono.
+
+** Conclusão
+
+Smart pointers são muito mais do que simples substitutos para new e delete. ~unique_ptr~ é uma prova do princípio de abstração de custo zero do C++, oferecendo segurança com a mesma performance do código C de baixo nível, e sua flexibilidade com custom deleters o torna uma ferramenta versátil de gerenciamento de recursos. ~shared_ptr~ oferece uma semântica poderosa, mas seu custo em alocações e sincronização atômica deve ser compreendido e mitigado com ~make_shared~. ~weak_ptr~, por sua vez, evolui de uma simples ferramenta para quebrar ciclos para um mecanismo sofisticado e indispensável para a programação assíncrona segura. Dominar essas nuances é essencial para escrever código C++ moderno que seja ao mesmo tempo seguro, expressivo e performático.
+
+** Leitura complementar
+
+[[../antigos/capitulo_8.org][Indireção e Memória — Uma Análise de Ponteiros]]
+
+[[../antigos/capitulo_9.org][A Arquitetura da Memória e o Gerenciamento Dinâmico]]
+
+[[../antigos/capitulo_10_errado.org][Gerenciamento de Recursos como um Princípio — Ponteiros Inteligentes e a Semântica de Posse]]
+
+[[../antigos/capitulo_10.org][Posse Exclusiva e Gerenciamento de Recursos — Uma Análise de std::unique_ptr]]
+
+[[../antigos/capitulo_11.org][Posse Compartilhada e o Ciclo de Vida Colaborativo — std::shared_ptr]]
+
+[[../antigos/capitulo_12.org][Observação Não-Proprietária e a Quebra de Ciclos de Referência — std::weak_ptr]]
+
+[[../antigos/capitulo_13.org][Manipulação de Tipos e Auto-Referência em Posse Compartilhada]]

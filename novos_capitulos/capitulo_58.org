@@ -1,0 +1,113 @@
+* Capítulo 58: Testabilidade em arquiteturas grandes
+
+A testabilidade não é uma atividade que ocorre após a escrita do código; é uma característica fundamental da arquitetura, projetada desde o início. Em um sistema de larga escala, a capacidade de verificar o comportamento de um componente de forma rápida, confiável e isolada é o que separa um projeto sustentável de um que se afoga em regressões e bugs imprevisíveis. Uma arquitetura testável é, por definição, uma arquitetura de baixo acoplamento e alta coesão.
+
+O objetivo da testabilidade é permitir a criação de testes de unidade (unit tests) eficazes. Um teste de unidade verifica uma pequena "unidade" de software (uma classe, uma função) em completo isolamento do resto do sistema. Ele deve ser rápido, determinístico e não depender de fatores externos como rede, banco de dados ou sistema de arquivos.
+
+** 58.1 O Inimigo: Código Intestável
+
+Código intestável é o resultado natural de um design com alto acoplamento. Suas características são fáceis de identificar:
+
+   * *Dependências Concretas e Ocultas*: O código usa a palavra-chave new para instanciar suas dependências diretamente ou, pior, acessa Singletons globais.
+
+   #+begin_src  cpp
+    class OrderProcessor {
+    public:
+        OrderProcessor() {
+            // Dependência concretamente instanciada. Impossível de substituir em um teste.
+            db_connection_ = new OracleDatabaseConnection("user", "pass", "prod_db");
+        }
+        // ...
+    private:
+        OracleDatabaseConnection* db_connection_;
+    };
+   #+end_src
+   
+   * *Mistura de Lógica e I/O*: A mesma função que contém a lógica de negócio crucial também é responsável por ler um arquivo, fazer uma chamada de rede ou salvar no banco de dados. Isso torna impossível testar a lógica sem executar a operação de I/O, que é lenta e frágil.
+
+   * *Falta de Abstrações*: O código opera diretamente sobre tipos de bibliotecas de terceiros ou classes concretas, em vez de interfaces que abstraem essas dependências.
+
+Testar um código assim é doloroso. Os "testes" se tornam testes de integração lentos e frágeis, que exigem um ambiente de produção totalmente configurado para serem executados.
+
+** 58.2 O Pilar da Testabilidade: Inversão de Dependência
+
+Como vimos nos capítulos anteriores, o Princípio da Inversão de Dependência (DIP) é a chave para o baixo acoplamento e, consequentemente, para a testabilidade. Ele afirma que módulos de alto nível não devem depender de módulos de baixo nível; ambos devem depender de abstrações.
+
+A Injeção de Dependência (DI) é o mecanismo para realizar o DIP. Ao injetar as dependências de uma classe através de seu construtor, nós a preparamos para o teste.
+
+*Refatorando para a Testabilidade*:
+#+begin_src cpp
+// 1. A abstração
+class IDatabaseConnection { /* ... */ };
+
+// 2. A classe agora depende da abstração e a recebe via DI.
+class OrderProcessor {
+public:
+    explicit OrderProcessor(IDatabaseConnection& db_connection)
+        : db_connection_(db_connection) {}
+    // ...
+private:
+    IDatabaseConnection& db_connection_;
+};
+#+end_src
+
+Com essa mudança, a classe OrderProcessor se tornou testável.
+
+** 58.3 Test Doubles: Os Dublês do Mundo dos Testes
+
+Para testar uma unidade em isolamento, substituímos suas dependências reais por "dublês de teste" (Test Doubles). Existem vários tipos, mas os mais comuns são Fakes e Mocks.
+
+   * *Fake*: Uma implementação funcional, mas simplificada, da dependência. É útil quando a dependência precisa manter algum estado. Exemplo: um InMemoryDatabase que implementa IDatabaseConnection usando um std::map em vez de se conectar a um banco de dados real.
+
+   * *Mock*: Um objeto especial que não tem lógica própria, mas é configurado para esperar certas chamadas e verificar se elas ocorrem. Mocks são usados para testar interações. A pergunta que um mock responde não é "qual foi o resultado?", mas sim "a função X foi chamada com os parâmetros Y e Z?".
+
+Exemplo de Teste com um Mock (usando a sintaxe do Google Mock):
+
+#+begin_src cpp
+#include "gtest/gtest.h"
+#include "gmock/gmock.h"
+#include "order_processor.h"
+
+// 1. Criação de um Mock que implementa a interface.
+class MockDatabaseConnection : public IDatabaseConnection {
+public:
+    // MOCK_METHOD(retorno, nome_da_função, (argumentos), (especificadores));
+    MOCK_METHOD(void, executeQuery, (const std::string&), (override));
+};
+
+TEST(OrderProcessorTest, SalvaPedidoNoBancoDeDados) {
+    using ::testing::_; // Placeholder para qualquer argumento
+
+    // Arrange: Preparação
+    MockDatabaseConnection mock_db;
+    OrderProcessor processor(mock_db);
+
+    // Define a expectativa: esperamos que a função 'executeQuery' seja chamada
+    // exatamente uma vez com qualquer string como argumento.
+    EXPECT_CALL(mock_db, executeQuery(_)).Times(1);
+
+    // Act: Execução
+    processor.processAndSaveOrder(Order{/* ... */});
+
+    // Assert: A verificação é feita automaticamente pelo mock quando ele é destruído.
+    // Se a chamada esperada não ocorrer, o teste falhará.
+}
+#+end_src
+
+Este teste é extremamente rápido, totalmente isolado e verifica precisamente o contrato de interação entre OrderProcessor e sua dependência de banco de dados.
+
+** 58.4 Padrão Arquitetural: Humble Object
+
+O padrão Humble Object (Objeto Humilde) é uma técnica poderosa para isolar a lógica complexa de detalhes de implementação difíceis de testar (como uma GUI ou uma API de rede).
+
+A ideia é dividir uma classe em duas:
+
+    1. *O Objeto Humilde*: A parte que interage diretamente com o mundo exterior. Ele contém o mínimo de lógica possível, sendo "humilde" o suficiente para não precisar de testes de unidade. Sua única tarefa é pegar os dados brutos e passá-los para o Presenter/Controller.
+
+    2. *O Presenter/Controller/ViewModel*: A parte que contém toda a lógica de apresentação, formatação e decisão. Ele não sabe nada sobre a GUI ou a rede; ele opera em tipos de dados puros e é 100% testável.
+
+Em uma aplicação de GUI, a classe da Janela (o "humilde") apenas captura eventos de clique e lê texto de caixas de entrada. Ela então chama métodos no ViewModel (o testável), que processa os dados e atualiza seu estado. A Janela então simplesmente lê o estado do ViewModel e atualiza os widgets na tela. Toda a lógica complexa vive no ViewModel, que pode ser testado sem nunca criar uma janela.
+
+** Conclusão
+
+A testabilidade é a consequência natural de um bom design arquitetural. Um sistema projetado com componentes coesos e de baixo acoplamento, que se comunicam através de abstrações estáveis e utilizam injeção de dependência, é um sistema inerentemente testável. O esforço para projetar para a testabilidade não é um custo adicional; é um investimento que se paga exponencialmente ao longo da vida do projeto, resultando em maior qualidade, menos bugs, refatoração mais segura e uma base de código que os desenvolvedores podem modificar com confiança, e não com medo.

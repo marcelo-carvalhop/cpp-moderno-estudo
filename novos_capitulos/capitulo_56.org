@@ -1,0 +1,64 @@
+* Capítulo 56: Coesão e acoplamento em sistemas C++
+
+Coesão e acoplamento são as métricas fundamentais que usamos para avaliar a qualidade de um design modular. Elas não são específicas do C++, mas se manifestam de maneiras muito concretas na linguagem, desde a estrutura de uma classe até as dependências físicas entre bibliotecas. O mantra que guia a arquitetura de software de alta qualidade é direto e absoluto: maximizar a coesão e minimizar o acoplamento.
+
+    - *Coesão (Cohesion)*: A medida de quão relacionadas e focadas são as responsabilidades de um único módulo (uma classe, um componente). *Alta coesão* significa que o módulo faz uma coisa e a faz bem.
+
+    - *Acoplamento (Coupling)*: A medida do grau de interdependência entre módulos. *Baixo acoplamento* significa que uma mudança em um módulo tem pouco ou nenhum impacto em outros.
+
+** 56.1 Coesão: O Princípio da Responsabilidade Única em Escala
+
+A coesão é a aplicação do Princípio da Responsabilidade Única (SRP) em todos os níveis da arquitetura. Uma classe coesa tem um propósito claro. Um componente coeso oferece um conjunto de serviços logicamente inseparáveis.
+
+*Níveis de Coesão (do Pior ao Melhor)*:
+
+    1. *Coesão Coincidente (Pior)*: Os elementos de um módulo estão juntos sem nenhuma relação discernível. É o clássico módulo common/utils que contém ~calculate_pi()~, ~parse_xml()~ e ~format_date()~. Essas funções não têm nada em comum, exceto estarem no mesmo arquivo. Módulos assim se tornam um "ímã de dependências" e um pesadelo de manutenção.
+
+    2. *Coesão Lógica*: Os elementos estão juntos porque pertencem a uma categoria lógica de operações, mas são funcionalmente diferentes. Por exemplo, uma classe ~InputHandler~ que lida com entrada de mouse, teclado e joystick. O código cliente geralmente precisa passar um ~flag~ para dizer qual operação executar, o que é um sinal de acoplamento de controle.
+
+    3. *Coesão Temporal*: Os elementos estão juntos porque são executados na mesma fase do programa. Por exemplo, uma função ~startup()~ que inicializa o banco de dados, carrega a configuração e abre sockets de rede. Essas responsabilidades são distintas e deveriam pertencer a módulos diferentes.
+
+    4. *Coesão Comunicacional*: Os elementos estão juntos porque operam sobre os mesmos dados. Por exemplo, uma classe que recebe um ~array~ de números e possui métodos para calcular a média, a mediana e o desvio padrão. Isso é melhor, mas ainda pode indicar que a classe tem múltiplas responsabilidades (cálculo estatístico e gerenciamento de dados).
+
+    5. *Coesão Funcional (Ideal)*: Todos os elementos de um módulo contribuem para uma única e bem definida tarefa. Uma classe JsonParser onde cada método público e privado está diretamente relacionado à tarefa de analisar uma string JSON. Um componente renderer cujo único propósito é desenhar objetos na tela. Este é o objetivo.
+
+Um módulo com alta coesão é fácil de entender, testar e reutilizar.
+
+** 56.2 Acoplamento: A Medida da Interdependência
+
+Se a coesão é sobre o que acontece dentro de um módulo, o acoplamento é sobre as conexões entre módulos. O objetivo é tornar essas conexões o mais finas, explícitas e flexíveis possível.
+
+*Tipos de Acoplamento (do Pior ao Melhor)*:
+
+    1. *Acoplamento de Conteúdo (Pior)*: Um módulo modifica diretamente o estado interno de outro. Em C++, isso pode acontecer através de membros de dados públicos, uso inadequado de friend ou ~reinterpret_cast~ para subverter o sistema de tipos. Isso quebra completamente o encapsulamento e cria um sistema imprevisível.
+
+    2. *Acoplamento Comum*: Múltiplos módulos compartilham e dependem de um mesmo estado global (uma variável global, um Singleton). Uma mudança nesse estado por um módulo pode afetar todos os outros de maneiras difíceis de rastrear.
+
+    3. *Acoplamento de Controle*: Um módulo passa um flag para outro para ditar seu comportamento. Ex: ~calculate(data, use_fast_algorithm)~. O módulo chamador está acoplado ao conhecimento da lógica interna do módulo chamado. A solução é usar polimorfismo: passar uma estratégia (~FastAlgorithmStrategy~) em vez de um flag.
+
+    4. *Acoplamento de Carimbo (Stamp Coupling)*: Um módulo passa uma estrutura de dados complexa para outro, que por sua vez só usa uma pequena parte dela. Ex: passar um objeto Usuario com 50 campos para uma função que só precisa do email. Isso cria uma dependência desnecessária de toda a estrutura Usuario. A solução é passar apenas o que é necessário (~std::string_view email~).
+
+    5. *Acoplamento de Dados (Ideal)*: Módulos se comunicam passando dados através de parâmetros de função. As dependências são explícitas, visíveis e mínimas.
+
+Em C++, o acoplamento se manifesta tanto logicamente quanto fisicamente. Uma dependência lógica (~ProcessadorDePedidos~ usa um ~ILogger~) se traduz em uma dependência física (~#include "ilogger.h"~). Técnicas como *Injeção de Dependência, padrão pImpl* e o uso de *forward declarations* são as ferramentas que usamos para gerenciar e minimizar o acoplamento físico e lógico.
+
+** 56.3 A Relação de Equilíbrio
+
+Coesão e acoplamento estão em uma relação de equilíbrio. Frequentemente, o ato de aumentar a coesão de um módulo (dividindo uma classe grande em duas menores e mais focadas) requer a introdução de comunicação entre esses novos módulos, o que pode, se não for feito com cuidado, aumentar o acoplamento.
+
+A chave é gerenciar essa nova comunicação através de interfaces bem definidas.
+
+*Exemplo de Refatoração*:
+
+    - *Antes* : Uma classe monolítica GerenciadorDeRelatorios que busca dados do banco de dados, processa os dados e os formata em PDF. *Baixa coesão*.
+
+    - *Refatoração* : Dividir em três classes:
+        1. RepositorioDeDados (Coesão Funcional: apenas busca dados).
+        2. ProcessadorDeDados (Coesão Funcional: apenas processa).
+        3. FormatadorPDF (Coesão Funcional: apenas formata).
+
+    - *Resultado*: Agora, ~GerenciadorDeRelatorios~ se torna um orquestrador que coordena essas três novas classes. O acoplamento entre elas é gerenciado via injeção de dependência de interfaces (~IRepositorio~, ~IProcessador~, ~IFormatador~), resultando em *baixo acoplamento*. O design geral melhorou drasticamente.
+
+** Conclusão
+
+Alta coesão e baixo acoplamento não são apenas jargões acadêmicos; são os princípios norteadores do design de software sustentável. Eles nos forçam a criar componentes que são como blocos de LEGO: autocontidos, com um propósito claro (alta coesão) e com pontos de encaixe padronizados e bem definidos (baixo acoplamento). Um sistema construído sobre esses princípios é mais fácil de entender, mais seguro para modificar, mais simples de testar e mais capaz de evoluir ao longo do tempo sem entrar em colapso sob seu próprio peso.

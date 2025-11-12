@@ -1,0 +1,87 @@
+* Capítulo 59: Evolução de bibliotecas internas
+
+Em qualquer organização de software que sobrevive por mais de alguns anos, o desenvolvimento de bibliotecas internas é inevitável. Elas nascem da necessidade de compartilhar código comum, encapsular lógica de negócio central ou fornecer uma plataforma padronizada para as equipes de aplicação. Essas bibliotecas são os ativos mais valiosos e, ao mesmo tempo, os passivos mais perigosos de uma empresa. Sua evolução, se não for gerenciada com disciplina rigorosa, pode paralisar o desenvolvimento e introduzir instabilidade em todo o ecossistema de produtos.
+
+A evolução de uma biblioteca interna é um ato de equilíbrio entre adicionar novos recursos, corrigir bugs e, acima de tudo, *não quebrar seus clientes*.
+
+** 59.1 O Contrato Social da Biblioteca Interna
+
+Ao publicar a primeira versão de uma biblioteca, o autor estabelece um contrato social implícito com seus usuários (as outras equipes da empresa). Os usuários concordam em depender da biblioteca, e o autor concorda em fornecer uma plataforma estável. A violação desse contrato tem custos reais: horas de desenvolvimento perdidas, builds quebrados e atrasos em lançamentos de produtos.
+
+A principal diretriz é o *Princípio do Menor Espanto (Principle of Least Astonishment)*. Uma nova versão da biblioteca nunca deve surpreender seus usuários com mudanças que quebram a compilação ou, pior, o comportamento em tempo de execução.
+
+** 59.2 Estratégias para uma Evolução Segura
+
+A evolução segura de uma biblioteca depende das mesmas regras de versionamento de API que vimos no Capítulo
+57, mas aplicadas com um foco ainda maior na estabilidade, pois você tem controle sobre ambos os lados: a biblioteca e (muitas vezes) seus clientes.
+
+*1. Adoção Rigorosa do Versionamento Semântico (SemVer)*
+
+Esta é a base de tudo. Cada biblioteca deve ter uma versão clara no formato MAJOR.MINOR.PATCH.
+
+    - *PATCH (1.0.1)*: Apenas para correções de bugs que não alteram a API de forma alguma. Deve ser sempre seguro para qualquer cliente atualizar para uma nova versão de patch.
+    - *MINOR (1.1.0)*: Para adicionar nova funcionalidade de forma retrocompatível. Clientes existentes não quebram, mas podem optar por usar os novos recursos.
+    - *MAJOR (2.0.0)*: Para mudanças que quebram a compatibilidade (breaking changes). Esta deve ser uma decisão rara, planejada e muito bem comunicada.
+
+*2. Adicionar, Não Modificar*
+
+A regra de ouro para uma versão MINOR é: sempre prefira adicionar a modificar.
+
+    - *Adicione novas funções*: Se uma função existente precisa de um novo comportamento, crie uma nova sobrecarga ou uma função com um nome mais específico.
+
+      #+begin_src cpp
+      // v1.0
+      void process(Data& d);
+
+      // v1.1 - Adiciona uma nova sobrecarga
+      void process(Data& d, ProcessingFlags flags);
+      #+end_src
+    
+    - *Adicione novas classes*: Se uma classe precisa de uma grande reformulação, considere criar uma nova classe (~WidgetV2~) e manter a antiga por um tempo.
+
+    - *Nunca adicione funções virtuais a uma interface existente*: Como já discutido, isso quebra a ABI. Crie uma nova interface que herde da antiga (~IWidgetV2 : public IWidget~).
+
+*3. O Padrão "Deprecation" (Obsolescência Planejada)*
+
+Quando uma função ou classe precisa ser substituída, não a remova imediatamente. Marque-a como obsoleta. Isso dá aos clientes tempo para migrar.
+
+Em C++14, o atributo ~[[deprecated("motivo")]]~ foi padronizado para isso.
+
+#+begin_src cpp
+// Em uma versão futura, a função 'old_process' será removida.
+// O compilador agora emitirá um aviso sempre que ela for usada.
+[[deprecated("Use a nova sobrecarga process(Data&, ProcessingFlags) em vez desta.")]]
+void old_process(Data& d);
+#+end_src
+
+O processo de obsolescência deve seguir um ciclo de vida claro:
+
+    1. *Versão N*: Introduz a nova API e marca a antiga como ~[[deprecated]]~. 
+
+    2. *Versões N+1, N+2...*: A API antiga continua a funcionar, mas gera avisos de compilação. A equipe da biblioteca pode monitorar o uso da API obsoleta para ver quais equipes ainda não migraram.
+
+    3. *Versão MAJOR futura (ex: N+M)*: A API obsoleta é finalmente removida. Como esta é uma versão MAJOR, a quebra de compatibilidade é esperada e comunicada.
+
+** 59.3 O Desafio da Compatibilidade Binária (ABI)
+
+Em um ecossistema onde diferentes aplicações podem carregar dinamicamente diferentes versões de uma mesma biblioteca, a compatibilidade de ABI é crucial.
+
+    - *Use pImpl Agressivamente*: Para qualquer classe não trivial exposta pela biblioteca, o pImpl é a melhor defesa para garantir que mudanças internas não quebrem a ABI.
+
+    - *Exponha Apenas Interfaces Abstratas e Factories*: Uma estratégia robusta é expor apenas classes base abstratas (~IWidget~) e funções de fábrica (~std::unique_ptr<IWidget> createWidget()~). As classes concretas são mantidas como detalhes de implementação dentro da biblioteca. Isso minimiza a superfície de contato da ABI.
+
+    - *Cuidado com a STL*: Tipos da STL (como ~std::string~ ou ~std::vector~) não têm uma ABI estável garantida entre diferentes compiladores ou mesmo diferentes versões do mesmo compilador. Passar esses tipos através dos limites de uma DLL pode ser perigoso. Para APIs binárias verdadeiramente estáveis, muitos preferem usar tipos C puros ou interfaces que gerenciam a memória internamente.
+
+** 59.4 Cultura e Ferramentas
+
+Gerenciar a evolução de bibliotecas é tanto um problema cultural quanto técnico.
+
+    - *Comunicação Clara*: Mantenha um CHANGELOG.md detalhado para cada versão. Comunique as mudanças MAJOR com meses de antecedência, fornecendo guias de migração claros.
+
+    - *Testes de Integração Contínua*: Configure um sistema de CI que, sempre que uma nova versão de uma biblioteca é proposta, tenta compilar e executar os testes de todos os seus projetos clientes conhecidos. Isso detecta quebras de compatibilidade de API e de comportamento de forma automática.
+
+    - *Gerenciamento de Pacotes*: Use um gerenciador de pacotes (como Conan ou vcpkg) para controlar as versões das dependências de forma explícita. Isso evita o "inferno das dependências", onde diferentes aplicações acabam dependendo de versões conflitantes da mesma biblioteca.
+
+** Conclusão
+
+A evolução de bibliotecas internas é o coração pulsante de uma organização de engenharia madura. Requer uma abordagem disciplinada que valoriza a estabilidade acima da conveniência de curto prazo. Ao adotar o versionamento semântico, favorecer a adição em vez da modificação, planejar a obsolescência e investir em ferramentas de CI e gerenciamento de pacotes, podemos criar um ecossistema de software que evolui de forma segura e sustentável, permitindo que as equipes construam sobre uma base sólida, em vez de areia movediça.
