@@ -1,0 +1,109 @@
+* Capítulo 68: Vetorização e SIMD em C++
+
+A imagem tradicional de um processador é a de um trabalhador meticuloso que executa uma instrução de cada vez sobre um único dado (um modelo conhecido como SISD - Single Instruction, Single Data). As CPUs modernas, no entanto, são fundamentalmente diferentes. Elas são equipadas com unidades de hardware especializadas e registradores extremamente largos, projetados para aplicar a mesma operação a múltiplos dados de uma só vez. Este paradigma é conhecido como *SIMD (Single Instruction, Multiple Data)*.
+
+Para o programador C++, aproveitar o SIMD é uma das otimizações de desempenho mais impactantes possíveis. Não se trata de uma melhoria incremental; a vetorização pode acelerar loops de computação intensiva por um fator de 4, 8, 16 ou mais, dependendo da arquitetura. Ignorar o SIMD é deixar uma vasta quantidade de poder de computação do hardware intocada sobre a mesa.
+
+** 68.1 A Realidade do Hardware: SSE, AVX e NEON
+
+O SIMD não é um conceito abstrato; ele é implementado em conjuntos de instruções concretas, cujos nomes são familiares para qualquer um que já tenha olhado as especificações de uma CPU:
+
+    - *SSE (Streaming SIMD Extensions)*: Introduzido pela Intel, trouxe registradores de 128 bits (XMM0-XMM15), capazes de conter quatro floats de 32 bits, quatro ints de 32 bits, ou dezesseis chars de 8 bits.
+    - *AVX (Advanced Vector Extensions)*: Expandiu os registradores para 256 bits (YMM0-YMM15), dobrando a capacidade para oito floats.
+    - *AVX-512*: Expandiu novamente para registradores de 512 bits (ZMM0-ZMM31), capazes de processar dezesseis floats em uma única instrução.
+    - *NEON*: A arquitetura SIMD equivalente para processadores baseados em ARM (comuns em dispositivos móveis), que também opera sobre registradores de 128 bits.
+
+Uma instrução SIMD, como _mm256_add_ps (adicionar 8 floats empacotados), diz à CPU: "pegue os oito floats no registrador YMM1, some-os aos oito floats no registrador YMM2 e coloque os oito resultados no registrador YMM0". Uma única instrução realiza oito operações, daí o ganho de desempenho massivo.
+
+** 68.2 O Santo Graal: Auto-Vetorização
+
+Escrever código SIMD manualmente usando "intrinsics" (o tópico do próximo capítulo) é complexo e pouco portável. Felizmente, os compiladores modernos são incrivelmente bons em uma otimização chamada *auto-vetorização*. O compilador analisa o código C++ escalar (normal) e, quando possível, o traduz automaticamente em instruções SIMD.
+
+Nosso trabalho como programadores de alto desempenho é escrever código que ajude o compilador a realizar essa transformação. O compilador não é mágico; ele só pode vetorizar loops que atendem a um conjunto estrito de critérios:
+
+    1. *Loops Contáveis e Simples*: O loop deve ser um ~for~ loop simples, com um número de iterações que possa ser determinado antes do início do loop. Loops ~while~ ou loops com condições de saída complexas geralmente não são vetorizáveis.
+
+    2. *Ausência de Dependências de Dados entre Iterações*: Esta é a restrição mais importante. O cálculo de uma iteração não pode depender do resultado de uma iteração anterior.
+        - *Vetorizável*: ~a[i] = b[i] + c[i];~ (O cálculo para ~i=5~ não depende do resultado de ~i=4~).
+        - *Não Vetorizável*: ~a[i] = a[i-1] + b[i];~ (O cálculo para ~i=5~ precisa do resultado de ~a[4]~, que por sua vez precisa de ~a[3]~, etc. Isso é inerentemente sequencial).
+
+    3. *Acesso Contíguo à Memória*: O loop deve acessar a memória de forma linear e previsível. Este é o ponto onde o capítulo anterior sobre estruturas cache-friendly se torna transformador. O layout *Struct of Arrays (SoA)* é o melhor amigo do auto-vetorizador.
+
+*Exemplo: Por que SoA Vetoriza Bem*
+#+begin_src cpp
+// Layout AoS (Array of Structs) - Ruim para vetorização
+struct Vec3 { float x, y, z; };
+std::vector<Vec3> pos, vel;
+// Loop: pos[i].x += vel[i].x * dt;
+// Os dados 'x' estão espalhados na memória (stride de 12 bytes),
+// tornando difícil para o compilador carregá-los em um registrador SIMD.
+
+// Layout SoA (Struct of Arrays) - Perfeito para vetorização
+struct Positions { std::vector<float> x, y, z; };
+struct Velocities { std::vector<float> x, y, z; };
+Positions pos;
+Velocities vel;
+
+// Loop:
+for (size_t i = 0; i < N; ++i) {
+    pos.x[i] += vel.x[i] * dt;
+}
+#+end_src
+
+Neste loop SoA, ~pos.x~ e ~vel.x~ são arrays contíguos. O compilador pode facilmente gerar código para:
+
+    1. Carregar 8 floats de ~vel.x~ para um registrador YMM.
+
+    2. Multiplicá-los por ~dt~ (broadcast para 8 posições).
+
+    3. Carregar 8 floats de ~pos.x~ para outro registrador YMM.
+
+    4. Somar os dois registradores.
+
+    5. Armazenar o resultado de volta em pos.x.
+       O compilador transformou um loop escalar em um punhado de instruções vetoriais.
+
+    6. *Ausência de Ponteiros com Aliasing*: Se o compilador não puder provar que dois ponteiros dentro de um loop não apontam para a mesma região de memória (ou para regiões sobrepostas), ele não pode vetorizar. O "aliasing" de ponteiros o força a assumir uma postura conservadora e gerar código sequencial.
+
+** 68.3 Ajudando o Compilador a Ajudar Você
+
+Às vezes, o compilador precisa de uma dica.
+
+~restrict~: Embora não seja padrão em C++, a maioria dos compiladores suporta ~__restrict~ (ou ~__restrict__~) como uma extensão. É uma promessa que você faz ao compilador: "Eu garanto que a memória acessada através deste ponteiro não será acessada através de nenhum outro ponteiro neste escopo".
+
+#+begin_src cpp
+// O compilador pode não saber se 'a' e 'b' se sobrepõem.
+void add_arrays(float* a, float* b, int n) {
+    for (int i = 0; i < n; ++i) a[i] += b[i];
+}
+
+// Com restrict, fazemos uma promessa.
+void add_arrays_restrict(float* __restrict a, float* __restrict b, int n) {
+    // O compilador agora sabe que pode carregar e armazenar dados de 'a' e 'b'
+    // sem se preocupar com a sobreposição, permitindo a vetorização.
+}
+#+end_src
+
+*Pragmas*: Você pode forçar a mão do compilador com pragmas.
+~#pragma omp simd~ (do padrão OpenMP) ou ~#pragma clang loop vectorize(enable)~ instruem o compilador a vetorizar o loop seguinte, assumindo que as dependências de dados foram resolvidas pelo programador.
+
+** 68.4 Verificando a Vetorização
+
+Como você sabe se o seu loop foi vetorizado? Confiar cegamente no compilador não é uma estratégia. Você deve pedir a ele um relatório.
+
+    - *GCC/Clang*: Use o flag ~-fopt-info-vec~ (ou ~-fopt-info-vec-all~). Ele irá imprimir no console quais loops foram vetorizados e, mais importante, por que outros loops não foram ("loop not vectorized: unsafe dependent memory access", por exemplo).
+    - *MSVC*: Use ~/Qvec-report:2~.
+
+Analisar essa saída é uma habilidade essencial. Ela fornece um feedback direto sobre como o compilador está interpretando seu código e o que você precisa mudar para habilitar a otimização.
+
+** Conclusão
+
+A vetorização SIMD não é uma otimização opcional; é uma parte fundamental da programação de alto desempenho em hardware moderno. A chave para desbloqueá-la não está em truques de baixo nível, mas em um design de dados limpo e consciente do hardware. Ao organizar seus dados em layouts contíguos (SoA) e escrever loops simples e sem dependências, você permite que o compilador faça seu trabalho mais importante: mapear seu código C++ de alto nível para as poderosas instruções vetoriais que o silício oferece. O resultado é um código que não é apenas mais rápido, mas que utiliza a CPU da maneira como ela foi projetada para ser usada.
+
+** Leituras de Referência:
+
+- Agner Fog - "Optimizing Software in C++": O Capítulo 12, "Optimizing with vector operations", é uma introdução abrangente ao SIMD e às técnicas de auto-vetorização.
+
+- Intel Intrinsics Guide: Uma ferramenta online interativa indispensável que documenta cada instrução SIMD, servindo como referência para o próximo capítulo.
+
+- Manuais de Otimização de Compiladores (GCC, Clang, MSVC): A documentação do seu compilador explicará em detalhes os flags para controlar e relatar a auto-vetorização.

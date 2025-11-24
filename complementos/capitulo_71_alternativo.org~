@@ -1,0 +1,84 @@
+* Capítulo 71: Inline assembly moderno
+
+Chegamos à fronteira final, o ponto de encontro mais íntimo e perigoso entre o C++ e o silício: o *inline assembly*. Este mecanismo nos permite contornar completamente o compilador e escrever instruções de máquina diretamente em nosso código-fonte. É o equivalente a abrir o capô de um carro de Fórmula 1 com o motor ligado e começar a ajustar as peças manualmente. É uma demonstração de poder absoluto sobre o hardware, mas um poder que, se mal utilizado, pode causar danos catastróficos, não apenas ao desempenho, mas à correção do programa.
+
+Na programação moderna, o inline assembly não é uma ferramenta de otimização de propósito geral. É uma ferramenta de acesso. Seu propósito não é, na maioria das vezes, escrever um loop mais rápido — para isso, temos os intrinsics (Capítulo 69) —, mas sim executar instruções específicas da CPU que não têm representação na linguagem C++ ou em qualquer biblioteca padrão.
+
+** 70.1 Por Que Abrir a Caixa-Preta?
+
+O compilador é nosso maior aliado na otimização. Ele analisa nosso código, entende nossa intenção e o traduz para um assembly eficiente, reordenando instruções e gerenciando registradores de forma muito mais inteligente do que a maioria dos humanos conseguiria. Um bloco de inline assembly é uma caixa-preta para o compilador. Ele não consegue olhar para dentro, não consegue otimizá-lo e, pior, ele é forçado a descartar muitas de suas suposições sobre o estado do programa ao redor do bloco.
+
+Então, por que alguém faria isso? Apenas quando precisamos que a CPU faça algo que a linguagem C++ simplesmente não sabe como pedir.
+
+    Interrogar a CPU: Precisamos perguntar à CPU quem ela é e do que é capaz. A instrução CPUID é a forma canônica de fazer isso. Ela retorna informações como o nome do fabricante, a família do processador e, crucialmente, quais conjuntos de instruções (SSE, AVX2, AVX-512) ela suporta. Isso permite que nosso programa escolha dinamicamente o caminho de código mais otimizado para o hardware em que está sendo executado.
+    Medição de Tempo de Altíssima Precisão: A instrução RDTSC (Read Time-Stamp Counter) lê um contador interno da CPU que é incrementado a cada ciclo de clock. É a forma mais granular de medir o tempo, essencial para benchmarking de baixo nível e profiling de trechos de código minúsculos.
+    Interface de Baixo Nível: Em programação de sistemas operacionais ou drivers, pode ser necessário invocar uma chamada de sistema diretamente através da instrução syscall ou interagir com portas de hardware, tarefas que estão muito abaixo do nível de abstração do C++.
+
+Em todos esses casos, não estamos tentando ser mais espertos que o compilador em um cálculo. Estamos executando uma instrução que tem um efeito colateral específico e conhecido no hardware, um efeito que está fora do escopo da linguagem C++.
+70.2 O Contrato com o Compilador: A Sintaxe do GCC/Clang
+
+A sintaxe de inline assembly do GCC e do Clang é notoriamente complexa, mas por uma boa razão. Ela não é apenas um lugar para despejar código de máquina; é um contrato detalhado onde descrevemos ao compilador exatamente o que nosso código faz, o que ele precisa e o que ele bagunça.
+
+asm volatile ("código" : saídas : entradas : clobbers);
+
+Vamos dissecar este contrato:
+
+    asm volatile: A palavra volatile é um comando imperativo. Ela diz ao compilador: "Este bloco é importante. Não o remova, mesmo que pareça não ter efeito. Não o mova de lugar. Execute-o exatamente onde eu o coloquei." Sem isso, o compilador poderia otimizar seu assembly até ele desaparecer.
+    "código": Uma string com as instruções de máquina, usando a sintaxe AT&T (ex: mov %eax, %ebx). Cada instrução é geralmente terminada com \n\t para formatação.
+    saídas: Aqui, listamos as variáveis C++ que nosso assembly irá preencher. Para cada variável, fornecemos uma "restrição" que diz ao compilador como o valor será retornado. Por exemplo, "=a"(minha_var) diz: "Após a execução, o valor para minha_var estará no registrador EAX (a). Por favor, pegue-o de lá." O = indica que é uma saída.
+    entradas: Aqui, listamos as variáveis C++ que nosso assembly precisa ler.  "a"(meu_input) diz: "Antes de executar, por favor, coloque o valor de meu_input no registrador EAX (a) para que meu código possa usá-lo."
+    clobbers (Registradores Esmagados): Esta é a cláusula de honestidade e a mais crítica para a segurança. Aqui, confessamos ao compilador todos os registradores que nosso código modifica, mas que não são saídas formais. Se usarmos o registrador %ecx como um rascunho, devemos listar "ecx" aqui. Isso força o compilador a salvar qualquer valor importante que ele possa ter naquele registrador antes do nosso bloco asm e restaurá-lo depois. Se nosso código lê ou escreve na memória de maneiras que o compilador não pode prever, devemos listar "memory". Falhar em listar um "clobber" é a causa mais comum de bugs horríveis com inline assembly.
+
+Exemplo Prático: CPUID
+
+cpp
+
+Copy
+#include <cstdint>
+
+void get_cpu_vendor(char* vendor_string) {
+    uint32_t eax, ebx, ecx, edx;
+    eax = 0; // Para obter a string do fabricante, EAX deve ser 0.
+
+    asm volatile(
+        "cpuid"
+        // Saídas: O resultado de cpuid é colocado em eax, ebx, ecx, edx.
+        // Dizemos ao compilador para colocar esses valores em nossas variáveis.
+        : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
+        // Entradas: O valor inicial de 'eax' é necessário como entrada.
+        : "a"(eax)
+        // Clobbers: Não estamos usando outros registradores, então a lista está vazia.
+    );
+
+    // A string do fabricante é retornada em EBX, EDX, ECX (nessa ordem).
+    ((uint32_t*)vendor_string)[0] = ebx;
+    ((uint32_t*)vendor_string)[1] = edx;
+    ((uint32_t*)vendor_string)[2] = ecx;
+}
+
+Este código é um diálogo. Nós preparamos a entrada, pedimos ao compilador para colocá-la no lugar certo, executamos a instrução e depois dizemos ao compilador onde encontrar os resultados.
+70.3 A Abordagem do MSVC: Confiança Implícita
+
+O compilador da Microsoft (MSVC) usa uma sintaxe mais simples, que se parece mais com um bloco de código C++.
+
+__asm { instrução }
+
+Dentro do bloco __asm, você pode escrever instruções na sintaxe Intel (mov ebx, eax) e referenciar variáveis C++ diretamente por nome. O compilador tenta descobrir automaticamente quais registradores salvar e restaurar.
+
+Isso é mais fácil de escrever, mas a falta de um contrato explícito é uma faca de dois gumes. O compilador pode fazer suposições erradas sobre o que seu código faz, levando a bugs sutis. É uma abordagem baseada na confiança, enquanto a do GCC/Clang é baseada na verificação explícita. Vale notar que, para a maioria dos casos de uso comuns como CPUID, o MSVC fornece intrinsics (ex: __cpuidex), tornando o inline assembly manual desnecessário e obsoleto.
+
+71.4 O Preço do Poder
+
+Usar inline assembly tem um custo de desempenho oculto. O bloco asm atua como uma barreira de otimização impenetrável.
+
+    O compilador não pode mover código para dentro ou para fora do bloco.
+    Variáveis que estavam convenientemente em registradores antes do bloco asm podem precisar ser salvas na memória (um "spill") e recarregadas depois.
+    O agendamento de instruções, uma das otimizações mais importantes da CPU, é interrompido.
+
+Por essas razões, um bloco de inline assembly pode, paradoxalmente, tornar o código ao seu redor mais lento, mesmo que as instruções dentro dele sejam rápidas.
+
+Conclusão
+
+O inline assembly é a ferramenta do artesão mestre, não do aprendiz. É o último recurso quando a linguagem e suas bibliotecas se mostram insuficientes para expressar uma interação necessária com o hardware. Ele exige um profundo entendimento da arquitetura da CPU, das convenções de chamada do compilador e uma disciplina rigorosa para descrever seus efeitos colaterais.
+
+A regra moderna é clara: sempre prefira uma solução em C++ puro. Se não for possível, procure por um intrinsic fornecido pelo compilador. Se, e somente se, não houver um intrinsic para a instrução de máquina que você absolutamente precisa executar, então, com extremo cuidado e documentação abundante, você pode desembainhar a lâmina do inline assembly.

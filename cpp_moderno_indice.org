@@ -370,15 +370,26 @@ Palestras de John Lakos em CppCon.
 [[./novos_capitulos/capitulo_62.org][62. Ponteiros crus em ecossistema moderno]]
 
 [[./novos_capitulos/capitulo_63.org][63. Smart pointers além do óbvio]]
-64. Alocadores customizados em containers
-65. placement new e técnicas avançadas
-66. Alinhamento de memória e performance
-67. Estruturas cache-friendly
-68. Vetorização e SIMD em C++
-69. Intrinsics e otimizações manuais
-70. Inline assembly moderno
-71. Benchmarking sério em C++
-72. Profiling com ferramentas do compilador
+
+[[./novos_capitulos/capitulo_64.org][64. Alocadores customizados em containers]]
+
+[[./novos_capitulos/capitulo_65.org][65. placement new e técnicas avançadas]]
+
+[[./novos_capitulos/capitulo_66.org][66. Alinhamento de memória e performance]]
+
+[[./novos_capitulos/capitulo_67.org][67. Estruturas cache-friendly]]
+
+[[./novos_capitulos/capitulo_68.org][68. Vetorização e SIMD em C++]]
+
+[[./novos_capitulos/capitulo_69.org][69. Intrinsics e otimizações manuais]]
+
+[[./novos_capitulos/capitulo_70.org][70. Otimizações guiadas por perfil (PGO)]]
+
+[[./novos_capitulos/capitulo_71.org][71. Inline assembly moderno]]
+
+[[./novos_capitulos/capitulo_71.org][71. Benchmarking sério em C++]]
+
+[[./novos_capitulos/capitulo_72.org][72. Profiling com ferramentas do compilador]]
 73. Evitando regressões de performance
 74. Zero-cost abstractions na prática
 75. Filosofia da otimização extrema

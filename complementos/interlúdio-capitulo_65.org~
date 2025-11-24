@@ -1,0 +1,99 @@
+Interlúdio: Armazenamento Bruto e Alinhado com std::aligned_storage
+
+No capítulo anterior, estabelecemos o controle sobre o alinhamento de variáveis e tipos usando alignas. No capítulo 65, vimos como construir objetos em memória pré-alocada usando placement new. Uma questão natural surge da união desses dois conceitos: como podemos obter um bloco de memória bruta, na stack, com um tamanho e alinhamento específicos, sem de fato declarar um objeto?
+
+A resposta clássica da biblioteca padrão, disponível desde o C++11, é o type trait std::aligned_storage. Embora tenha sido preterido por uma sintaxe mais simples no C++23, entendê-lo é uma lição valiosa sobre o controle explícito do tempo de vida de objetos e o gerenciamento de memória de baixo nível.
+O Que é std::aligned_storage?
+
+Localizado no cabeçalho <type_traits>, std::aligned_storage é um template que não faz nada em tempo de execução. Seu único propósito é fornecer um tipo aninhado, ::type, que é uma struct trivial (sem construtores, destrutores ou membros virtuais) com duas garantias:
+
+    Ela tem um sizeof de no mínimo o tamanho solicitado.
+    Ela tem um requisito de alinhamento de no mínimo o alinhamento solicitado.
+
+Sua assinatura é:
+template <std::size_t Len, std::size_t Align = alignof( /* tipo mais alinhado possível */ )>
+
+O uso mais comum é para criar um buffer de bytes não inicializado que é perfeitamente adequado para conter um objeto de um tipo T específico:
+
+cpp
+
+Copy
+#include <type_traits>
+#include <string>
+
+// Cria um tipo 'buffer_type' que é um bloco de memória bruta
+// com o tamanho e o alinhamento exatos para um std::string.
+using buffer_type = std::aligned_storage<sizeof(std::string), alignof(std::string)>::type;
+
+void use_buffer() {
+    // 'string_buffer' é apenas um monte de bytes na stack. Nenhum construtor
+    // de std::string foi chamado. É memória não inicializada.
+    buffer_type string_buffer;
+
+    // Agora podemos usar placement new para construir um std::string aqui.
+    std::string* str_ptr = new (&string_buffer) std::string("Olá, buffer alinhado!");
+
+    // ... usar str_ptr ...
+
+    // E devemos chamar o destrutor manualmente.
+    str_ptr->~string();
+}
+
+Padrão de Uso: Implementando um "Maybe" Manual
+
+O std::aligned_storage é a base para a implementação de tipos que encapsulam a lógica de inicialização tardia ou condicional, como std::optional e std::variant. Ele permite que o objeto "wrapper" reserve o espaço de armazenamento sem construir o objeto contido até que seja explicitamente solicitado.
+
+Vamos construir uma versão simplificada de um optional, que chamaremos de Maybe, para ilustrar o padrão:
+
+cpp
+
+Copy
+#include <new>
+#include <utility>
+#include <type_traits>
+
+template <typename T>
+class Maybe {
+public:
+    Maybe() : has_value_(false) {}
+    ~Maybe() {
+        if (has_value_) {
+            destroy();
+        }
+    }
+
+    // Constrói o objeto no buffer com os argumentos fornecidos.
+    template <typename... Args>
+    void construct(Args&&... args) {
+        if (has_value_) destroy();
+        new (&storage_) T(std::forward<Args>(args)...);
+        has_value_ = true;
+    }
+
+    // Destrói o objeto contido.
+    void destroy() {
+        if (has_value_) {
+            get()->~T();
+            has_value_ = false;
+        }
+    }
+
+    T* get() { return reinterpret_cast<T*>(&storage_); }
+    const T* get() const { return reinterpret_cast<const T*>(&storage_); }
+
+private:
+    // O buffer de armazenamento bruto, perfeitamente dimensionado e alinhado.
+    typename std::aligned_storage<sizeof(T), alignof(T)>::type storage_;
+    bool has_value_;
+};
+
+Este exemplo encapsula todo o ciclo de vida manual: o Maybe gerencia a memória (storage_), decide quando construir o objeto (construct com placement new) e garante a destruição (destroy com chamada explícita ao destrutor), tudo isso enquanto o buffer de armazenamento reside eficientemente na stack.
+A Alternativa Moderna e a Relevância Contínua
+
+O C++23 formalmente depreciou std::aligned_storage. A razão é que a linguagem agora oferece uma maneira mais direta e legível de alcançar o mesmo resultado usando std::byte e alignas:
+
+alignas(T) std::byte buffer[sizeof(T)];
+
+Esta declaração é funcionalmente idêntica a usar std::aligned_storage<sizeof(T), alignof(T)>::type. Ela cria um array de bytes brutos na stack com o alinhamento e o tamanho corretos para um objeto T. É mais claro, não requer o uso de ::type e é a maneira preferida de escrever código novo.
+
+Apesar disso, entender std::aligned_storage permanece valioso. Primeiro, você o encontrará em bases de código C++11/14/17/20. Segundo, e mais importante, ele é um bloco de construção pedagógico que força o programador a pensar sobre a separação fundamental entre armazenamento e tempo de vida do objeto. Esse conceito é a base para a construção de estruturas de dados de alto desempenho, onde o controle manual sobre quando e onde os objetos são construídos é a chave para a otimização do cache, o tópico do nosso próximo capítulo.

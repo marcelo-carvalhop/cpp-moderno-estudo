@@ -1,0 +1,111 @@
+** Capítulo 71: Inline assembly moderno
+
+Chegamos à ferramenta de mais baixo nível e mais perigosa no arsenal do programador C++: o *inline assembly*. Este é o ponto onde abandonamos todas as abstrações e escrevemos instruções de máquina diretamente no nosso código-fonte. Usá-lo é um ato de desafio ao compilador, uma declaração de que, para este trecho de código específico e crítico, nós sabemos mais do que ele.
+
+É uma ferramenta de último recurso, raramente necessária e frequentemente mal utilizada. Na esmagadora maioria dos casos, intrinsics (Capítulo 69) são uma escolha superior, pois oferecem acesso a instruções SIMD de uma forma que o compilador ainda entende. O inline assembly, por outro lado, é uma caixa-preta opaca que pode aniquilar otimizações no código ao seu redor.
+
+** 71.1 Por Que e Quando? Os Casos de Uso Legítimos
+
+Se é tão perigoso, por que existe? Existem alguns cenários legítimos, embora raros:
+
+    1. *Acesso a Instruções Específicas da CPU*: Para instruções que não têm um intrinsic correspondente. Os exemplos mais clássicos são instruções de sistema ou de consulta de hardware:
+        - CPUID: Para obter informações sobre o processador (fabricante, família, modelo, recursos suportados como AVX, etc.).
+        - RDTSC / RDTSCP: Para ler o contador de carimbos de tempo (Time-Stamp Counter) da CPU, uma forma de medição de tempo de altíssima resolução (com suas próprias ressalvas).
+        - Instruções de barreira de memória (MFENCE, LFENCE, SFENCE) em código que implementa primitivas de sincronização lock-free muito específicas, embora *std::atomic* geralmente elimine essa necessidade.
+
+    2. *Interface com o Sistema Operacional ou Firmware*: Para invocar chamadas de sistema (~syscall~) diretamente ou interagir com o BIOS/UEFI em um nível muito baixo.
+
+    3. *Otimização Manual Extrema*: No cenário extremamente raro em que você, após profiling exaustivo, identificou um punhado de instruções como o gargalo absoluto do seu aplicativo e está convencido de que pode arranjar as instruções e alocar os registradores de forma mais eficiente do que o compilador. Isso é incrivelmente difícil de acertar e ainda mais difícil de manter.
+
+** 72.2 A Sintaxe: Um Contrato com o Compilador
+
+A sintaxe para inline assembly varia significativamente entre os compiladores.
+
+*GCC e Clang (Sintaxe AT&T)*
+A sintaxe do GCC/Clang é poderosa, mas complexa. Ela foi projetada para ser um "contrato" explícito com o otimizador.
+
+~asm volatile ("código" : saídas : entradas : clobbers);~
+
+    - ~asm~: A palavra-chave. ~__asm__~ também é usado.
+    - ~volatile~: Essencial. Impede que o compilador mova, combine ou remova o bloco ~asm~. Sem volatile, se o compilador não vir nenhuma saída sendo usada, ele pode simplesmente deletar seu código.
+    - "código"~:  Uma string literal contendo as instruções de assembly, geralmente usando a sintaxe AT&T (~ ~mov~ ~%eax~, ~%ebx~). As instruções são separadas por ~\n\t~.
+    - saídas: Uma lista de variáveis C++ que serão modificadas pelo seu assembly. Você especifica uma "restrição" (constraint) que diz ao compilador como a variável deve ser fornecida (ex: "=r" para "qualquer registrador de propósito geral para saída").
+    - entradas: Uma lista de variáveis C++ que seu assembly lerá. A sintaxe é semelhante (ex: "r" para "ler de qualquer registrador de propósito geral").
+    - clobbers: A parte mais crítica. É uma lista de registradores ou recursos que seu código modifica, mas que não são saídas formais. Se você usa o registrador ~%eax~ como um temporário, você deve listar ~"eax"~ aqui. Se seu código modifica a memória de forma imprevisível, você deve listar ~"memory"~. A cláusula clobber é o que força o compilador a salvar e restaurar o estado necessário ao redor do seu bloco asm.
+
+*Exemplo: CPUID com GCC/Clang*
+#+begin_src cpp
+Copy
+#include <cstdint>
+
+void cpuid(uint32_t reg, uint32_t& eax, uint32_t& ebx, uint32_t& ecx, uint32_t& edx) {
+    asm volatile(
+        "cpuid"
+        : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx) // Saídas
+        : "a"(reg)                                // Entrada (reg vai em EAX)
+        : "memory"                                // Clobbers (CPUID pode ter efeitos na memória)
+    );
+}
+#+end_src
+
+Neste exemplo, dizemos ao compilador: "coloque o valor de reg no registrador EAX ("a"), execute cpuid, depois pegue os valores resultantes dos registradores EAX, EBX, ECX, EDX e coloque-os nas minhas variáveis C++".
+
+*MSVC (Sintaxe Intel)*
+O compilador da Microsoft usa uma sintaxe mais simples, mas menos explícita, que se parece mais com um bloco de código.
+
+~__asm { código }~
+
+    - ~__asm~: A palavra-chave.
+    - ~{ código }~: Um bloco de instruções de assembly usando a sintaxe Intel (~mov ebx~, ~eax~).
+    - O compilador permite referenciar variáveis C++ diretamente por nome.
+    - O compilador tenta gerenciar a alocação de registradores e o salvamento/restauração de estado de forma mais automática, o que é mais fácil, mas lhe dá menos controle e pode ser menos eficiente se o compilador fizer suposições erradas.
+
+*Exemplo: ~CPUID~ com MSVC*
+#+begin_src cpp
+#include <cstdint>
+#include <intrin.h> // Para __cpuidex
+
+void cpuid_msvc(uint32_t reg, uint32_t& out_eax, /*...*/) {
+    // Nota: MSVC fornece um intrinsic para cpuid, tornando o asm manual desnecessário.
+    // Mas, para fins de ilustração, a sintaxe seria:
+    int regs[4];
+    __cpuidex(regs, reg, 0);
+    out_eax = regs[0];
+    // ...
+    
+    // Sintaxe __asm pura (mais antiga):
+    /*
+    __asm {
+        mov eax, reg
+        cpuid
+        mov out_eax, eax
+        mov out_ebx, ebx
+        // ...
+    }
+    */
+}
+#+end_src
+
+** 71.3 O Pacto Quebrado
+
+O maior perigo do inline assembly é que ele quebra o pacto com o compilador. O otimizador é construído sobre um modelo matemático do que o código faz. Um bloco asm é um buraco negro nesse modelo. O compilador não pode analisar, reordenar ou otimizar o código dentro do bloco. Pior ainda, ele tem que invalidar muitas de suas suposições sobre o estado do programa ao redor do bloco.
+
+A menos que você use as restrições e a lista de clobbers perfeitamente (no GCC/Clang), o compilador pode gerar código que entra em conflito com seu assembly, resultando em bugs sutis e horríveis. Por exemplo, se você modificar um registrador sem declará-lo como clobbered, o compilador pode ter armazenado um valor importante lá, que agora foi corrompido.
+
+** Conclusão
+
+O inline assembly é o poder absoluto sobre a CPU, e o poder absoluto corrompe absolutamente as otimizações do compilador se não for usado com precisão cirúrgica. É uma relíquia de uma era anterior, mas que ainda tem um lugar minúsculo e bem definido na programação de sistemas modernos.
+
+Antes de sequer considerar o inline assembly:
+
+    1. Tente escrever código C++ idiomático e claro e deixe o auto-vetorizador fazer seu trabalho.
+
+    2. Se isso falhar, use intrinsics específicos da plataforma.
+
+    3. Se os intrinsics não expõem a instrução que você precisa (como CPUID), e somente então, considere o inline assembly.
+
+Trate-o como material radioativo: use a menor quantidade possível, isole-o atrás de uma interface segura e documente extensivamente por que ele é absolutamente necessário.
+
+** Leituras Complementares
+
+- [[../complementos/capitulo_71_alternativo.org][Capítulo 71 alterantivo]]

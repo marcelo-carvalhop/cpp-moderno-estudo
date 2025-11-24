@@ -1,0 +1,99 @@
+* Capítulo 72: Benchmarking sério em C++
+
+"Meu código ficou mais rápido?" Esta é a pergunta fundamental que impulsiona todo o esforço de otimização. No entanto, respondê-la de forma confiável é uma das tarefas mais traiçoeiras na programação de desempenho. Um benchmarking ingênuo não é apenas inútil; ele é perigoso. Ele pode levá-lo a conclusões erradas, fazendo com que você invista tempo em otimizações falsas ou, pior, reverta alterações que na verdade melhoraram o desempenho.
+
+Benchmarking sério é uma disciplina científica. Requer rigor, ceticismo e uma compreensão profunda das forças invisíveis — tanto no software quanto no hardware — que podem invalidar seus resultados.
+
+** 72.1 O Inimigo Nº 1: O Compilador Otimizador
+
+O compilador é seu maior inimigo em um benchmark ingênuo. Seu único objetivo é produzir o código mais rápido possível, e isso inclui eliminar completamente qualquer código cujo resultado não seja usado.
+
+Considere este benchmark aparentemente razoável:
+
+#+begin_src cpp
+#include <chrono>
+
+void minha_funcao_rapida();
+
+int main() {
+    auto start = std::chrono::high_resolution_clock::now();
+    minha_funcao_rapida();
+    auto end = std::chrono::high_resolution_clock::now();
+    // ... imprimir a duração ...
+}
+#+end_src
+
+Se minha_funcao_rapida for simples e seu resultado não for usado em nenhum lugar, o compilador pode olhar para isso e pensar: "Este código não tem efeito observável. Vou removê-lo." Seu benchmark medirá então o tempo de duas chamadas de relógio, um valor próximo de zero, levando-o a acreditar que sua função é infinitamente rápida.
+
+*A Solução: Engane o Otimizador*
+Para evitar a eliminação de código morto (Dead Code Elimination), você precisa convencer o compilador de que o resultado do seu trabalho é importante. A maneira mais robusta de fazer isso é usar uma função "caixa-preta" que o compilador não pode otimizar. Bibliotecas de benchmarking como Google Benchmark e Catch2 fornecem funções como ~benchmark::DoNotOptimize~.
+
+#+begin_src cpp
+// Usando um artifício para impedir a otimização
+volatile int resultado_volatil; // volatile impede certas otimizações
+
+void benchmark_correto() {
+    auto resultado = minha_funcao_rapida();
+    resultado_volatil = resultado; // Força o compilador a calcular o resultado
+}
+#+end_src
+
+Ao atribuir o resultado a uma variável volatile ou passá-lo para uma função DoNotOptimize, você cria um efeito colateral observável que o compilador é obrigado a respeitar, forçando a execução do código que você deseja medir.
+
+** 72.2 O Ruído do Sistema e a Tirania da Média
+
+Seu computador não está executando apenas seu benchmark. O sistema operacional está agendando outras tarefas, tratando interrupções de hardware, movendo páginas de memória e realizando centenas de outras atividades em segundo plano. Cada uma dessas atividades introduz "ruído" em suas medições, fazendo com que algumas execuções sejam mais lentas que outras por razões que não têm nada a ver com seu código.
+
+Simplesmente executar o código uma vez é inútil. Executá-lo N vezes e tirar a média também é problemático. Uma única interrupção do sistema operacional durante uma das execuções pode inflar drasticamente a média, mascarando o verdadeiro desempenho do seu código.
+
+*A Solução: Múltiplas Amostras e Análise Estatística*
+Benchmarking sério trata cada medição como um ponto de dados em uma distribuição estatística.
+
+    1. *Execute o código muitas vezes em um loop interno*: Isso ajuda a "aquecer" os caches da CPU e amortizar a sobrecarga do próprio loop de medição.
+
+    2. *Colete múltiplas amostras*: Execute todo o loop de medição várias vezes, registrando o tempo de cada execução completa (a amostra). Você pode acabar com dezenas ou centenas de amostras.
+
+    3. *Analise a distribuição*: Em vez de focar na média, olhe para a mediana (o valor do meio, menos sensível a outliers) e o desvio padrão (quão espalhadas estão suas medições). Um desvio padrão alto é um sinal vermelho de que seu benchmark está instável e sofrendo com ruído.
+
+    4. *Compare distribuições, não números únicos*: Ao comparar a versão A com a versão B, você não está comparando dois números, mas duas distribuições de tempo. Ferramentas estatísticas podem dizer se a diferença entre as distribuições é estatisticamente significativa ou se poderia ter acontecido por acaso.
+
+** 72.3 Efeitos de Cache e Hardware
+
+O estado do hardware no início do seu benchmark tem um impacto profundo.
+
+    - *Cache Frio vs. Quente*: Na primeira execução, os caches da CPU estão "frios" — eles não contêm os dados ou as instruções de que seu código precisa, resultando em cache misses caros. Nas execuções subsequentes, os caches estão "quentes", e o desempenho pode ser muito maior. Qual você deve medir? Depende do que você quer simular. O desempenho de cache frio é relevante para a primeira vez que uma função é chamada; o desempenho de cache quente é relevante para loops de processamento intensivo.
+
+    - *Alinhamento e Layout de Memória*: A localização dos seus dados na memória pode afetar o desempenho. Executar o mesmo benchmark duas vezes pode resultar em alocações de memória em endereços diferentes, alterando o padrão de cache e o desempenho. É por isso que múltiplas amostras são cruciais para suavizar esses efeitos.
+
+    - *Throttling da CPU*: Se seu benchmark for longo e intensivo, ele pode aquecer a CPU a ponto de ela reduzir sua frequência (thermal throttling) para se proteger. Isso invalidará completamente as medições, pois a velocidade do "relógio" mudou no meio do teste. Monitore a temperatura e a frequência da CPU durante os benchmarks.
+
+** 72.4 Ferramentas do Ofício
+
+Não reinvente a roda. Escrever um framework de benchmarking robusto é extremamente difícil. Use as ferramentas que a comunidade construiu e aperfeiçoou ao longo de anos.
+
+    - *Google Benchmark*: O padrão ouro para microbenchmarks em C++. Ele lida automaticamente com muitos dos problemas discutidos: executa o código o número de vezes necessário para obter dados estáveis, impede a eliminação de código morto com benchmark::DoNotOptimize, relata estatísticas detalhadas e pode até detectar e relatar a instabilidade do sistema.
+
+    - *Catch2 / doctest*: Embora sejam primariamente frameworks de teste de unidade, eles incluem modos de microbenchmarking que são excelentes para integrar medições de desempenho diretamente em sua suíte de testes.
+
+Exemplo com Google Benchmark:
+#+begin_src cpp
+#include <benchmark/benchmark.h>
+
+static void BM_MinhaFuncao(benchmark::State& state) {
+  // Este loop é gerenciado pelo framework. Ele executa o corpo
+  // o número de vezes necessário para obter uma medição estável.
+  for (auto _ : state) {
+    // O resultado é passado para a função "caixa-preta" para
+    // garantir que o código não seja otimizado e eliminado.
+    benchmark::DoNotOptimize(minha_funcao_rapida());
+  }
+}
+// Registra a função para ser executada como um benchmark.
+BENCHMARK(BM_MinhaFuncao);
+
+BENCHMARK_MAIN();
+#+end_src
+
+** Conclusão
+
+Benchmarking é a bússola da otimização. Sem medições precisas e reproduzíveis, você está navegando às cegas. Trate cada benchmark como um experimento científico: controle as variáveis (versão do compilador, flags de otimização, hardware), entenda e mitigue as fontes de erro (ruído do sistema, otimizações do compilador, efeitos de cache) e use as ferramentas estatísticas corretas para interpretar os resultados. Somente com esse nível de rigor você pode afirmar com confiança que sua alteração realmente tornou o código mais rápido.

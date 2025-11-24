@@ -1,0 +1,132 @@
+* Capítulo 64: Alocadores customizados em containers
+
+O ~std::allocator~ é o parceiro silencioso de todo container padrão da STL. Quando você escreve ~std::vector<int> v;~, por baixo dos panos, um ~std::allocator<int>~ está sendo usado para gerenciar a memória do vetor. Ele é um invólucro (wrapper) em torno das chamadas globais ~::operator new~ e ~::operator delete~, fornecendo uma solução de alocação de propósito geral, robusta e segura para threads. Para 99% dos casos de uso, ele é a escolha correta.
+
+No entanto, a filosofia do C++ é fornecer abstrações de custo zero e, quando necessário, permitir que o programador quebre essas abstrações para obter controle total sobre o hardware. Os alocadores são um dos mecanismos mais poderosos para esse fim. Substituir o alocador padrão por uma implementação customizada é uma técnica avançada, mas indispensável em domínios onde o desempenho é levado ao extremo, o uso da memória deve ser rigorosamente controlado ou o hardware impõe restrições especiais.
+
+** 64.1 A Anatomia de um Alocador
+
+Para escrever um alocador customizado, é preciso primeiro entender o contrato que ele deve cumprir. Um alocador, para ser compatível com os containers da STL, deve satisfazer um conjunto de requisitos definidos pelo padrão C++. Embora os detalhes tenham evoluído (simplificando-se significativamente no C++17 e C++20), a essência permanece:
+
+Um alocador ~A~ para um tipo ~T~ deve fornecer, no mínimo:
+
+    - *Um tipo* ~value_type~: Definido como T.
+    - *Um método* ~allocate(size_t n)~: Aloca armazenamento bruto para n objetos do tipo ~T~, mas não constrói os objetos. Retorna um ~T*~ para o início da memória alocada.
+    - *Um método* ~deallocate(T* p, size_t n)~: Libera o armazenamento apontado por ~p~, que foi previamente alocado para n objetos. Não chama os destrutores dos objetos.
+    - *Operadores de igualdade* (~operator==~ e ~operator!=~): Permitem que um container determine se dois alocadores são intercambiáveis.
+
+Os containers usam o alocador em um processo de duas fases: primeiro, ~allocate~ para obter a memória bruta; segundo, "placement new" (que veremos no próximo capítulo) para construir os objetos nessa memória. A separação entre alocação e construção é o que permite otimizações como a pré-alocação de capacidade em um ~std::vector~.
+
+** 64.2 Caso de Uso 1: Performance Extrema com Arena/Pool Allocators
+
+As chamadas globais ~new~ e ~delete~ são lentas por design. Elas precisam ser de propósito geral, lidar com requisições de tamanhos variados e, crucialmente, ser seguras para threads, o que geralmente implica o uso de mutexes ou outras primitivas de sincronização que causam contenção em código multithreaded. Além disso, múltiplas alocações e desalocações de pequenos objetos podem levar à *fragmentação do heap*, degradando a localidade de dados e, consequentemente, o desempenho do cache.
+
+Um *Arena Allocator* (também conhecido como Pool Allocator ou Monotonic Allocator) resolve esses problemas de forma radical. A estratégia é:
+
+    1. Pré-alocar um grande bloco de memória contígua (a "arena") de uma só vez.
+    2. As chamadas subsequentes a ~allocate~ são atendidas simplesmente "empurrando" um ponteiro dentro dessa arena. Esta é uma operação extremamente rápida, muitas vezes apenas um incremento e uma verificação de limite, sem nenhuma chamada de sistema ou bloqueio.
+    3. A desalocação pode ser uma operação "no-op" (não faz nada), com toda a memória da arena sendo liberada de uma só vez quando a própria arena é destruída.
+
+*Exemplo Simplificado de um Arena Allocator*:
+#+begin_src cpp
+#include <vector>
+#include <memory>
+#include <cstddef>
+
+// A arena que gerencia o bloco de memória principal.
+class Arena {
+    static constexpr size_t ARENA_SIZE = 1024 * 1024; // 1MB
+    alignas(std::max_align_t) std::byte buffer_[ARENA_SIZE];
+    std::byte* ptr_ = buffer_;
+
+public:
+    void* allocate(size_t n_bytes, size_t align) {
+        // Alinha o ponteiro atual.
+        void* current_ptr = ptr_;
+        size_t space = ARENA_SIZE - (ptr_ - buffer_);
+        if (std::align(align, n_bytes, current_ptr, space)) {
+            ptr_ = static_cast<std::byte*>(current_ptr) + n_bytes;
+            return current_ptr;
+        }
+        throw std::bad_alloc();
+    }
+    void deallocate() { /* Geralmente no-op ou reset */ }
+    void reset() { ptr_ = buffer_; }
+};
+
+// O alocador compatível com a STL que usa a Arena.
+template <typename T>
+struct ArenaAllocator {
+    using value_type = T;
+    Arena* arena_; // Ponteiro para a arena compartilhada.
+
+    explicit ArenaAllocator(Arena& arena) : arena_(&arena) {}
+
+    template <typename U>
+    ArenaAllocator(const ArenaAllocator<U>& other) : arena_(other.arena_) {}
+
+    T* allocate(size_t n) {
+        return static_cast<T*>(arena_->allocate(n * sizeof(T), alignof(T)));
+    }
+
+    void deallocate(T* p, size_t n) {
+        // No-op na nossa estratégia simples. A arena gerencia a memória.
+        (void)p; (void)n;
+    }
+};
+
+template <typename T, typename U>
+bool operator==(const ArenaAllocator<T>& a, const ArenaAllocator<U>& b) {
+    return a.arena_ == b.arena_;
+}
+template <typename T, typename U>
+bool operator!=(const ArenaAllocator<T>& a, const ArenaAllocator<U>& b) {
+    return a.arena_ != b.arena_;
+}
+
+// Como usar:
+void run_with_arena() {
+    Arena my_arena;
+    // O tipo do vetor agora inclui o alocador.
+    std::vector<int, ArenaAllocator<int>> my_vector{ArenaAllocator<int>(my_arena)};
+
+    // Todas as alocações internas do my_vector agora usarão 'my_arena'.
+    for (int i = 0; i < 1000; ++i) {
+        my_vector.push_back(i); // Extremamente rápido, sem chamadas de sistema.
+    }
+}
+#+end_src
+
+Este padrão é incrivelmente eficaz para cenários de curta duração onde muitos objetos são criados e depois descartados todos de uma vez, como o processamento de um único frame em um jogo ou a análise de uma única requisição em um servidor web. Como Andrei Alexandrescu e outros especialistas em performance demonstram, a diferença de desempenho pode ser de ordens de magnitude.
+
+** 64.3 Caso de Uso 2: Memória com Requisitos Especiais
+
+Às vezes, a memória precisa residir em um local específico por razões de hardware ou de sistema operacional.
+
+    - *Memória Compartilhada (Shared Memory)*: Para comunicação entre processos (IPC), os objetos devem ser alocados em uma região de memória compartilhada (criada com shmget em POSIX ou ~CreateFileMapping~ no Windows).
+    - *Hardware Mapeado em Memória (MMIO)*: Dispositivos de hardware podem expor seus registradores e buffers como regiões de memória. A comunicação com o dispositivo é feita escrevendo e lendo nesses endereços específicos.
+    - *Memória Não Paginável (Non-pageable/Pinned Memory)*: Para operações de DMA (Direct Memory Access) de alta performance, como em GPUs, a memória não pode ser movida pelo sistema operacional.
+
+Em todos esses casos, ~std::allocator~ é inútil. Um alocador customizado é a solução. Ele encapsularia as chamadas de API específicas da plataforma para adquirir e liberar a memória da região especial, permitindo que containers padrão como ~std::vector~ operem diretamente sobre essa memória.
+
+** 64.4 Caso de Uso 3: Debugging e Rastreamento de Memória
+
+Um alocador customizado pode ser uma ferramenta de depuração poderosa. É possível criar um "alocador de depuração" que envolve o ~std::allocator~ padrão, mas adiciona funcionalidades:
+
+    - *Rastreamento de Alocações*: Registrar cada chamada a allocate e deallocate para detectar vazamentos de memória.
+    - *Guardas de Memória (Guard Bytes)*: Alocar alguns bytes extras antes e depois do bloco solicitado e preenchê-los com um padrão mágico (ex: 0xDEADBEEF). Na desalocação, verificar se esses bytes foram sobrescritos, o que indicaria um buffer overflow ou underflow.
+    - *Estatísticas de Uso*: Coletar dados sobre o número de alocações, o tamanho médio, o pico de uso de memória, etc., para profiling.
+
+Como Kurt Guntheroth detalha em "Optimized C++", entender os padrões de alocação de memória do seu aplicativo é o primeiro passo para otimizá-los, e um alocador customizado é a ferramenta perfeita para coletar esses dados.
+
+** Conclusão
+
+Alocadores customizados são a personificação da filosofia de "não pague pelo que você não usa" e "tenha controle quando precisar". Eles transformam o gerenciamento de memória de uma operação opaca e de propósito geral em uma parte explícita e controlável da arquitetura do seu software. Embora a complexidade de implementá-los corretamente signifique que eles devem ser usados com critério, para aplicações de alto desempenho, sistemas de baixo nível ou depuração avançada, eles são uma ferramenta insubstituível no arsenal do programador C++.
+
+** Leituras de Referência:
+
+    - Alexandrescu & Sutter - "C++ Coding Standards": A Regra 67 ("Use allocators for memory allocation, not raw new") discute a importância de abstrair a política de alocação.
+
+    - Kurt Guntheroth - "Optimized C++": O Capítulo 5, "Optimizing Memory Allocation", é uma exploração profunda de diferentes estratégias de alocadores customizados e seu impacto no desempenho.
+
+    - CppCon Talks: Várias palestras abordam a implementação e o uso de alocadores para performance, notadamente as de Andrei Alexandrescu e John Lakos.

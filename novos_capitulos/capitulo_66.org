@@ -1,0 +1,132 @@
+* Capítulo 66: Alinhamento de memória e performance
+
+O alinhamento de memória é um dos conceitos de mais baixo nível e mais críticos para a performance em C++. Ele representa um contrato fundamental entre o software e a arquitetura do hardware. Ignorá-lo pode resultar em penalidades de desempenho severas e silenciosas ou, em algumas plataformas, em crashes imediatos. Para o programador C++ que busca extrair o máximo da máquina, entender e controlar o alinhamento não é uma opção, mas uma necessidade.
+
+** 66.1 O Que é Alinhamento e Por Que o Hardware se Importa?
+
+Uma CPU moderna não lê a memória principal byte por byte. Por razões de eficiência, ela acessa a memória em blocos de tamanho fixo, que são potências de dois: 2, 4, 8, 16 ou mesmo 64 bytes. O tamanho da "palavra" nativa da arquitetura (geralmente 4 ou 8 bytes em sistemas de 32 e 64 bits, respectivamente) é o tamanho de acesso mais natural para a CPU.
+
+O *alinhamento* de um tipo de dado é a restrição de que um objeto desse tipo só pode ser armazenado em um endereço de memória que seja um múltiplo de um determinado valor, conhecido como seu requisito de alinhamento. Por exemplo, um tipo com requisito de alinhamento de 4 bytes só pode ser armazenado nos endereços 0x0, 0x4, 0x8, 0xC, e assim por diante.
+
+O hardware se importa com isso por uma razão simples: *eficiência de acesso*. Se um ~int~ de 4 bytes, com alinhamento de 4 bytes, está armazenado no endereço 0x1004, a CPU pode lê-lo em uma única operação de memória. O endereço é um múltiplo de 4, e o objeto inteiro cabe dentro de uma única palavra de 4 bytes alinhada.
+
+O problema surge com o *acesso desalinhado*. Imagine que esse mesmo ~int~ de 4 bytes foi armazenado no endereço 0x1001. Ele agora cruza a fronteira de uma palavra alinhada, ocupando os três últimos bytes da palavra em 0x1000 e o primeiro byte da palavra em 0x1004. Para ler este ~int~, a CPU não pode mais fazer uma única operação. Ela é forçada a:
+
+  1. Ler a palavra de 4 bytes no endereço 0x1000.
+  2. Ler a palavra de 4 bytes no endereço 0x1004.
+  3. Realizar operações de deslocamento de bits (bit-shifting) e mascaramento para "costurar" os bytes corretos das duas palavras e reconstruir o valor do ~int~ original em um registrador.
+
+Esta operação de duas leituras e processamento extra é significativamente mais lenta do que uma única leitura alinhada. Em arquiteturas x86/x64 modernas, isso geralmente resulta em uma penalidade de desempenho. Em outras arquiteturas mais antigas ou em alguns processadores embarcados (como ARMv6 ou SPARC), um acesso desalinhado não é apenas lento; ele é ilegal e causa uma falha de hardware (um "bus error").
+
+** 66.2 Controlando o Alinhamento em C++ Moderno
+
+O C++11 padronizou duas ferramentas essenciais para consultar e especificar o alinhamento: ~alignof~ e ~alignas~.
+
+~alignof(T)~: Este operador, análogo ao ~sizeof~, retorna o requisito de alinhamento em bytes de um tipo ~T~. O compilador garante que, por padrão, qualquer objeto do tipo ~T~ será alocado com este alinhamento.
+
+#+begin_src cpp
+#include <iostream>
+
+struct Exemplo {
+    char c;
+    double d;
+    int i;
+};
+
+int main() {
+    std::cout << "alignof(char): " << alignof(char) << std::endl;   // Geralmente 1
+    std::cout << "alignof(int): " << alignof(int) << std::endl;     // Geralmente 4
+    std::cout << "alignof(double): " << alignof(double) << std::endl; // Geralmente 8
+    std::cout << "alignof(Exemplo): " << alignof(Exemplo) << std::endl; // Geralmente 8 (o maior de seus membros)
+}
+#+end_src
+
+O alinhamento de uma ~struct~ ou ~class~ é, por padrão, o maior requisito de alinhamento de qualquer um de seus membros não estáticos. O compilador insere bytes de "preenchimento" (padding) entre os membros para garantir que cada membro esteja em seu endereço alinhado correto.
+
+~alignas(N)~: Este especificador, análogo ao ~const~ ou ~static~, força uma variável ou tipo a ter um requisito de alinhamento de pelo menos N bytes, onde N deve ser uma potência de dois válida. Isso é chamado de "over-alignment" (super-alinhamento).
+
+#+begin_src cpp
+// Força 'dados_simd' a ser alinhado em um limite de 32 bytes,
+// o que pode ser necessário para instruções SIMD AVX.
+alignas(32) float dados_simd[8];
+
+// Força a struct inteira a ter um alinhamento de 64 bytes.
+struct alignas(64) BlocoDeCache {
+    int dados[16];
+};
+#+end_src
+
+** 66.3 Aplicação Prática 1: Evitando "False Sharing" em Código Concorrente
+
+Esta é uma das aplicações mais importantes do controle de alinhamento. *False sharing* (compartilhamento falso) é um bug de desempenho sutil e devastador em programas multithreaded. Ele ocorre quando:
+
+  1. Duas ou mais variáveis que são acessadas por threads diferentes...
+  2. ...residem na mesma *cache line* (tipicamente 64 bytes).
+
+Imagine uma ~struct~ com dois contadores atômicos, ~contadorA~ e ~contadorB~. A Thread 1 só modifica ~contadorA~, e a Thread 2 só modifica ~contadorB~. Logicamente, não há compartilhamento de dados. No entanto, se ~contadorA~ e ~contadorB~ estiverem na mesma cache line:
+
+  1. A Thread 1 incrementa contadorA. Isso carrega a cache line para o cache L1 do seu núcleo e a marca como "Modificada".
+  2. O protocolo de coerência de cache (ex: MESI) invalida a cópia dessa mesma cache line em todos os outros núcleos.
+  3. A Thread 2 tenta incrementar contadorB. Ela sofre um cache miss, pois sua cópia local foi invalidada. Ela deve esperar que a cache line modificada seja escrita de volta na memória principal (ou encaminhada) e então recarregá-la.
+  4. Quando a Thread 2 modifica contadorB, ela invalida a cópia da Thread 1, e o ciclo vicioso de "ping-pong de cache" continua.
+
+O resultado é uma queda drástica de performance, pois as threads passam a maior parte do tempo esperando pela memória em vez de computar. A solução é usar alignas para forçar cada variável a ocupar sua própria cache line.
+
+#+begin_src cpp
+#include <thread>
+
+// Tamanho da cache line para evitar interferência. C++17 oferece uma constante padrão.
+constexpr size_t CACHE_LINE_SIZE = 64; // Ou std::hardware_destructive_interference_size
+
+struct Contadores {
+    alignas(CACHE_LINE_SIZE) std::atomic<int> contadorA;
+    // O alinhamento força 'contadorB' a começar em um novo limite de 64 bytes,
+    // garantindo que ele esteja em uma cache line diferente de 'contadorA'.
+    alignas(CACHE_LINE_SIZE) std::atomic<int> contadorB;
+};
+#+end_src
+
+Este uso de alignas é um exemplo perfeito de como o conhecimento do hardware (cache lines) informa diretamente o design do software para obter desempenho em um ambiente concorrente. Este tópico é explorado em profundidade em livros como "Optimized C++" de Kurt Guntheroth.
+
+** 66.4 Aplicação Prática 2: Requisitos de Alinhamento para Vetorização (SIMD)
+
+Instruções SIMD (Single Instruction, Multiple Data), como SSE e AVX, operam em blocos de dados de 16, 32 ou 64 bytes de uma só vez. As versões mais rápidas dessas instruções (as "aligned loads") exigem que o endereço de memória dos dados seja alinhado ao tamanho do vetor SIMD. Carregar dados de um endereço desalinhado usando uma instrução de "unaligned load" é possível, mas significativamente mais lento. Para obter o desempenho máximo da vetorização, garantir o alinhamento dos dados é crucial.
+
+Um alocador customizado que lida com alinhamento é a solução. O ~std::allocator~ padrão garante apenas o alinhamento suficiente para o tipo, não o super-alinhamento necessário para SIMD. Um alocador para SIMD deve usar mecanismos como ~_aligned_malloc~ (MSVC) ou ~posix_memalign~ (GCC/Clang) para obter memória com o alinhamento especificado. A função ~std::align~ do cabeçalho ~<memory>~ é a ferramenta padrão para implementar a lógica de alinhamento dentro de um alocador customizado.
+
+** 66.5 Otimização do Layout de Structs
+
+O compilador insere preenchimento para satisfazer os requisitos de alinhamento, mas a ordem dos membros em uma ~struct~ pode levar a um preenchimento excessivo.
+
+#+begin_src cpp
+struct MauLayout { // sizeof pode ser 24 em x64
+    char c1;      // 1 byte
+    // 7 bytes de preenchimento
+    double d;     // 8 bytes
+    char c2;      // 1 byte
+    // 7 bytes de preenchimento
+};
+
+struct BomLayout { // sizeof pode ser 16 em x64
+    double d;     // 8 bytes
+    char c1;      // 1 byte
+    char c2;      // 1 byte
+    // 6 bytes de preenchimento para alinhar a struct inteira
+};
+#+end_src 
+
+Ao ordenar os membros do maior para o menor, o compilador pode "empacotar" os membros menores no espaço de preenchimento que seria necessário de qualquer maneira, reduzindo o ~sizeof~ total da ~struct~. Isso não apenas economiza memória, mas também melhora a localidade de cache, pois mais objetos cabem em uma única cache line. Como Agner Fog detalha em seus manuais de otimização, o layout de dados é tão importante quanto o código que opera sobre eles.
+
+** Conclusão
+
+O alinhamento de memória é a linguagem que usamos para comunicar ao compilador como nossos dados devem ser posicionados para cooperar com a arquitetura do hardware. É a ponte entre a máquina abstrata do C++ e a realidade física dos acessos à memória, cache lines e registradores SIMD. Dominar ~alignof~ e ~alignas~ e entender as implicações de desempenho do layout de dados, como o false sharing, separa o código C++ funcional do código C++ de alto desempenho. É um conhecimento essencial para quem trabalha na fronteira entre software e hardware.
+
+** Leituras de Referência:
+
+  - *Agner Fog - "Optimizing Software in C++"*: Fornece uma discussão detalhada sobre alinhamento, layout de dados e como eles afetam a microarquitetura da CPU.
+
+  - *Intel 64 and IA-32 Architectures Software Developer's Manuals* : A fonte canônica para entender os requisitos de alinhamento e as penalidades de acesso desalinhado na arquitetura x86.
+
+  - *Guntheroth, Kurt - "Optimized C++"*: O Capítulo 4, "Optimizing Memory Access", tem uma excelente seção sobre false sharing e como o alinhamento o resolve.
+
+  - [[../complementos/interlúdio-capitulo_65.org][Armazenamento Bruto e Alinhado com std::aligned_storage]]

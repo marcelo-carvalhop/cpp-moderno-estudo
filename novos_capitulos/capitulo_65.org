@@ -1,0 +1,152 @@
+* Capítulo 65: placement new e técnicas avançadas
+
+O operator new que a maioria dos programadores C++ conhece é, na verdade, um pacote de duas operações: ele primeiro aloca memória no heap e, em seguida, constrói um objeto nessa memória. O placement new é uma forma especializada do operator new que desmembra esse pacote. Ele não aloca memória alguma; sua única e exclusiva responsabilidade é construir um objeto em um endereço de memória que já foi previamente alocado.
+
+Esta é uma ferramenta de baixo nível, perigosa e poderosa, reservada para especialistas que estão construindo os alicerces de sistemas de alto desempenho. Usá-la incorretamente pode levar a comportamento indefinido e bugs sutis. Usá-la corretamente é a chave para implementar alocadores customizados, object pools e outras estratégias de gerenciamento de memória que superam o alocador global em ordens de magnitude.
+
+** 65.1 A Sintaxe e a Responsabilidade Fundamental
+
+A sintaxe do placement new é distinta. Ela requer a inclusão do cabeçalho <new> e toma um ponteiro para a memória pré-alocada como seu "argumento de posicionamento".
+
+~new (ponteiro_para_memoria) Tipo(argumentos_do_construtor);~
+
+Onde ~ponteiro_para_memoria~ é um ~void*~ (ou um tipo conversível para ~void*~) apontando para um bloco de memória que é grande o suficiente e devidamente alinhado para um objeto do Tipo.
+
+O uso do placement new impõe um contrato solene ao programador: como você está assumindo o controle da construção, você também deve assumir o controle da *destruição*. Chamar ~delete~ em um ponteiro para um objeto criado com ~placement new~ é quase sempre um erro catastrófico. O ~delete~ tentaria desalocar a memória, mas essa memória não foi alocada pelo new correspondente; ela é gerenciada por outra entidade (uma arena, a stack, etc.). A ação correta é chamar o destrutor do objeto explicitamente.
+
+*O Ciclo de Vida Completo*:
+
+    1. Obter um bloco de memória bruta.
+    2. Construir um objeto na memória usando placement new.
+    3. Usar o objeto.
+    4. Chamar explicitamente o destrutor do objeto.
+    5. Liberar a memória bruta (se necessário).
+
+#+begin_src cpp
+#include <new>      // Para placement new
+#include <iostream>
+#include <string>
+
+class Mensagem {
+    std::string texto_;
+public:
+    Mensagem(const char* t) : texto_(t) { std::cout << "Construtor: " << texto_ << "\n"; }
+    ~Mensagem() { std::cout << "Destrutor: " << texto_ << "\n"; }
+    void imprimir() const { std::cout << texto_ << "\n"; }
+};
+
+void run_placement_new_example() {
+    // 1. Obter memória bruta. Neste caso, da stack.
+    // A memória deve ser alinhada corretamente. alignas garante isso.
+    alignas(Mensagem) std::byte buffer[sizeof(Mensagem)];
+
+    std::cout << "Construindo objeto no buffer...\n";
+    // 2. Construir o objeto usando placement new.
+    Mensagem* msg_ptr = new (buffer) Mensagem("Olá, Mundo!");
+
+    // 3. Usar o objeto.
+    msg_ptr->imprimir();
+
+    std::cout << "Destruindo objeto explicitamente...\n";
+    // 4. Chamar o destrutor explicitamente.
+    msg_ptr->~Mensagem();
+
+    // 5. A memória 'buffer' é liberada automaticamente quando a função retorna.
+}
+#+end_src
+
+** 65.2 O Parceiro Essencial dos Alocadores Customizados
+
+O ~placement new~ é a segunda metade da história iniciada no capítulo anterior. Um alocador customizado, como vimos, implementa allocate para fornecer memória bruta. É o container da STL que então usa placement new para construir os elementos nessa memória.
+
+Quando você chama ~std::vector<MyType, MyAllocator>::push_back(value)~, o que acontece internamente é (de forma simplificada):
+
+    1. O vetor verifica se tem capacidade. Se não, ele chama ~my_allocator.allocate()~ para obter um novo bloco de memória maior.
+    2. Ele encontra o próximo endereço livre no seu bloco de memória.
+    3. Ele chama ~new (endereco_livre) MyType(value);~ para construir uma cópia do value nesse local.
+
+Da mesma forma, quando ~pop_back()~ é chamado, o vetor não desaloca memória. Ele simplesmente chama o destrutor do último elemento: ~(endereco_ultimo_elemento)->~MyType();~. A memória permanece alocada, pronta para ser reutilizada.
+
+** 65.3 Técnicas Avançadas e Padrões de Uso
+
+*Object Pools
+Um ~object pool~ é uma aplicação clássica de ~placement new~. Em vez de ir ao heap para cada novo objeto, um grande array de "slots" de memória é pré-alocado. Quando um novo objeto é solicitado:
+
+    1. O pool encontra um slot livre.
+    2. Usa ~placement new~ para construir o objeto nesse slot.
+    3. Retorna um ponteiro para o objeto.
+
+Quando o objeto é "liberado":
+
+    1. O cliente chama um método ~destroy()~ no pool, passando o ponteiro.
+    2. O pool chama o destrutor do objeto explicitamente.
+    3. O slot de memória é marcado como livre (geralmente adicionando-o a uma "free list").
+
+Isso elimina completamente a sobrecarga do alocador de heap para objetos cujo padrão de criação e destruição é frequente, uma técnica vital em jogos e sistemas de tempo real.
+
+*Reutilização de Memória e std::launder (C++17)*
+
+Uma técnica extremamente avançada é reutilizar o mesmo buffer de memória para objetos de tipos diferentes (mas com requisitos de tamanho e alinhamento compatíveis).
+
+#+begin_src cpp
+alignas(A, B) std::byte buffer[std::max(sizeof(A), sizeof(B))];
+
+A* a_ptr = new (buffer) A();
+// ... usar a_ptr ...
+a_ptr->~A();
+
+// Agora, o mesmo buffer pode ser usado para um objeto B.
+B* b_ptr = new (buffer) B();
+// ... usar b_ptr ...
+b_ptr->~B();
+#+end_src
+
+Isso parece simples, mas esconde uma armadilha de otimização do compilador. Após a destruição de ~a_ptr~, o compilador ainda pode assumir que a memória em buffer contém um objeto do tipo A. Acessar ~b_ptr~ pode, em teoria, violar as regras de aliasing estrito. O ~std::launder~ (C++17) foi introduzido para resolver isso. Ele é uma "barreira de otimização" que diz ao compilador: "o objeto que existia neste endereço pode não ser mais o mesmo; trate este ponteiro como se apontasse para um novo objeto". O uso correto é: ~B* b_ptr = std::launder(new (buffer) B());~. Este é o mecanismo que possibilita implementações eficientes de ~std::variant~ e ~std::any~.
+
+*Tratamento de Exceções*
+Se o construtor chamado via placement new lança uma exceção, o operator new de posicionamento não faz nada. Nenhuma memória é liberada, pois nenhuma foi alocada por ele. A responsabilidade recai sobre o código que forneceu o buffer. Se o buffer foi alocado dinamicamente, o chamador deve ter um bloco try-catch para garantir que o buffer seja liberado e não vaze.
+
+#+begin_src cpp
+void* buffer = my_allocator.allocate(1);
+try {
+    new (buffer) MyObjectThatCanThrow();
+} catch (...) {
+    my_allocator.deallocate(buffer, 1); // Garante a limpeza em caso de falha.
+    throw; // Re-lança a exceção.
+}
+#+end_src
+
+** 65.4 Sobrecarga de operator new Específica da Classe
+
+Além do ~placement new~ global, uma classe pode sobrecarregar seu próprio ~operator new~ e ~operator delete~. Isso permite que a classe dite sua própria estratégia de alocação, encapsulando-a de seus usuários.
+
+#+begin_src cpp
+class FastObject {
+    static Arena object_arena_;
+public:
+    // Sobrecarga do new para usar a arena da classe.
+    static void* operator new(size_t size) {
+        return object_arena_.allocate(size, alignof(FastObject));
+    }
+    // Sobrecarga do delete correspondente.
+    static void operator delete(void* ptr, size_t size) {
+        // Em uma arena simples, pode ser no-op ou retornar à pool.
+    }
+};
+
+// Agora, 'new FastObject()' automaticamente usa a arena,
+// sem que o cliente precise saber disso.
+FastObject* obj = new FastObject();
+#+end_src
+
+Isso combina o poder do gerenciamento de memória customizado com a sintaxe limpa do new tradicional.
+
+** Conclusão
+
+O placement new remove o véu da abstração do gerenciamento de memória em C++. Ele nos dá o poder bruto de separar a alocação da construção, o que é a base para quase todas as otimizações de memória de baixo nível. Embora seu uso direto seja raro em código de aplicação, a compreensão de seu funcionamento é essencial para entender o que os containers da STL, os object pools e outras infraestruturas de alto desempenho estão fazendo por baixo dos panos. Ele representa o contrato final com o programador: com grande poder vem a grande responsabilidade de gerenciar o tempo de vida do objeto de forma manual e correta.
+
+** Leituras de Referência:
+
+    - Scott Meyers - "Effective C++" (3rd Edition), Item 52: Embora anterior ao C++11, este item fornece uma das explicações mais claras sobre a diferença entre new, operator new e placement new.
+
+    - Andrei Alexandrescu - "Modern C++ Design": O livro é uma masterclass na construção de abstrações de alto nível (como Loki::Factory e Loki::SmallObjectAllocator) sobre primitivas de baixo nível como placement new.

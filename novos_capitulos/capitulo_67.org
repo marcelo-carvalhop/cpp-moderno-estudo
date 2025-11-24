@@ -1,0 +1,142 @@
+* Capítulo 67: Estruturas cache-friendly
+
+A maior mentira que o modelo de memória do C++ nos conta é que todo acesso à memória tem o mesmo custo. Como estabelecido no Capítulo 61, a realidade é uma hierarquia brutal, onde um acesso à RAM pode custar centenas de ciclos de CPU que poderiam ter sido usados para computação. A diferença de desempenho entre um programa que colabora com a hierarquia de cache e um que a ignora não é de alguns pontos percentuais; pode ser de ordens de magnitude. Uma estrutura de dados "cache-friendly" é aquela projetada com um objetivo primário: maximizar a taxa de acertos no cache (cache hits) e minimizar os erros (cache misses). Isso é alcançado através de um princípio singular: *localidade de dados*.
+
+** 67.1 O Inimigo da Localidade: A Tragédia do Ponteiro
+
+Qualquer indireção de ponteiro é um inimigo em potencial do cache. Quando o código segue um ponteiro (~ptr->member~), ele está pedindo à CPU para saltar para um endereço de memória que pode estar em qualquer lugar do heap. Esse salto quebra o padrão de acesso sequencial que o hardware é otimizado para prever e acelerar.
+
+O exemplo canônico de uma estrutura de dados cache-hostile é a lista ligada (~std::list~ ou sua implementação manual).
+
+*Layout de Memória de uma* ~std::list<T>~:
+Cada nó de uma lista ligada é uma alocação de heap separada. Na memória, eles se parecem com isto:
+[Nó 1] ... ... ... [Nó 2] ... ... [Nó 3] ...
+Onde ... representa memória não relacionada. Para atravessar a lista, a CPU:
+
+  1. Lê o Nó 1. Provavelmente um cache miss. A cache line contendo o Nó 1 é carregada.
+  2. Segue o ponteiro next para o Nó 2. O endereço do Nó 2 é imprevisível.
+  3. Lê o Nó 2. Quase certamente outro cache miss. Uma cache line completamente diferente é carregada.
+  4. Repete o processo, sofrendo um cache miss a cada passo.
+
+O hardware prefetcher, que tenta adivinhar os próximos acessos à memória, é completamente derrotado. Ele não pode prever a localização do próximo nó. Em contraste, considere o herói da localidade de dados, ~std::vector<T>~.
+
+*Layout de Memória de um* ~std::vector<T>~:
+~[Objeto 1][Objeto 2][Objeto 3][Objeto 4]...~
+Os dados são perfeitamente contíguos. Ao atravessar o vetor, a CPU:
+
+    1. Lê o Objeto 1. Provavelmente um cache miss. A cache line contendo os Objetos 1 a N é carregada.
+    2. Acessa o Objeto 2. Um cache hit garantido, pois já está na cache line.
+    3. Acessa os Objetos 3 a N. Todos cache hits.
+       O prefetcher de hardware identifica esse padrão de acesso linear e começa a carregar as próximas cache lines antes mesmo que sejam solicitadas. O pipeline da CPU permanece cheio, e o processamento ocorre na velocidade máxima. A lição, como enfatizado por Bjarne Stroustrup, é clara: "Use ~std::vector~ por padrão".
+
+** 67.2 Design Orientado a Dados (Data-Oriented Design - DOD)
+
+Para ir além do ~std::vector~, precisamos adotar uma filosofia de design diferente. A Programação Orientada a Objetos (OOP) nos ensina a modelar o mundo com objetos que encapsulam dados e comportamento. O Design Orientado a Dados (DOD), uma filosofia popularizada na indústria de jogos de alto desempenho, inverte essa prioridade. Ele postula que o design do software deve começar com o layout dos dados. A pergunta mais importante não é "quais são meus objetos?", mas sim "quais dados eu tenho e como eles são transformados?".
+
+O DOD nos força a pensar sobre os padrões de acesso do nosso "hot loop" — o trecho de código que executa milhões de vezes e domina o perfil de desempenho. O objetivo é organizar os dados para que esse loop seja uma linha reta através da memória.
+
+** 67.3 Técnica Fundamental: Struct of Arrays (SoA) vs. Array of Structs (AoS)
+
+Esta é a manifestação mais concreta do DOD e a técnica mais poderosa para otimização de cache.
+
+*Array of Structs (AoS)*: Esta é a abordagem OOP tradicional.
+#+begin_src cpp
+struct Particula {
+    float posX, posY, posZ; // Posição
+    float velX, velY, velZ; // Velocidade
+    float massa;
+    float tempoDeVida;
+};
+
+std::vector<Particula> particulas; // Layout: [pX,pY,pZ,vX,vY,vZ,m,t] [pX,pY,pZ,vX,vY,vZ,m,t] ...
+#+end_src
+
+Isso é bom se o seu loop de atualização processa todas as propriedades de uma partícula de uma vez. Mas, e se o seu loop de física só atualiza a posição com base na velocidade?
+
+#+begin_src cpp
+for (auto& p : particulas) {
+    p.posX += p.velX * dt;
+    p.posY += p.velY * dt;
+    p.posZ += p.velZ * dt;
+}
+#+end_src
+
+Neste loop, para cada partícula, estamos carregando a massa e o tempoDeVida na cache line, mesmo que não sejam usados. Eles estão poluindo o cache, desperdiçando largura de banda de memória e espaço precioso no cache L1.
+
+*Struct of Arrays (SoA)*: A abordagem DOD.
+#+begin_src cpp
+struct Particulas {
+    std::vector<float> posX, posY, posZ;
+    std::vector<float> velX, velY, velZ;
+    std::vector<float> massa;
+    std::vector<float> tempoDeVida;
+};
+
+Particulas particulas; // Layout: [pX,pX,pX...], [pY,pY,pY...], [pZ,pZ,pZ...], etc.
+#+end_src
+
+Agora, o mesmo loop de física se parece com isto:
+
+#+begin_src cpp
+for (size_t i = 0; i < num_particulas; ++i) {
+    particulas.posX[i] += particulas.velX[i] * dt;
+    particulas.posY[i] += particulas.velY[i] * dt;
+    particulas.posZ[i] += particulas.velZ[i] * dt;
+}
+#+end_src
+
+A diferença é monumental. Este loop acessa apenas os dados de que precisa. Os vetores posX, velX, posY, velY, etc., são lidos como fluxos de dados contíguos e densos. Não há um único byte desperdiçado no cache. Além disso, este layout de dados é perfeito para a vetorização SIMD (Capítulo 68), pois os dados para uma única operação (ex: todas as posições X) estão prontos para serem carregados em um registrador SIMD.
+
+** 67.4 Técnica de Refinamento: Divisão Quente/Frio (Hot/Cold Splitting)
+
+Às vezes, uma transição completa para SoA é impraticável ou indesejável. Uma técnica intermediária poderosa é a divisão quente/frio. A ideia é analisar os membros de uma ~struct~ e separá-los com base na frequência de acesso.
+
+*Antes (Layout Ineficiente):*
+#+begin_src cpp
+struct Jogador {
+    // Dados "quentes" - acessados a cada frame
+    Vec3 posicao;
+    float vida;
+    int idEquipe;
+
+    // Dados "frios" - acessados raramente (ex: na tela de placar)
+    std::string nome;
+    uint64_t idPerfil;
+    Estatisticas stats;
+};
+std::vector<Jogador> jogadores;
+#+end_src
+
+O loop principal que atualiza a posição dos jogadores está constantemente poluindo o cache com os dados frios.
+
+*Depois (Layout Otimizado):*
+#+begin_src cpp
+struct DadosQuentesJogador {
+    Vec3 posicao;
+    float vida;
+    int idEquipe;
+};
+
+struct DadosFriosJogador {
+    std::string nome;
+    uint64_t idPerfil;
+    Estatisticas stats;
+};
+
+std::vector<DadosQuentesJogador> dados_quentes;
+std::vector<DadosFriosJogador> dados_frios;
+#+end_src
+
+O loop principal agora itera sobre o vetor dados_quentes, que é denso e eficiente. Os dados frios são mantidos separadamente e acessados apenas quando necessário, geralmente por um índice que correlaciona os dois vetores.
+
+** Conclusão
+
+Projetar estruturas de dados cache-friendly é o ponto onde a teoria da ciência da computação encontra a engenharia de hardware. Não se trata de micro-otimizações, mas de decisões arquiteturais de alto impacto sobre o layout da memória. Ao abandonar estruturas baseadas em ponteiros em favor de memória contígua, e ao organizar essa memória (usando SoA ou divisão quente/frio) para corresponder aos padrões de acesso do seu código, você alinha seu software com a forma como o hardware foi projetado para funcionar. Como Kurt Guntheroth afirma em "Optimized C++", "a maneira mais rápida de processar dados é não precisar acessá-los de forma alguma". A segunda maneira mais rápida é garantir que, quando você os acessa, eles já estejam no cache L1.
+
+** Leituras de Referência:
+
+  - [[../complementos/capitulo_67_oma.org][*Fog, Agner - "Optimizing Software in C++"*: O Capítulo 9, "Optimizing memory access"]], detalha o impacto do layout de dados no desempenho da CPU.
+
+  - *CppCon Talks*: Busque por palestras de Mike Acton ("Data-Oriented Design and C++"), Chandler Carruth e Stoyan Nikolov para obter insights profundos da indústria de jogos sobre este paradigma.
+
+    
