@@ -66,7 +66,7 @@ Se 95% do seu programa pode ser paralelizado, mas 5% deve ser executado sequenci
 
 \begin{equation}
 S_{latencia}(s)=\frac{1}{(1-p)+\frac{p}{s}}
-\end{euation}
+\end{equation}
 
 Onde SS é o speedup, pp é a proporção paralelizável e ss é o número de threads/núcleos. Isso nos ensina que, para sistemas altamente escaláveis, o foco deve ser minimizar a parte sequencial e os pontos de contenção (locks), e não apenas jogar mais hardware no problema.
 
