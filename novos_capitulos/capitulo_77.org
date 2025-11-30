@@ -64,9 +64,11 @@ Ao adotar a concorrência, é vital gerenciar as expectativas. Adicionar mais th
 
 Se 95% do seu programa pode ser paralelizado, mas 5% deve ser executado sequencialmente (por exemplo, sincronização de dados, I/O, inicialização), o ganho máximo teórico, mesmo com infinitos processadores, é de 20 vezes.
 
+#+BEGIN_EXPORT latex
 \begin{equation}
 S_{latencia}(s)=\frac{1}{(1-p)+\frac{p}{s}}
 \end{equation}
+#+END_EXPORT
 
 Onde SS é o speedup, pp é a proporção paralelizável e ss é o número de threads/núcleos. Isso nos ensina que, para sistemas altamente escaláveis, o foco deve ser minimizar a parte sequencial e os pontos de contenção (locks), e não apenas jogar mais hardware no problema.
 
