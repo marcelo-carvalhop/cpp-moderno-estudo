@@ -1,0 +1,110 @@
+* Capítulo 73: Profiling com ferramentas do compilador
+
+O benchmarking responde à pergunta "o meu código está rápido?". O *profiling* (ou perfilagem) responde a uma pergunta muito mais importante: "*Por que* o meu código está lento?". Um profiler é um instrumento de diagnóstico, um estetoscópio para o seu software. Ele observa seu programa enquanto ele executa e coleta dados sobre onde o tempo está sendo gasto, permitindo que você identifique os "hotspots" — os gargalos de desempenho onde seus esforços de otimização terão o maior impacto.
+
+A Primeira Regra da Otimização, atribuída a Michael A. Jackson, é: "Não otimize". A Segunda Regra é: "Não otimize ainda". A terceira, e mais importante, é: "*Profile antes de otimizar*". Tentar otimizar sem um perfil é como tentar curar um paciente sem um diagnóstico; você pode acabar tratando um resfriado com cirurgia cardíaca.
+
+Muitas ferramentas de profiling sofisticadas existem (como Intel VTune, AMD uProf ou Valgrind/Callgrind), mas os próprios compiladores modernos vêm com ferramentas de profiling poderosas e integradas que são um excelente ponto de partida.
+
+** 73.1 Profiling por Amostragem (Sampling Profiling)
+
+A forma mais comum e de menor sobrecarga de profiling é a amostragem. A ideia é simples:
+
+    1. O profiler configura um temporizador para disparar em intervalos regulares e frequentes (por exemplo, a cada milissegundo).
+
+    2. Toda vez que o temporizador dispara, ele interrompe o programa e registra o *ponteiro de instrução* (instruction pointer) — o endereço da instrução de máquina que estava prestes a ser executada.
+
+    3. Após a execução do programa, o profiler agrega essas milhares de amostras. Se 20% das amostras caíram dentro da função ~processar_dados()~, é uma forte indicação de que o programa está gastando aproximadamente 20% do seu tempo nessa função.
+
+A beleza da amostragem é sua baixa sobrecarga. Como o programa é interrompido apenas brevemente e com pouca frequência, ele roda quase em velocidade normal, fornecendo um retrato realista de seu comportamento em produção.
+
+** 73.2 Usando o Gprof (GCC)
+
+O gprof é o profiler clássico do conjunto de ferramentas GNU. Embora tenha sido superado por ferramentas mais modernas, seu fluxo de trabalho ilustra os conceitos fundamentais.
+
+*Fluxo de Trabalho com* ~gprof~:
+
+    1. *Compilar e Linkar com* ~-pg~: Você precisa compilar e linkar seu aplicativo com o flag ~-pg~. Isso instrui o compilador a inserir o código de instrumentação necessário para o profiling.
+        #+begin_src bash
+        g++ -pg -o meu_app meu_app.cpp
+        #+end_src
+
+    2. Executar o Aplicativo: Execute seu programa normalmente com uma carga de trabalho representativa.
+       #+begin_src bash
+       ./meu_app
+       #+end_src
+       
+       Isso irá gerar um arquivo chamado ~gmon.out~, que contém os dados brutos do perfil.
+
+    3. *Analisar os Dados*: Use o gprof para analisar o arquivo de saída e gerar um relatório legível.
+       #+begin_src bash
+       gprof meu_app gmon.out > relatorio.txt
+       #+end_src
+       
+*Interpretando o Relatório do* ~gprof~:
+O ~gprof~ produz dois relatórios principais:
+
+    - *Flat Profile (Perfil Plano)*: Esta é a tabela mais importante. Ela lista todas as funções do seu programa, ordenadas pela porcentagem de tempo gasto em cada uma.
+
+          | %     | cumulative |    self |   self |   total |         |                             |
+          | time  |    seconds | seconds |  calls | ms/call | ms/call | name                        |
+          | 33.34 |       0.02 |    0.02 |      1 |   20.00 |   20.00 | funcao_lenta()              |
+          | 16.67 |       0.03 |    0.01 | 100000 |    0.00 |    0.00 | funcao_rapida_e_frequente() |
+           ...
+
+      A coluna % time imediatamente aponta para seus hotspots. Neste exemplo, ~funcao_lenta()~ é o principal candidato à otimização.
+
+    - *Call Graph (Grafo de Chamadas)*: Esta parte do relatório mostra as relações entre as funções: quem chamou quem e quanto tempo foi gasto nos "filhos" (as funções chamadas) de cada função. Isso ajuda a entender o contexto do tempo gasto. Talvez ~funcao_lenta()~ seja lenta porque ela mesma chama outra função que é o verdadeiro gargalo.
+
+** 73.3 Ferramentas Modernas: perf no Linux
+
+O ~gprof~ tem limitações (ele interage mal com bibliotecas compartilhadas e código multithreaded). No Linux, a ferramenta moderna e muito mais poderosa é o ~perf~. O ~perf~ é um subsistema do próprio kernel, capaz de acessar contadores de desempenho de hardware (Hardware Performance Counters - PMCs) para obter dados incrivelmente detalhados.
+
+*Fluxo de Trabalho Básico com* ~perf~:
+
+    1. *Compilar com Informações de Depuração*: Para que o ~perf~ possa mapear endereços de instrução de volta para funções e linhas de código, compile com ~-g~.
+
+       #+begin_src bash
+       g++ -g -o meu_app meu_app.cpp
+       #+end_src
+
+     2. *Gravar o Perfil*: Use perf record para executar seu programa e coletar as amostras.
+        #+begin_src bash
+        perf record ./meu_app
+        #+end_src
+
+        Isso gera um arquivo ~perf.data~.
+
+      3. *Analisar o Relatório*: Use perf report para navegar interativamente pelos dados.
+         #+begin_src bash
+         perf report
+         #+end_src
+
+         Isso abre uma interface no terminal que mostra uma lista de funções (ou bibliotecas, ou processos) ordenadas por "overhead" (a porcentagem de amostras que caíram nelas). Você pode "entrar" em uma função para ver o código assembly anotado, mostrando exatamente em quais instruções o tempo está sendo gasto.
+
+*O Poder do* ~perf~:
+O ~perf~ pode fazer muito mais do que apenas amostragem de tempo de CPU. Ele pode ser configurado para amostrar em outros eventos de hardware:
+
+    - ~perf record -e cache-misses ./meu_app~: Identifica o código que está causando mais cache misses.
+
+    - ~perf record -e branch-misses ./meu_app~: Identifica o código que está sofrendo com mais previsões de branch erradas.
+
+Essa capacidade de correlacionar o código-fonte com eventos de microarquitetura de baixo nível é o que torna o perf uma ferramenta de diagnóstico de desempenho de nível profissional.
+
+** 73.4 Profiling no MSVC
+
+O Visual Studio vem com um conjunto integrado e excelente de ferramentas de diagnóstico de desempenho.
+
+    1. Vá para Debug > Performance Profiler... (ou Alt+F2).
+
+    2. Selecione "CPU Usage".
+
+    3. Clique em "Start" para executar seu aplicativo sob o profiler.
+
+    4. Execute a funcionalidade que você deseja analisar e feche o aplicativo.
+
+O Visual Studio apresentará um relatório gráfico detalhado, incluindo um "flame graph" (gráfico de chamas) que visualiza a pilha de chamadas e um "hot path" que mostra a sequência de chamadas que mais contribuiu para o tempo de CPU. Ele permite que você navegue facilmente do gráfico geral para o código-fonte de uma função específica.
+
+** Conclusão
+
+O profiling é o passo não negociável que transforma a otimização de uma arte baseada em adivinhação em uma ciência baseada em dados. Ferramentas como ~gprof~, ~perf~ e os profilers integrados em IDEs modernas nos dão a visão de raio-X necessária para encontrar os verdadeiros gargalos em nosso código. Ignorar o profiling é a receita para o desperdício de tempo e esforço. Ao deixar que os dados guiem suas decisões, você garante que cada hora gasta em otimização seja investida onde ela realmente importa, gerando o máximo impacto no desempenho do seu software.

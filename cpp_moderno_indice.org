@@ -387,12 +387,15 @@ Palestras de John Lakos em CppCon.
 
 [[./novos_capitulos/capitulo_71.org][71. Inline assembly moderno]]
 
-[[./novos_capitulos/capitulo_71.org][71. Benchmarking sério em C++]]
+[[./novos_capitulos/capitulo_72.org][72. Benchmarking sério em C++]]
 
-[[./novos_capitulos/capitulo_72.org][72. Profiling com ferramentas do compilador]]
-73. Evitando regressões de performance
-74. Zero-cost abstractions na prática
-75. Filosofia da otimização extrema
+[[./novos_capitulos/capitulo_73.org][73. Profiling com ferramentas do compilador]]
+
+[[./novos_capitulos/capitulo_74.org][74. Evitando regressões de performance]]
+
+[[./novos_capitulos/capitulo_75.org][75. Zero-cost abstractions na prática]]
+
+[[./novos_capitulos/capitulo_76.org][76. Filosofia da otimização extrema]]
 
 /Leituras complementares/: High Performance C++ (Sutter & Alexandrescu), Intel manuals.
 *Livros*:
@@ -417,21 +420,24 @@ CppCon talks sobre alocadores customizados e performance extrema.
 
 /Capítulos/:
 
-76. Concorrência como paradigma inevitável
-77. std::thread: o básico que engana
-78. Futures, promises e std::async
-79. std::mutex e armadilhas de bloqueio
-80. Modelos de memória em profundidade
-81. Atomicidade e std::atomic
-82. Estruturas lock-free e wait-free
-83. Paralelismo em STL (std::execution)
-84. Produtor-consumidor em C++ moderno
-85. Concorrência com tasks
-86. Corrotinas e fluxo assíncrono
-87. Design de sistemas paralelos em C++
-88. Programação distribuída com RPC
-89. C++ em sistemas de alta escalabilidade
-90. Filosofia: paralelismo como linguagem
+[[./novos_capitulos/capitulo_77.org][77. Concorrência como paradigma inevitável]]
+
+[[./novos_capitulos/capitulo_78.org][78. std::thread: o básico que engana]]
+
+[[./novos_capitulos/capirulo_79.org][79. Futures, promises e std::async]]
+
+80. std::mutex e armadilhas de bloqueio
+81. Modelos de memória em profundidade
+82. Atomicidade e std::atomic
+83. Estruturas lock-free e wait-free
+84. Paralelismo em STL (std::execution)
+85. Produtor-consumidor em C++ moderno
+86. Concorrência com tasks
+87. Corrotinas e fluxo assíncrono
+88. Design de sistemas paralelos em C++
+89. Programação distribuída com RPC
+90. C++ em sistemas de alta escalabilidade
+91. Filosofia: paralelismo como linguagem
 
 /Leituras complementares/:
 *Livros*:
@@ -455,21 +461,21 @@ Talks CppCon/CppNow sobre corrotinas e std::execution.
 
 /Capítulos/:
 
-91. C++ como hub de integração
-92. ABI e compatibilidade binária
-93. Interoperabilidade com C
-94. Conversando com Fortran em HPC
-95. Python + C++ com Pybind11
-96. Rust e C++: rivais ou aliados?
-97. Bindings para linguagens de alto nível
-98. Embarcados: C++ em microcontroladores
-99. Sistemas em tempo real
-100. GPU computing com CUDA
-101. OpenCL vs. SYCL vs. C++
-102. WebAssembly + C++
-103. Ferramentas modernas de build (CMake, Meson, Bazel)
-104. Análise estática e sanitizers
-105. CI/CD aplicado a C++
+92. C++ como hub de integração
+93. ABI e compatibilidade binária
+94. Interoperabilidade com C
+95. Conversando com Fortran em HPC
+96. Python + C++ com Pybind11
+97. Rust e C++: rivais ou aliados?
+98. Bindings para linguagens de alto nível
+99. Embarcados: C++ em microcontroladores
+100. Sistemas em tempo real
+101. GPU computing com CUDA
+102. OpenCL vs. SYCL vs. C++
+103. WebAssembly + C++
+104. Ferramentas modernas de build (CMake, Meson, Bazel)
+105. Análise estática e sanitizers
+106. CI/CD aplicado a C++
 
 /Leituras complementares/: 
 *Livros*:
@@ -494,11 +500,11 @@ Emscripten/LLVM talks.
 
 /Capítulos/:
 
-106. C++26: o que vem pela frente
-107. Contracts: segurança formal no código
-108. Pattern Matching em C++
-109. Filosofia da longevidade em software
-110. O papel do C++ em um mundo com Rust e Go
+107. C++26: o que vem pela frente
+108. Contracts: segurança formal no código
+109. Pattern Matching em C++
+110. Filosofia da longevidade em software
+111. O papel do C++ em um mundo com Rust e Go
 
 /Leituras complementares/:
 *Livros*:

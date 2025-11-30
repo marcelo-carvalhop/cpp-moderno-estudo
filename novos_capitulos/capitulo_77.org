@@ -1,0 +1,89 @@
+* Capítulo 77: Concorrência como paradigma inevitável
+
+A história da computação é, em muitos aspectos, a história da busca por velocidade. Durante décadas, essa busca foi satisfeita pelo que chamamos de "almoço grátis": a Lei de Moore. A cada dois anos, aproximadamente, o número de transistores em um chip dobrava, e com isso, a frequência dos processadores aumentava. O software escrito hoje rodaria mais rápido amanhã, sem que o programador precisasse mudar uma única linha de código. No entanto, por volta de 2005, a festa acabou. As limitações físicas de dissipação de calor e consumo de energia impediram que as frequências de clock continuassem a subir indefinidamente. A indústria de hardware respondeu não com processadores mais rápidos, mas com mais processadores. Entramos na era dos múltiplos núcleos (multi-core).
+
+Para o desenvolvedor de C++, isso marcou uma mudança de paradigma fundamental. A concorrência deixou de ser um nicho para sistemas operacionais ou servidores de banco de dados de alto desempenho e tornou-se uma necessidade para qualquer aplicação que deseje utilizar o hardware moderno de forma eficiente. Se o seu computador tem 16 núcleos e seu programa utiliza apenas uma thread, você está desperdiçando 93% do poder de processamento disponível. Este capítulo não é apenas sobre como escrever código que faz várias coisas ao mesmo tempo; é sobre entender por que a concorrência é agora a estrutura sobre a qual o software moderno deve ser edificado.
+
+** 77.1 O Fim da Execução Sequencial
+
+Tradicionalmente, aprendemos a programar de forma sequencial: instrução A, seguida pela instrução B, seguida pela instrução C. O modelo mental é simples e determinístico. A concorrência quebra essa linearidade. Em um ambiente concorrente, múltiplas sequências de instruções (threads) estão em progresso simultaneamente.
+
+É crucial distinguir entre Concorrência e Paralelismo, embora os termos sejam frequentemente usados de forma intercambiável:
+
+    - *Concorrência* é sobre a /estrutura/ do programa. Trata-se de lidar com muitas coisas ao mesmo tempo. É a composição de tarefas independentes que podem ser executadas fora de ordem ou em ordem parcial sem afetar o resultado final.
+
+    - *Paralelismo* é sobre a /execução/ do programa. Trata-se de fazer muitas coisas ao mesmo tempo. É o uso de múltiplos recursos de hardware (núcleos de CPU) para resolver um problema mais rapidamente.
+
+Você pode ter concorrência sem paralelismo (como em um processador de núcleo único alternando rapidamente entre tarefas) e paralelismo sem concorrência explícita (como em instruções SIMD - Single Instruction, Multiple Data). O C++ moderno nos fornece ferramentas para ambos.
+
+** 77.2 A Ilusão do Determinismo
+
+O maior desafio na transição para a programação concorrente não é a sintaxe das novas bibliotecas, mas a mudança na mentalidade sobre o estado do programa. Em um programa /single-threaded/, se você escreve x = 5 e na linha seguinte lê x, você espera obter 5. Em um programa concorrente, entre a escrita e a leitura, outra thread pode ter alterado x para 10, ou deletado a memória onde x residia.
+
+Isso introduz o conceito de *Race Condition* (Condição de Corrida). Uma condição de corrida ocorre quando o resultado de uma operação depende da sequência ou do tempo de outros eventos incontroláveis.
+
+Considere o exemplo clássico de um contador simples:
+
+#+begin_src cpp
+#include <iostream>
+#include <thread>
+#include <vector>
+
+int contador = 0;
+
+void incrementar() {
+    for (int i = 0; i < 10000; ++i) {
+        contador++; // Parece uma operação atômica, mas não é.
+    }
+}
+
+int main() {
+    std::vector<std::thread> threads;
+    
+    // Lança 10 threads para incrementar o contador
+    for(int i = 0; i < 10; ++i) {
+        threads.emplace_back(incrementar);
+    }
+
+    // Aguarda todas as threads terminarem
+    for(auto& t : threads) {
+        t.join();
+    }
+
+    std::cout << "Valor final do contador: " << contador << std::endl;
+    // Esperado: 100000. Realidade: Provavelmente algo menor e diferente a cada execução.
+    return 0;
+}
+#+end_src
+
+A operação contador++ é, na verdade, composta por três passos em nível de máquina: (1) ler o valor da memória para um registrador, (2) incrementar o registrador, (3) escrever o valor de volta na memória. Se duas threads executarem o passo 1 ao mesmo tempo, ambas lerão o mesmo valor antigo, incrementarão localmente e escreverão o mesmo resultado, efetivamente "perdendo" um incremento.
+
+** 77.3 A Lei de Amdahl e os Limites do Ganho
+
+Ao adotar a concorrência, é vital gerenciar as expectativas. Adicionar mais threads não garante um aumento linear de desempenho. Gene Amdahl formulou uma lei em 1967 que ainda rege a computação paralela. A Lei de Amdahl afirma que o ganho de velocidade de um programa usando múltiplos processadores é limitado pelo tempo necessário para a fração sequencial do programa.
+
+Se 95% do seu programa pode ser paralelizado, mas 5% deve ser executado sequencialmente (por exemplo, sincronização de dados, I/O, inicialização), o ganho máximo teórico, mesmo com infinitos processadores, é de 20 vezes.
+
+\begin{equation}
+S_{latencia}(s)=\frac{1}{(1-p)+\frac{p}{s}}
+\end{euation}
+
+Onde SS é o speedup, pp é a proporção paralelizável e ss é o número de threads/núcleos. Isso nos ensina que, para sistemas altamente escaláveis, o foco deve ser minimizar a parte sequencial e os pontos de contenção (locks), e não apenas jogar mais hardware no problema.
+
+** 77.4 C++ e a Abstração de Hardware
+
+Antes do C++11, a linguagem não tinha noção de threads. A concorrência era alcançada através de bibliotecas específicas do sistema operacional (como POSIX Threads no Linux ou Windows API). Isso tornava o código não portável e difícil de manter.
+
+O C++11 introduziu um modelo de memória formal e uma biblioteca padrão de threads (~std::thread~, ~std::mutex~, ~std::atomic~). O C++17 e C++20 expandiram isso com algoritmos paralelos e primitivas de sincronização mais eficientes (como ~std::latch~ e ~std::barrier~). O objetivo do C++ moderno é fornecer abstrações que permitam escrever código concorrente correto e portável, sem sacrificar o desempenho de baixo nível quando necessário.
+
+A filosofia do C++ aqui é "abstração de custo zero": você não deve pagar pelo que não usa, e as abstrações fornecidas devem ser tão eficientes quanto o código que você escreveria manualmente usando as APIs do sistema operacional.
+
+** Conclusão
+
+A concorrência não é apenas uma técnica de otimização; é um reflexo da realidade física do nosso hardware e, de certa forma, do mundo real, onde eventos acontecem simultaneamente e independentemente. Aceitar a concorrência como um paradigma inevitável exige humildade. Exige reconhecer que não temos mais controle absoluto sobre a ordem exata de cada instrução. Em troca dessa perda de determinismo estrito, ganhamos a capacidade de construir sistemas que são responsivos, resilientes e capazes de processar a vastidão de dados do mundo moderno. O programador de C++ moderno não luta contra o caos da execução paralela, mas aprende a orquestrá-lo através de sincronização cuidadosa e design de dados inteligente.
+
+** Leituras de Referência:
+
+ - *C++ Concurrency in Action*, Anthony Williams – A bíblia prática para concorrência em C++.
+ - *The Art of Multiprocessor Programming*, Maurice Herlihy & Nir Shavit – Para entender a teoria profunda por trás dos algoritmos concorrentes.
+ - *Amdahl's Law*, Gene Amdahl (1967) – O paper original sobre os limites da computação paralela.

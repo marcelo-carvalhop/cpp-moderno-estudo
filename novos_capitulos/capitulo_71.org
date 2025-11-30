@@ -1,4 +1,4 @@
-** Capítulo 71: Inline assembly moderno
+* Capítulo 71: Inline assembly moderno
 
 Chegamos à ferramenta de mais baixo nível e mais perigosa no arsenal do programador C++: o *inline assembly*. Este é o ponto onde abandonamos todas as abstrações e escrevemos instruções de máquina diretamente no nosso código-fonte. Usá-lo é um ato de desafio ao compilador, uma declaração de que, para este trecho de código específico e crítico, nós sabemos mais do que ele.
 

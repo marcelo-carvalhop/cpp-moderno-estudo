@@ -1,0 +1,87 @@
+* Capítulo 75: Zero-cost abstractions na prática
+
+"Você não paga pelo que não usa." Esta é a filosofia fundamental do C++, a promessa que o diferencia de muitas outras linguagens. A ideia é que as abstrações de alto nível — classes, templates, lambdas — não devem impor nenhuma sobrecarga de desempenho em comparação com o código de baixo nível escrito à mão que elas substituem. Quando essa promessa é cumprida, temos uma *abstração de custo zero (zero-cost abstraction)*.
+
+Este não é um conceito teórico. É um objetivo de design prático e alcançável, possibilitado por um compilador otimizador moderno. Entender como as abstrações se "dissolvem" durante a compilação é crucial para escrever código que seja ao mesmo tempo expressivo, seguro e extremamente rápido.
+
+** 75.1 O Exemplo Canônico: ~std::sort~ vs. ~qsort~
+
+A comparação entre ~std::sort~ da biblioteca padrão do C++ e a função qsort da biblioteca C é a ilustração perfeita de uma abstração de custo zero que, na verdade, se torna uma "abstração de lucro".
+
+A função qsort do C é genérica graças ao uso de ~void*~ e ponteiros de função:
+~void qsort(void* base, size_t num, size_t size, int (*compar)(const void*, const void*));~
+
+Para ordenar um array de inteiros, você a chama assim:
+
+#+begin_src c
+int compare_ints(const void* a, const void* b) {
+    int arg1 = *(const int*)a;
+    int arg2 = *(const int*)b;
+    if (arg1 < arg2) return -1;
+    if (arg1 > arg2) return 1;
+    return 0;
+}
+// ...
+qsort(meu_array, N, sizeof(int), compare_ints);
+#+end_src 
+
+Isso funciona, mas tem um custo de desempenho oculto e significativo. A cada comparação, dentro do loop interno do ~qsort~, o programa deve:
+
+    1. Executar uma chamada de função indireta através do ponteiro compar. Chamadas indiretas são difíceis para o processador prever, potencialmente causando um "branch misprediction".
+
+    2. Dentro de ~compare_ints~, os ponteiros void* devem ser convertidos (casted).
+
+    3. O compilador não pode *embutir (~inline~)* a função de comparação, pois ele só a conhece através de um ponteiro em tempo de execução.
+
+Agora, considere a alternativa do C++, ~std::sort~:
+~template <class RandomIt, class Compare> void sort(RandomIt first, RandomIt last, Compare comp);~
+
+Ela é usada assim:
+
+#+begin_src cpp
+#include <algorithm>
+#include <vector>
+
+std::vector<int> meu_vetor = { ... };
+std::sort(meu_vetor.begin(), meu_vetor.end(), [](int a, int b) {
+    return a < b;
+});
+#+end_src 
+
+A mágica acontece na compilação. Como ~std::sort~ é um template, quando o compilador o instancia para um ~std::vector<int>~ e uma lambda, ele gera uma versão totalmente nova e especializada da função de ordenação.
+
+    1. O tipo da função de comparação (a lambda) é conhecido em tempo de compilação.
+
+    2. O compilador pode embutir (~inline~) o corpo da lambda diretamente no loop de comparação do ~std::sort~.
+
+    3. Não há chamada de função indireta. A comparação a < b se torna uma única instrução de máquina cmp no coração do algoritmo.
+
+    4. Como o tipo ~int~ é conhecido, não há necessidade de conversões de ~void*~.
+
+O resultado é que ~std::sort~ não apenas tem custo zero em comparação com uma implementação de quicksort escrita à mão para inteiros, mas é frequentemente mais rápido porque o compilador pode aplicar otimizações (como vetorização) que seriam impossíveis com a versão ~qsort~. A abstração (templates, lambdas) não custou nada e, de fato, permitiu um desempenho melhor.
+
+** 75.2 Outras Abstrações que se Dissolvem
+
+Este princípio se aplica a muitas das características mais poderosas do C++ moderno.
+
+    - *Iteradores*: Um ~std::vector<int>::iterator~ em uma compilação otimizada é, na maioria das vezes, compilado para exatamente a mesma coisa que um ponteiro cru ~int*~. As operações ~++it~ e ~*it~ se tornam as mesmas instruções de máquina que ~ptr++~ e ~*ptr~. A abstração do iterador, que nos dá uma interface uniforme para todos os containers, se dissolve, deixando para trás apenas o código de ponteiro mais eficiente possível.
+
+    - ~std::unique_ptr~: Como vimos no Capítulo 63, um ~std::unique_ptr<T>~ tem o mesmo tamanho e layout de memória que um ~T*~. As chamadas para ~->~ e ~*~ são triviais e o custo da chamada ao delete em seu destrutor é exatamente o mesmo custo que você teria ao escrever delete manualmente. A segurança de gerenciamento de recursos que ele oferece é uma abstração de custo zero.
+
+    - ~std::optional~: Usar ~std::optional<T>~ para representar um valor que pode ou não existir é mais expressivo e seguro do que usar um ponteiro nulo ou um "valor mágico". Em uma compilação otimizada, o compilador geralmente implementa o booleano de estado e o armazenamento do objeto de forma tão eficiente quanto uma implementação manual, sem sobrecarga de alocação de heap.
+
+    - *CRTP (Curiously Recurring Template Pattern)*: Este padrão de template avançado permite uma forma de "polimorfismo estático". Ele permite que uma classe base chame métodos de uma classe derivada sem o custo de uma vtable (a tabela de funções virtuais). A chamada de função é resolvida em tempo de compilação e pode ser embutida, eliminando completamente a sobrecarga do polimorfismo dinâmico.
+
+** 75.3 Quando as Abstrações Têm um Custo
+
+Nem todas as abstrações são de custo zero. É crucial saber quando você está pagando por uma abstração.
+
+    - ~std::function~: Este é um invólucro polimórfico para qualquer objeto "chamável" (funções, lambdas, functors). Sua flexibilidade tem um preço. Ele geralmente requer uma alocação de heap para armazenar o objeto chamável (se for maior que um pequeno buffer interno) e a chamada através de um ~std::function~ é uma chamada de função indireta, semelhante ao ~qsort~. Se o desempenho for crítico, passar um template Compare comp é sempre preferível a passar um ~std::function<bool(int, int)>~.
+
+    - ~std::shared_ptr~: A posse compartilhada não é uma abstração de custo zero. Como vimos, ela requer um bloco de controle alocado dinamicamente e operações atômicas para gerenciar a contagem de referências, impondo uma sobrecarga deliberada em troca de sua funcionalidade.
+
+    - *Funções Virtuais*: O polimorfismo dinâmico é uma das abstrações mais poderosas da OOP, mas tem um custo: o armazenamento extra para o ponteiro da vtable em cada objeto e a indireção da chamada de função através da vtable em tempo de execução.
+
+** Conclusão
+
+A filosofia de abstração de custo zero é o que permite que o C++ seja uma linguagem de alto nível e, ao mesmo tempo, uma linguagem para programação de sistemas de altíssimo desempenho. Ao aproveitar templates, lambdas e padrões de design que operam em tempo de compilação, podemos escrever código que é seguro, genérico e expressivo, com a confiança de que o compilador irá "cozinhar" essas abstrações, deixando para trás apenas o código de máquina mais eficiente possível. Reconhecer quais abstrações se dissolvem e quais impõem um custo em tempo de execução é uma habilidade fundamental para o programador C++ que busca o equilíbrio perfeito entre clareza e velocidade.

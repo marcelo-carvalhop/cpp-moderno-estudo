@@ -1,0 +1,116 @@
+* Capítulo 79: Futures, promises e ~std::async~
+
+No capítulo anterior, vimos como ~std::thread~ nos permite lançar execuções paralelas. No entanto, ~std::thread~ não oferece um mecanismo direto para retornar valores da thread filha para a thread pai. Se quisermos o resultado de um cálculo, teríamos que recorrer a variáveis globais, ponteiros passados por referência e mecanismos de sincronização manual (como mutexes e variáveis de condição) para saber quando o dado está pronto. Isso é propenso a erros e verboso.
+
+O C++11 introduziu um par de abstrações poderosas para resolver exatamente esse problema: a separação entre o produtor de um resultado (a promessa) e o consumidor desse resultado (o futuro). Juntos, eles formam um canal de comunicação seguro e tipado para valores ou exceções entre threads.
+
+** 79.1 O conceito de Future e Promise
+
+Imagine que você peça um hambúrguer em uma lanchonete. O atendente não lhe entrega o hambúrguer imediatamente; ele lhe dá um "pager" ou um número de pedido. Esse número é o seu Future. Ele representa um valor (o hambúrguer) que ainda não existe, mas existirá em algum momento. Enquanto isso, na cozinha, o cozinheiro faz uma Promise (promessa) de que irá preparar aquele hambúrguer e colocá-lo no balcão. Quando o hambúrguer está pronto, a promessa é cumprida, o pager vibra, e você troca seu Future pelo valor real.
+
+Em C++:
+
+    - ~std::promise<T>~: É o lado do produtor. É o objeto onde a thread trabalhadora define o valor (ou a exceção) quando termina sua tarefa.
+
+    - ~std::future<T>~: É o lado do consumidor. É o objeto que a thread principal segura e usa para esperar e recuperar o valor quando ele estiver disponível.
+
+#+begin_src cpp
+#include <iostream>
+#include <thread>
+#include <future>
+
+void calcular_quadrado(int x, std::promise<int> promessa) {
+    // Simula um trabalho pesado
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    
+    // Cumpre a promessa definindo o valor
+    promessa.set_value(x * x);
+}
+
+int main() {
+    std::promise<int> promessa;
+    // Obtém o future associado a esta promessa
+    std::future<int> futuro = promessa.get_future();
+
+    // Movemos a promessa para a thread, pois ela não é copiável
+    std::thread t(calcular_quadrado, 10, std::move(promessa));
+
+    std::cout << "Calculando em segundo plano...\n";
+
+    // get() bloqueia a thread atual até que o valor esteja disponível
+    int resultado = futuro.get(); 
+
+    std::cout << "Resultado: " << resultado << std::endl;
+    t.join();
+    return 0;
+}
+#+end_src
+
+** 79.2 ~std::async~: A abstração de alto nível
+
+Embora ~std::promise~ e ~std::future~ sejam úteis, gerenciá-los manualmente junto com ~std::thread~ ainda é trabalhoso. A função ~std::async~ é a ferramenta de mais alto nível da biblioteca padrão para tarefas assíncronas. Ela cuida da criação da promessa, da obtenção do futuro e, opcionalmente, da criação da thread para você.
+
+~std::async~ retorna um ~std::future~ que conterá o resultado da função executada.
+
+#+begin_src cpp
+#include <iostream>
+#include <future>
+
+int tarefa_complexa() {
+    return 42;
+}
+
+int main() {
+    // Inicia a tarefa assincronamente
+    std::future<int> resultado = std::async(std::launch::async, tarefa_complexa);
+
+    // Podemos fazer outras coisas aqui...
+    
+    // Recupera o valor
+    std::cout << "A resposta é " << resultado.get() << std::endl;
+    return 0;
+}
+#+end_src
+
+** 79.3 Políticas de Lançamento: ~std::launch::async~ vs ~std::launch::deferred~
+
+A função ~std::async~ aceita uma política de lançamento como primeiro argumento, que dita como a tarefa será executada:
+
+  1. ~std::launch::async~: Garante que a tarefa seja executada em uma nova thread separada. É o verdadeiro paralelismo.
+
+  2. ~std::launch::deferred~: A tarefa não é executada imediatamente. Ela é executada de forma síncrona na thread atual apenas quando (e se) chamarmos ~.get()~ ou ~.wait()~ no futuro. É uma forma de "avaliação preguiçosa" (lazy evaluation).
+
+Se você não especificar a política (usando a sobrecarga padrão), a implementação é livre para escolher. Isso pode ser perigoso, pois seu código pode rodar sequencialmente sem que você perceba, causando deadlocks se você estiver esperando por efeitos colaterais da thread. A recomendação moderna é ser explícito: use ~std::launch::async~ se você realmente quer concorrência.
+
+** 79.4 Propagação de Exceções
+
+Uma das características mais poderosas dos futures é a capacidade de transportar exceções entre threads. Se a função passada para ~std::async~ (ou o lado da ~std::promise~) lançar uma exceção, essa exceção é capturada, armazenada no estado compartilhado e relançada na thread consumidora quando ~future::get()~ é chamado.
+
+#+begin_src cpp
+#include <iostream>
+#include <future>
+#include <stdexcept>
+
+int tarefa_com_erro() {
+    throw std::runtime_error("Falha crítica no motor de dobra!");
+}
+
+int main() {
+    auto futuro = std::async(std::launch::async, tarefa_com_erro);
+
+    try {
+        futuro.get(); // A exceção será relançada aqui
+    } catch (const std::exception& e) {
+        std::cout << "Exceção capturada da thread: " << e.what() << std::endl;
+    }
+    return 0;
+}
+#+end_src
+
+** 79.5 ~std::shared_future~
+
+Um ~std::future~ é um objeto de "movimento apenas" (move-only). Ele tem posse exclusiva do resultado. Uma vez que você chama ~.get()~, o futuro se torna inválido e não pode ser lido novamente. Se você precisa que múltiplas threads esperem pelo mesmo resultado, você deve usar ~std::shared_future~. Ele pode ser copiado e múltiplos objetos podem acessar o mesmo estado compartilhado. Isso é útil para cenários de "broadcast", onde um evento (como a inicialização de um sistema) desbloqueia várias threads trabalhadoras simultaneamente.
+
+** Conclusão
+
+O par future/promise e a função ~std::async~ representam uma evolução significativa sobre o uso cru de threads. Eles elevam o nível de abstração de "gerenciamento de threads" para "gerenciamento de tarefas e dependências de dados". A filosofia aqui é funcional: focamos no valor de retorno de uma operação, não no mecanismo de execução. Ao encapsular a sincronização e a transferência de dados, essas ferramentas reduzem drasticamente a superfície de erro para condições de corrida e deadlocks, permitindo que o programador raciocine sobre o fluxo de dados assíncrono de maneira quase linear. No entanto, eles não resolvem o problema do acesso simultâneo a dados mutáveis compartilhados, que é onde os mecanismos de bloqueio, nosso próximo tópico, entram em cena.

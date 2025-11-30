@@ -1,0 +1,126 @@
+* Capítulo 78: ~std::thread~: o básico que engana
+
+A introdução da classe ~std::thread~ no C++11 foi um marco. Finalmente, tínhamos uma maneira padronizada e independente de plataforma para criar e gerenciar threads de execução. À primeira vista, ~std::thread~ parece uma ferramenta simples e inofensiva: você instancia um objeto, passa uma função para ele, e voilà, seu código está rodando em paralelo. No entanto, essa simplicidade é enganosa. ~std::thread~ é uma abstração de baixo nível, um invólucro fino sobre as threads do sistema operacional (como pthreads no Linux ou threads Win32 no Windows). Ela carrega consigo responsabilidades manuais de gerenciamento de ciclo de vida que, se negligenciadas, levam a encerramentos abruptos do programa e bugs difíceis de rastrear.
+
+Neste capítulo, vamos desconstruir o uso de ~std::thread~, explorando não apenas como iniciá-las, mas, crucialmente, como gerenciá-las corretamente. Veremos por que o código que "parece funcionar" pode ser uma bomba-relógio e como o C++20 trouxe melhorias significativas para mitigar esses riscos iniciais.
+
+** 78.1 O contrato de vida ou morte: Joinable vs. Detached
+
+O erro mais comum e catastrófico ao usar ~std::thread~ ocorre no momento em que o objeto thread sai de escopo. O design do C++ impõe uma regra estrita: antes de um objeto ~std::thread~ ser destruído, você deve decidir o destino da thread de execução associada. Você tem duas opções:
+
+  1. *Join (Juntar-se)*: Esperar que a thread termine sua execução (~t.join()~).
+
+  2. *Detach (Desanexar)*: Permitir que a thread continue rodando livremente em segundo plano, independentemente do objeto que a criou (~t.detach()~).
+
+Se o destrutor de uma ~std::thread~ for chamado e a thread ainda for "joinable" (ou seja, nem ~join()~ nem ~detach()~ foram chamados), o programa invocará ~std::terminate()~, abortando a execução imediatamente. Isso é uma decisão de design intencional para evitar que threads continuem acessando recursos locais que já foram destruídos.
+
+#+begin_src cpp
+#include <iostream>
+#include <thread>
+#include <chrono>
+
+void tarefa_lenta() {
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    std::cout << "Tarefa finalizada.\n";
+}
+
+void perigo() {
+    std::thread t(tarefa_lenta);
+    // OOPS: Esquecemos de chamar t.join() ou t.detach()
+} // Destrutor de 't' é chamado aqui -> std::terminate() -> Crash!
+
+int main() {
+    try {
+        perigo();
+    } catch (...) {
+        // Não adianta tentar capturar, std::terminate não lança exceção capturável.
+        std::cout << "Isso nunca será impresso.\n";
+    }
+    return 0;
+}
+#+end_src
+
+Para escrever código seguro (Exception-Safe), devemos garantir que o ~join()~ seja chamado mesmo se uma exceção ocorrer antes do fim do escopo. O padrão RAII (Resource Acquisition Is Initialization) é a solução idiomática.
+
+** 78.2 Passagem de parâmetros e a armadilha das referências
+
+O construtor de ~std::thread~ utiliza templates variádicos para passar argumentos para a função da thread. Por padrão, todos os argumentos são copiados para o armazenamento interno da thread, mesmo que a função espere uma referência. Isso é feito para garantir que os dados sobrevivam ao escopo da thread criadora.
+
+Se você precisa que a thread modifique um objeto local ou evite uma cópia custosa, você deve usar explicitamente ~std::ref~ (para referências) ou ~std::cref~ (para referências constantes).
+
+#+begin_src cpp
+#include <thread>
+#include <iostream>
+#include <string>
+
+void atualizar_mensagem(std::string& msg) {
+    msg = "Mensagem alterada pela thread!";
+}
+
+void processar_dados(const std::string& dados) {
+    std::cout << "Processando: " << dados << "\n";
+}
+
+int main() {
+    std::string minha_msg = "Original";
+    
+    // Erro de compilação ou comportamento inesperado (cópia silenciosa) sem std::ref
+    // std::thread t1(atualizar_mensagem, minha_msg); 
+    
+    // Correto: Passando uma referência explícita
+    std::thread t1(atualizar_mensagem, std::ref(minha_msg));
+    t1.join();
+    std::cout << minha_msg << "\n"; // Imprime: Mensagem alterada pela thread!
+
+    // Cuidado extremo: Dangling References
+    // Se passarmos uma referência para uma variável local e a thread main terminar
+    // antes da thread filha, teremos Undefined Behavior.
+    return 0;
+}
+#+end_src
+
+** 78.3 Exceções não capturadas em threads
+
+As exceções em C++ não se propagam entre threads. Se uma thread lançar uma exceção que não for capturada dentro da própria thread, o runtime chamará ~std::terminate()~, derrubando todo o processo. Um bloco try-catch na main ou na função que criou a thread não capturará exceções lançadas na thread filha.
+
+Se você precisa comunicar um erro de uma thread para outra, deve usar mecanismos como ~std::promise~ e ~std::future~ (que veremos no próximo capítulo) ou capturar a exceção manualmente (~std::exception_ptr~) e passá-la para a thread principal.
+
+** 78.4 A evolução moderna: ~std::jthread~ (C++20)
+
+Reconhecendo que o comportamento padrão de ~std::thread~ (terminar o programa se esquecermos o join) era uma fonte constante de bugs, o C++20 introduziu ~std::jthread~ (joining thread).
+
+~std::jthread~ é um wrapper RAII completo sobre ~std::thread~. Suas principais vantagens são:
+
+  1. *Join automático no destrutor*: Se a ~std::jthread~ sair de escopo, ela solicita uma parada e espera a thread terminar (~join()~) automaticamente.
+  2. *Suporte a cancelamento cooperativo*: Ela suporta nativamente ~std::stop_token~, permitindo que solicitemos que a thread pare sua execução de forma limpa.
+
+#+begin_src cpp
+#include <thread>
+#include <iostream>
+#include <chrono>
+
+// C++20
+void tarefa_repetitiva(std::stop_token stoken) {
+    while (!stoken.stop_requested()) {
+        std::cout << "Trabalhando...\n";
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    std::cout << "Parada solicitada. Limpando e saindo.\n";
+}
+
+int main() {
+    {
+        std::jthread t(tarefa_repetitiva);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        // Ao sair deste escopo:
+        // 1. t solicita parada (request_stop())
+        // 2. t faz join()
+    } 
+    std::cout << "Thread finalizada com segurança.\n";
+    return 0;
+}
+#+end_src
+
+** Conclusão
+
+A classe ~std::thread~ é o bloco de construção fundamental da concorrência em C++, análoga ao ~new~ e ~delete~ para gerenciamento de memória. Ela oferece poder bruto, mas exige disciplina rigorosa. O programador deve estar sempre vigilante quanto ao tempo de vida da thread (join vs detach), à validade das referências passadas e ao tratamento de exceções isoladas. A filosofia moderna de C++ nos empurra para abstrações mais seguras: sempre que possível, prefira ~std::jthread~ em C++20 para garantir a semântica RAII correta, ou utilize abstrações de nível mais alto baseadas em tarefas, que discutiremos a seguir. O objetivo é gerenciar o que deve ser feito (a tarefa), e deixar que a biblioteca gerencie como e onde isso é executado (a thread).

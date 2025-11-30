@@ -1,0 +1,67 @@
+* Capítulo 74: Evitando regressões de performance
+
+A otimização de desempenho não é um evento único. É um processo contínuo de melhoria, mas também de vigilância. Em um projeto de software complexo e em evolução, com múltiplos desenvolvedores contribuindo com código, existe um perigo constante e silencioso: *a regressão de performance*. Uma alteração aparentemente inofensiva em uma parte do sistema pode, sem querer, degradar o desempenho de um componente crítico em outra parte.
+
+Uma regressão de performance é um bug. É um bug que não causa uma falha ou um resultado incorreto, mas que torna o software mais lento, consome mais recursos ou piora a experiência do usuário. Assim como os testes de unidade protegem contra regressões de funcionalidade, os *testes de performance* são a rede de segurança que nos protege contra regressões de desempenho.
+
+** 74.1 A Mentalidade: Performance como um Requisito
+
+O primeiro passo para evitar regressões é uma mudança de mentalidade. O desempenho não pode ser uma reflexão tardia ou algo a ser "consertado" antes do lançamento. Ele deve ser tratado como um requisito de primeira classe do software, tão importante quanto a correção funcional.
+
+Isso significa que as características de desempenho devem ser:
+
+    - *Especificadas*: "A operação X deve ser concluída em menos de 50 milissegundos no hardware de referência."
+
+    - *Testadas*: Deve haver testes automatizados que verifiquem se essas especificações estão sendo atendidas.
+
+    - *Monitoradas*: As métricas de desempenho devem ser rastreadas ao longo do tempo para que as tendências e desvios se tornem visíveis.
+
+Quando o desempenho é um requisito explícito, uma alteração que o quebra não é mais uma "pena"; é uma falha de build, um teste que ficou vermelho.
+
+** 74.2 Integrando Benchmarks na Suíte de Testes
+
+A maneira mais eficaz de capturar regressões é automatizar a execução de benchmarks. O mesmo microbenchmark que você usou para guiar uma otimização (Capítulo 72) deve ser integrado ao seu sistema de Integração Contínua (CI), como Jenkins, GitHub Actions ou GitLab CI.
+
+O fluxo de trabalho se parece com isto:
+
+    1. *Estabelecer uma Linha de Base (Baseline)*: Em um ambiente de hardware dedicado e estável (a "máquina de build de performance"), execute sua suíte de benchmarks na base de código principal (ex: a branch main ou develop). Os resultados dessas execuções — as medianas e os desvios padrão para cada benchmark — são armazenados como a "linha de base" do desempenho conhecido e aceitável.
+
+    2. *Executar em Pull Requests/Merge Requests*: Toda vez que um desenvolvedor propõe uma nova alteração, o sistema de CI executa automaticamente a suíte de benchmarks no novo código.
+
+    3. *Comparar com a Linha de Base*: O sistema compara os resultados do novo código com a linha de base armazenada. A questão crucial aqui não é uma simples comparação de "maior que" ou "menor que". A comparação deve ser estatisticamente consciente.
+        - O novo resultado está fora de um desvio padrão aceitável da linha de base?
+        - A diferença entre a distribuição de resultados da linha de base e a nova distribuição é estatisticamente significativa?
+
+    4. *Alertar ou Falhar o Build*: Se uma regressão estatisticamente significativa for detectada, o sistema deve agir. Ele pode postar um comentário automático no pull request ("Atenção: este commit introduziu uma regressão de 15% no benchmark BM_ProcessarImagem") ou, em casos críticos, falhar o build completamente, impedindo que a regressão seja mesclada na base de código principal.
+
+Ferramentas como benchmark-action para GitHub Actions ou a funcionalidade de comparação do próprio Google Benchmark podem ajudar a automatizar essa análise.
+
+** 74.3 O Desafio do Ambiente Estável
+
+A maior dificuldade na automação de testes de performance é o ruído. Se a máquina de CI estiver executando outras tarefas, ou se o hardware não for consistente, os resultados dos benchmarks podem flutuar descontroladamente, levando a falsos positivos (alertas de regressão que não são reais) e falsos negativos (regressões reais que são mascaradas pelo ruído).
+
+É por isso que é crucial ter um ou mais *agentes de CI dedicados exclusivamente aos testes de performance*.
+
+    - *Hardware Consistente*: Devem ser máquinas físicas (não virtuais, se possível) com hardware idêntico.
+
+    - *Ambiente Isolado*: O sistema operacional deve ser configurado para um mínimo de "ruído", desabilitando serviços em segundo plano, atualizações automáticas e, idealmente, isolando a execução do benchmark em núcleos de CPU específicos.
+
+    - *Monitoramento do Ambiente*: A temperatura da CPU, a frequência e outras métricas do sistema devem ser monitoradas durante a execução do benchmark para garantir que fatores externos como o thermal throttling não estejam poluindo os resultados.
+
+** 73.4 Macrobenchmarks e Cenários do Mundo Real
+
+Os microbenchmarks são excelentes para testar o desempenho de uma única função ou algoritmo em isolamento. No entanto, eles podem não capturar regressões de desempenho em um nível mais alto, que surgem da interação complexa entre diferentes componentes do sistema.
+
+É aqui que entram os *macrobenchmarks*. Em vez de medir uma função, um macrobenchmark mede o tempo para completar um cenário de usuário de ponta a ponta.
+
+    - Em um editor de imagens: "Quanto tempo leva para carregar uma imagem de 50 megapixels, aplicar um filtro gaussiano e salvá-la como PNG?"
+
+    - Em um motor de jogo: "Qual é a taxa de quadros média ao renderizar a 'cena do pátio' por 60 segundos?"
+
+    - Em um servidor web: "Qual é a latência do 99º percentil para a requisição /api/v1/user/profile sob uma carga de 500 requisições por segundo?"
+
+Esses testes de cenário são mais complexos de configurar e automatizar, mas fornecem a visão mais realista do impacto de uma alteração no desempenho percebido pelo usuário. Eles são a camada final e mais importante da sua rede de segurança contra regressões.
+
+** Conclusão
+
+Evitar regressões de performance é um ato de engenharia disciplinada. Requer tratar o desempenho como um requisito testável, integrar benchmarks automatizados ao fluxo de trabalho de desenvolvimento e investir na infraestrutura de um ambiente de teste estável. Sem essa disciplina, o desempenho de um projeto inevitavelmente sofrerá a "morte por mil cortes" — uma erosão gradual e despercebida causada por uma sucessão de pequenas alterações mal avaliadas. Ao construir uma rede de segurança de testes de performance, você transforma a esperança de um software rápido em uma garantia de engenharia, protegendo seu investimento em otimização e garantindo uma experiência de usuário consistentemente excelente.
